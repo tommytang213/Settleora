@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
-import { validateAndroidV2SignersEnvelope } from "./android-v2-framing.mjs";
+import { validateAndroidV2SignerRecords } from "./android-v2-framing.mjs";
 import { trustedLegalArtifacts } from "./mobile-model-catalog.mjs";
 import { expectedAndroidNonOcrEntries, expectedAndroidPackageDigestsBySource } from "./android-production-entry-inventory.mjs";
 
@@ -329,7 +329,7 @@ function verifyAndroidZipMetadata(packagePath) {
           value.some((byte) => byte !== 0)))) {
       throw new Error("Production APK signing pair is unreviewed");
     }
-    if (id === 0x7109871a) validateAndroidV2SignersEnvelope(value);
+    if (id === 0x7109871a) validateAndroidV2SignerRecords(value);
     observedIds.add(id);
     pair = pairEnd;
   }

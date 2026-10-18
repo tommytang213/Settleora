@@ -38,11 +38,11 @@ function signingPair(id, value) {
 }
 
 function syntheticSigningBlock(extraPair = null, paddingLength = 2650) {
-  const signer = Buffer.from("synthetic-v2-signer");
-  const framedSigner = Buffer.alloc(8 + signer.length);
-  framedSigner.writeUInt32LE(4 + signer.length, 0);
-  framedSigner.writeUInt32LE(signer.length, 4);
-  signer.copy(framedSigner, 8);
+  // Structurally complete but deliberately noncryptographic; signature is mocked.
+  const { cases } = JSON.parse(readFileSync(
+    new URL("./fixtures/v2-structure.json", import.meta.url), "utf8",
+  ));
+  const framedSigner = Buffer.from(cases[0].hex, "hex");
   const pairs = Buffer.concat([
     signingPair(0x7109871a, framedSigner),
     ...(extraPair == null ? [] : [extraPair]),

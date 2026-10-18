@@ -368,6 +368,218 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
         return hashlib.sha256(json.dumps(deterministic, separators=(",", ":"), sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _v2_error(message: str):
+    raise ValueError("Android APK v2 structure: " + message)
+
+
+class _V2LengthReader:
+    def __init__(self, data):
+        self.data = memoryview(data)
+        self.position = 0
+
+    def remaining(self):
+        return len(self.data) - self.position
+
+    def take(self):
+        if self.remaining() < 4:
+            _v2_error("truncated length prefix")
+        size = struct.unpack_from("<I", self.data, self.position)[0]
+        self.position += 4
+        if size > self.remaining():
+            _v2_error("record exceeds its container")
+        result = self.data[self.position:self.position + size]
+        self.position += size
+        return result
+
+    def end(self):
+        if self.remaining():
+            _v2_error("unconsumed record bytes")
+
+
+class _V2DerReader:
+    def __init__(self, data):
+        self.data = memoryview(data)
+        self.position = 0
+
+    def remaining(self):
+        return len(self.data) - self.position
+
+    def peek(self):
+        return self.data[self.position] if self.remaining() else None
+
+    def take(self, expected_tag=None):
+        start = self.position
+        if self.remaining() < 2:
+            _v2_error("truncated DER value")
+        tag = self.data[self.position]
+        self.position += 1
+        if tag & 0xdf == 0:
+            _v2_error("DER end-of-contents is not a value")
+        if tag & 31 == 31:
+            tag_start = self.position
+            while True:
+                if not self.remaining():
+                    _v2_error("truncated DER tag")
+                octet = self.data[self.position]
+                self.position += 1
+                if self.position == tag_start + 1 and octet & 127 == 0:
+                    _v2_error("nonminimal DER tag")
+                if not octet & 128:
+                    break
+            if self.position == tag_start + 1 and octet < 31:
+                _v2_error("nonminimal DER tag")
+        tag_size = self.position - start
+        if not self.remaining():
+            _v2_error("missing DER length")
+        size = self.data[self.position]
+        self.position += 1
+        if size & 128:
+            count = size & 127
+            if count == 0 or count > 4 or count > self.remaining():
+                _v2_error("invalid DER length")
+            if self.data[self.position] == 0:
+                _v2_error("nonminimal DER length")
+            size = 0
+            for _ in range(count):
+                size = size * 256 + self.data[self.position]
+                self.position += 1
+            if size < 128:
+                _v2_error("nonminimal DER length")
+        if size > self.remaining():
+            _v2_error("DER value exceeds its container")
+        if expected_tag is not None and (tag_size != 1 or tag != expected_tag):
+            _v2_error("unexpected certificate field tag")
+        value = self.data[self.position:self.position + size]
+        self.position += size
+        return tag, tag_size, value
+
+    def end(self):
+        if self.remaining():
+            _v2_error("unconsumed certificate fields")
+
+
+def _v2_der_tree(data):
+    # Iterative traversal bounds work by input length without a recursion limit.
+    root = _V2DerReader(data)
+    _, _, value = root.take(0x30)
+    root.end()
+    stack = [_V2DerReader(value)]
+    while stack:
+        reader = stack[-1]
+        if not reader.remaining():
+            stack.pop()
+            continue
+        tag, _, child = reader.take()
+        if tag & 0x20:
+            stack.append(_V2DerReader(child))
+    return value
+
+
+def _v2_algorithm(reader):
+    fields = _V2DerReader(reader.take(0x30)[2])
+    fields.take(0x06)
+    if fields.remaining():
+        fields.take()  # At most one fully framed ANY parameter.
+    fields.end()
+
+
+def _v2_name(reader):
+    rdns = _V2DerReader(reader.take(0x30)[2])
+    while rdns.remaining():
+        attributes = _V2DerReader(rdns.take(0x31)[2])
+        if not attributes.remaining():
+            _v2_error("empty relative distinguished name")
+        while attributes.remaining():
+            pair = _V2DerReader(attributes.take(0x30)[2])
+            pair.take(0x06)
+            pair.take()
+            pair.end()
+
+
+def _v2_certificate(data):
+    fields = _V2DerReader(_v2_der_tree(data))
+    tbs = _V2DerReader(fields.take(0x30)[2])
+    _v2_algorithm(fields)
+    fields.take(0x03)
+    fields.end()
+    if tbs.peek() == 0xa0:
+        version = _V2DerReader(tbs.take(0xa0)[2])
+        version.take(0x02)
+        version.end()
+    tbs.take(0x02)
+    _v2_algorithm(tbs)
+    _v2_name(tbs)
+    validity = _V2DerReader(tbs.take(0x30)[2])
+    for _ in range(2):
+        tag, tag_size, _ = validity.take()
+        if tag_size != 1 or tag not in (0x17, 0x18):
+            _v2_error("invalid certificate time tag")
+    validity.end()
+    _v2_name(tbs)
+    key = _V2DerReader(tbs.take(0x30)[2])
+    _v2_algorithm(key)
+    key.take(0x03)
+    key.end()
+    # These are IMPLICIT BIT STRINGs, not nested DER containers.
+    if tbs.peek() == 0x81:
+        tbs.take(0x81)
+    if tbs.peek() == 0x82:
+        tbs.take(0x82)
+    if tbs.peek() == 0xa3:
+        wrapper = _V2DerReader(tbs.take(0xa3)[2])
+        extensions = _V2DerReader(wrapper.take(0x30)[2])
+        wrapper.end()
+        while extensions.remaining():
+            extension = _V2DerReader(extensions.take(0x30)[2])
+            extension.take(0x06)
+            if extension.peek() == 0x01:
+                extension.take(0x01)
+            extension.take(0x04)  # Signed opaque extension value, not nested DER.
+            extension.end()
+    tbs.end()
+
+
+def _v2_algorithm_records(data):
+    sequence = _V2LengthReader(data)
+    while sequence.remaining():
+        record = sequence.take()
+        if len(record) < 4:
+            _v2_error("truncated algorithm identifier")
+        payload = _V2LengthReader(record[4:])
+        payload.take()
+        payload.end()
+        # Unknown algorithm IDs/values remain compatible with pinned apksigner.
+
+
+def validate_android_v2_signer_records(data):
+    """Consume structural grammar; pinned apksigner retains crypto/trust authority."""
+    envelope = _V2LengthReader(data)
+    signers = _V2LengthReader(envelope.take())
+    envelope.end()
+    signer = _V2LengthReader(signers.take())
+    signers.end()  # Exactly one signer, matching the existing real-signature gate.
+    signed_data = _V2LengthReader(signer.take())
+    _v2_algorithm_records(signer.take())
+    signer.take()  # Pinned apksigner checks exact equality with certificate SPKI.
+    signer.end()
+    _v2_algorithm_records(signed_data.take())
+    certificates = _V2LengthReader(signed_data.take())
+    while certificates.remaining():
+        _v2_certificate(certificates.take())
+    attributes = _V2LengthReader(signed_data.take())
+    # Pinned apksig emits one final empty LP element; standard EOF is also valid.
+    if signed_data.remaining() and len(signed_data.take()) != 0:
+        _v2_error("nonempty signed-data compatibility field")
+    signed_data.end()
+    while attributes.remaining():
+        attribute = attributes.take()
+        if len(attribute) < 4:
+            _v2_error("truncated attribute identifier")
+        # Unknown values occupy the entire remainder and are signed opaque metadata.
+        if struct.unpack_from("<I", attribute)[0] == 0xbeeff00d and len(attribute) != 8:
+            _v2_error("stripping-protection attribute must contain one uint32")
+
+
 def apk_signing_block(descriptor: int) -> tuple[list[str], int, int, int, int]:
     """Parse and constrain the complete APK Signing Block ID inventory."""
     metadata = os.fstat(descriptor)
@@ -402,6 +614,8 @@ def apk_signing_block(descriptor: int) -> tuple[list[str], int, int, int, int]:
             raise ValueError("Android APK signing block pair size is invalid")
         identifier = struct.unpack_from("<I", block, position + 8)[0]
         value = block[position + 12:position + 8 + pair_size]
+        if identifier == 0x7109871a:
+            validate_android_v2_signer_records(value)
         if identifier == 0x42726577 and any(value):
             raise ValueError("Android APK verity padding is not canonical zero bytes")
         identifiers.append(identifier)
