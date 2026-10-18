@@ -3,6 +3,14 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 reviewed source at 2cac17c1: one canonical Flutter 3.44.8
+  // Release build; all 2715 tracked blobs verified before and after.
+  // Real signer and archive/model/legal/fixture checks passed.
+  // ZIP-entry binding only: PV-R01 nested signer, hosted/native and
+  // full package/merge qualification remain separate open gates.
+  "6d3db9f9209784dff9712abf419fe503c748162296e9d0765c778888e174b4d0": Object.freeze([
+    "2682fe5d515dfdbf86af6682ab63a9bfaae180df84db407e309a173c4fe6aa0b",
+  ]),
   // #1309 reviewed parser and receipt draft corrections at 9dbbe630.
   // One fresh exact-source canonical-root Flutter 3.44.8 Release build;
   // all 2704 tracked source blobs verified before and after.
