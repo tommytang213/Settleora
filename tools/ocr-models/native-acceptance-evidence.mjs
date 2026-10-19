@@ -155,7 +155,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     acceptance,
     uiSmoke,
     diagnostics: extractFailureDiagnostics(args, platform, expectedFixtureIds),
-    ...(platform === "ios" ? { flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]) } : {}),
+    ...(platform !== null ? { flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]) } : {}),
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
     collectionFailureReason: collectionError instanceof NonAllowlistedStderrError
       ? "non_allowlisted_stderr"
@@ -1535,7 +1535,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     acceptance,
     uiSmoke,
     diagnostics,
-    ...(args.platform === "ios" ? { flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]) } : {}),
+    flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]),
     packageEvidence: {
       fullBytes,
       baselineWithoutBundledModelPayloadBytes: modelFreeBytes,

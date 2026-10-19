@@ -27,6 +27,9 @@ const signatures = [
   // test path, error or stack. A category is a hint, never an stderr exemption.
   ["test_error_after_channel_closed", /(?:^|\n)unhandled error during test:(?:\r?\n|$)/],
   ["test_finalization_error_after_channel_closed", /(?:^|\n)unhandled error during finalization of test:(?:\r?\n|$)/],
+  // The pinned integration-test command builds the unflavored debug APK.
+  // Match only Flutter's fixed ToolExit wording; never expose Gradle details.
+  ["gradle_assemble_debug_failed", /(?:^|\n)(?:Error: )?Gradle task assembleDebug failed with exit code -?[1-9][0-9]*(?:\r?\n|$)/],
 ];
 
 function readPrefix(file) {

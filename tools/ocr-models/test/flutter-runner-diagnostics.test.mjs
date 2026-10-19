@@ -89,6 +89,38 @@ test("closed-channel headers retain only their fixed phase enums", () => {
   });
 });
 
+test("debug Gradle ToolExit wording is a fixed hint, never a cause or output excerpt", () => {
+  for (const prefix of ["", "Error: "]) {
+    for (const [ending, code] of [["", 1], ["\n", -1], ["\r\n", 137]]) {
+      const header = prefix + `Gradle task assembleDebug failed with exit code ${code}`;
+      withStreams(events(
+        { type: "print", message: header },
+        { type: "error", error: header + "\n" + secret, stackTrace: secret },
+      ), header + ending, (out, err) => {
+        const result = summarizeFlutterRunner(out, err);
+        assert.deepEqual(result.stdout.signatureCategories, ["gradle_assemble_debug_failed"]);
+        assert.deepEqual(result.stderr.signatureCategories, ["gradle_assemble_debug_failed"]);
+        assert.ok(!JSON.stringify(result).includes(secret));
+      });
+    }
+  }
+  withStreams(events({ type: "print", message: "Gradle task assembleDebug failed with exit code 1" }), "", (out, err) => {
+    assert.deepEqual(summarizeFlutterRunner(out, err).stdout.signatureCategories, []);
+  });
+  for (const text of [
+    "Gradle task assembleRelease failed with exit code 1",
+    "Gradle task assembleDebug failed with exit code 0",
+    "Gradle task assembleDebug failed with exit code -0",
+    "Gradle task assembleDebug failed with exit code 01",
+    "Gradle task assembleDebug failed with exit code 1 " + secret,
+    "prefix Gradle task assembleDebug failed with exit code 1",
+  ]) {
+    withStreams("", text, (out, err) => {
+      assert.deepEqual(summarizeFlutterRunner(out, err).stderr.signatureCategories, []);
+    });
+  }
+});
+
 test("unrecognized and malformed content is discarded, with no arbitrary property coercion", () => {
   withStreams(events(
     null, 7, [secret], { type: { toString: null, valueOf: null }, message: secret },
@@ -133,29 +165,35 @@ test("missing, nonregular and symlink evidence is unavailable, not empty success
   });
 });
 
-test("iOS CLI uploads bounded hints but still rejects every nonempty stderr and missing corpus", () => {
-  withStreams(events({ type: "start" }, { type: "done", success: true }),
-    `Error waiting for a debug connection: ${secret}\n` +
-    `unhandled error during test:\n${secret}\n` +
-    `unhandled error during finalization of test:\n${secret}\n`, (out, err, root) => {
-      const artifact = path.join(root, "evidence.json");
-      const args = { log: out, "stderr-log": err, out: artifact, platform: "ios", "source-sha": "a".repeat(40),
-        "test-status": "1", "runner-image": "test", "os-runtime": "test", "sdk-toolchain": "test", device: "test",
-        "native-image": "test", "base-sha": "b".repeat(40), "base-tree": "c".repeat(40),
-        "base-tooling-sha": "a".repeat(40), "base-dependency-lock-sha256": "d".repeat(64), "require-complete": "true" };
-      const run = spawnSync(process.execPath, ["tools/ocr-models/native-acceptance-evidence.mjs",
-        ...Object.entries(args).map(([key, value]) => `--${key}=${value}`)], { cwd: repoRoot, encoding: "utf8" });
-      assert.equal(run.status, 1);
-      assert.equal(run.stderr, "bounded_native_ocr_evidence_failed\n");
-      const value = JSON.parse(readFileSync(artifact, "utf8"));
-      assert.equal(value.collectionFailureReason, "non_allowlisted_stderr");
-      assert.equal(value.stderrDiagnostic, "other_nonempty");
-      assert.equal(value.acceptance.completed, false);
-      assert.equal(value.uiSmoke.completed, false);
-      assert.deepEqual(value.flutterRunnerDiagnostics.stderr.signatureCategories, ["debug_connection_failed",
-        "test_error_after_channel_closed", "test_finalization_error_after_channel_closed"]);
-      assert.equal(isCompleteEvidence(value), false);
-      assert.ok(!JSON.stringify(value).includes(secret));
-      assert.equal(Object.hasOwn(buildFailureEvidence({ ...args, platform: "android" }), "flutterRunnerDiagnostics"), false);
-    });
+test("both platform CLIs retain hints and reject nonempty stderr without a corpus", () => {
+  for (const platform of ["ios", "android"]) {
+    const prefix = platform === "ios"
+      ? `Error waiting for a debug connection: ${secret}\n`
+      : "Error: Gradle task assembleDebug failed with exit code 1\n";
+    withStreams(events({ type: "start" }, { type: "done", success: true }),
+      prefix + `unhandled error during test:\n${secret}\n` +
+      `unhandled error during finalization of test:\n${secret}\n`, (out, err, root) => {
+        const artifact = path.join(root, "evidence.json");
+        const args = { log: out, "stderr-log": err, out: artifact, platform, "source-sha": "a".repeat(40),
+          "test-status": "1", "runner-image": "test", "os-runtime": "test", "sdk-toolchain": "test", device: "test",
+          "native-image": "test", "base-sha": "b".repeat(40), "base-tree": "c".repeat(40),
+          "base-tooling-sha": "a".repeat(40), "base-dependency-lock-sha256": "d".repeat(64), "require-complete": "true" };
+        const run = spawnSync(process.execPath, ["tools/ocr-models/native-acceptance-evidence.mjs",
+          ...Object.entries(args).map(([key, value]) => `--${key}=${value}`)], { cwd: repoRoot, encoding: "utf8" });
+        assert.equal(run.status, 1);
+        assert.equal(run.stderr, "bounded_native_ocr_evidence_failed\n");
+        const value = JSON.parse(readFileSync(artifact, "utf8"));
+        assert.equal(value.platform, platform);
+        assert.equal(value.collectionFailureReason, "non_allowlisted_stderr");
+        assert.equal(value.stderrDiagnostic, "other_nonempty");
+        assert.equal(value.acceptance.completed, false);
+        assert.equal(value.uiSmoke.completed, false);
+        const phases = ["test_error_after_channel_closed", "test_finalization_error_after_channel_closed"];
+        assert.deepEqual(value.flutterRunnerDiagnostics.stderr.signatureCategories,
+          platform === "ios" ? ["debug_connection_failed", ...phases] : [...phases, "gradle_assemble_debug_failed"]);
+        assert.equal(isCompleteEvidence(value), false);
+        assert.ok(!JSON.stringify(value).includes(secret));
+        assert.equal(Object.hasOwn(buildFailureEvidence({ ...args, platform: "unknown" }), "flutterRunnerDiagnostics"), false);
+      });
+  }
 });
