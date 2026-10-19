@@ -10745,6 +10745,22 @@ Total $145.00''',
     expect(ambiguous.items.single.currency, isNull);
   });
 
+  test('a selected joined-currency item is not counted again as unpriced', () {
+    const parser = ReceiptOcrParser();
+    final selected = parser.parse('Market\nCoffee 45kr\nTotal 45 kr');
+    expect(selected.items, hasLength(1));
+    expect(selected.items.single.description, 'Coffee');
+    expect(selected.items.single.lineTotal, '45');
+    expect(selected.currency, isNull);
+    expect(selected.items.single.currency, isNull);
+    expect(selected.unresolvedItemLikeCount, 0);
+
+    final extra = parser.parse('Market\nCoffee 45kr\nBread\nTotal 45 kr');
+    expect(extra.items.single.description, 'Coffee');
+    expect(extra.unresolvedItemLikeCount, 1);
+    expect(extra.reviewHints, isNotEmpty);
+  });
+
   test('priced or uncertain tax context remains reviewable', () {
     const parser = ReceiptOcrParser();
     final pricedTax = parser.parse(

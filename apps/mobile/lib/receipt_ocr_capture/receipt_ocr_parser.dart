@@ -7291,6 +7291,14 @@ class ReceiptOcrParser {
           nonItemSummaryRows.contains(lineIndex)) {
         continue;
       }
+      // The item pass already owns a selected row. In particular, a printed
+      // amount joined to its currency token (such as 45kr) can be selected as
+      // a priced item while the coarse amount-presence check below rejects
+      // that token boundary. Do not count the same row again as unpriced.
+      if (itemLineDecisions[lineIndex] ==
+          ReceiptOcrItemLineDecision.pricedItemSelected) {
+        continue;
+      }
       // Only a recognized buyer heading, its bounded paired address rows,
       // and an address-backed country line are invoice copy. Other unpriced
       // lines before the table remain unresolved. Once the total is followed by
