@@ -610,6 +610,73 @@ class RunnerTests: XCTestCase {
     XCTAssertNil(ScriptRouteSelector.select([]))
   }
 
+  func testNumericObservationSeparatesEligibleDisagreementFromRejectedLongerAlternates() {
+    let short = currencyCandidate("common", .common, "1", 0.95)
+    let longer = currencyCandidate("common", .common, "12.50", 0.8)
+    let rejected = currencyCandidate("common", .common, "12.50", .nan)
+    let rows = [[short, longer], [short, rejected], [short, short]]
+    let frozen = rows.map { ScriptRouteSelector.select($0) }
+    let observation = NumericRoutingObserver.observe(rows, original: frozen)
+    XCTAssertEqual(observation["status"] as? String, "observed")
+    for (key, count) in ["numericCandidateCropCount": 3, "eligibleNumericCandidateCropCount": 3,
+                         "competingEligibleNumericCandidateCropCount": 2,
+                         "eligibleNumericLiteralDisagreementCropCount": 1,
+                         "selectedShorterThanEligibleNumericAlternateCropCount": 1,
+                         "selectedShorterThanAnyNumericAlternateCropCount": 2] {
+      XCTAssertEqual(observation[key] as? Int, count, key)
+    }
+    XCTAssertEqual(frozen.map { $0?.text }, ["1", "1", "1"])
+    XCTAssertEqual(rows.map { ScriptRouteSelector.select($0)?.text }, frozen.map { $0?.text })
+    XCTAssertEqual(rows.map { $0.map(\.text) }, [["1", "12.50"], ["1", "12.50"], ["1", "1"]])
+  }
+
+  func testNumericObservationCountsUnicodeScalarsAndExactLiteralsWithoutMoneyInterpretation() {
+    let selected = ScriptCandidate(text: " \t𝟙٢،३.４\t", confidence: 0.95, pack: RecognizerSpec(
+      modelPackID: "common", modelVersion: "test", modelPath: "/test.onnx",
+      configPath: "/test.yml", acceptedScripts: [.common, .arabic, .devanagari]
+    ))
+    let alternate = currencyCandidate("common", .common, "12,3.4", 0.8)
+    let rows = [[selected, alternate]]
+    let observation = NumericRoutingObserver.observe(rows, original: rows.map { ScriptRouteSelector.select($0) })
+    XCTAssertEqual(observation["status"] as? String, "observed")
+    XCTAssertEqual(observation["eligibleNumericLiteralDisagreementCropCount"] as? Int, 1)
+    XCTAssertEqual(observation["selectedShorterThanAnyNumericAlternateCropCount"] as? Int, 0)
+    XCTAssertEqual((observation["selectedDigitCountBins"] as? [String: Int])?["four"], 1)
+    for text in ["TOTAL 12.50", "$12.50", "12/50", "12\n50", "½", "+ . ,"] {
+      let candidate = currencyCandidate("common", .common, text, 0.95)
+      let observed = NumericRoutingObserver.observe([[candidate]], original: [candidate])
+      XCTAssertEqual(observed["numericCandidateCropCount"] as? Int, 0, text)
+      XCTAssertEqual((observed["selectedDigitCountBins"] as? [String: Int])?["nonNumeric"], 1, text)
+    }
+    let date = currencyCandidate("common", .common, "2031-04-19", 0.95)
+    XCTAssertEqual(NumericRoutingObserver.observe([[date]], original: [date])["numericCandidateCropCount"] as? Int, 1)
+  }
+
+  func testNumericObservationDistinguishesObservedZeroUnavailableAndInvalidWithoutPayload() {
+    let zero = NumericRoutingObserver.observe([], original: [])
+    XCTAssertEqual(zero["status"] as? String, "observed")
+    XCTAssertEqual(zero["observedCropCount"] as? Int, 0)
+    let unavailable = NumericRoutingObserver.unavailable()
+    XCTAssertEqual(Set(unavailable.keys), ["schemaVersion", "stage", "status"])
+    XCTAssertEqual(unavailable["status"] as? String, "unavailable")
+    let value = currencyCandidate("common", .common, "private text", 0.95)
+    let rejected = currencyCandidate("common", .common, "12.50", .nan)
+    for invalid in [
+      NumericRoutingObserver.observe([[value]], original: []),
+      NumericRoutingObserver.observe(Array(repeating: [], count: 257), original: Array(repeating: nil, count: 257)),
+      NumericRoutingObserver.observe([[]], original: [value]),
+      NumericRoutingObserver.observe([[currencyCandidate("common", .common, "1", 0.95)]], original: [nil]),
+      NumericRoutingObserver.observe([[rejected]], original: [rejected]),
+    ] {
+      XCTAssertEqual(Set(invalid.keys), ["schemaVersion", "stage", "status"])
+      XCTAssertEqual(invalid["status"] as? String, "invalid")
+    }
+    let absent = NumericRoutingObserver.observe([[rejected]], original: [nil])
+    XCTAssertEqual(absent["numericCandidateCropCount"] as? Int, 1)
+    XCTAssertEqual(absent["eligibleNumericCandidateCropCount"] as? Int, 0)
+    XCTAssertEqual((absent["selectedDigitCountBins"] as? [String: Int])?["noSelection"], 1)
+  }
+
   private func currencyCandidate(
     _ id: String, _ script: ScriptEvidence, _ text: String, _ confidence: Float
   ) -> ScriptCandidate {

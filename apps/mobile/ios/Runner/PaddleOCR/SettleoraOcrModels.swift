@@ -361,6 +361,87 @@ enum ScriptRouteSelector {
   }
 }
 
+// Observe existing candidates/frozen winners only. No selection, recovery,
+// normalization or monetary interpretation is performed by these counters.
+enum NumericRoutingObserver {
+  private static let stage = "selectedOrientationPreRecovery"
+  private static let bins = ["noSelection", "nonNumeric", "one", "two", "three", "four", "fiveToEight", "ninePlus"]
+  private static let punctuation: Set<UInt32> = [0x20, 0x09, 0x2E, 0x2C, 0x060C, 0x066B, 0x066C, 0x2B, 0x2D, 0x2212]
+  private struct Shape { let scalars: [UInt32]; let digits: Int }
+
+  static func unavailable() -> [String: Any] { envelope("unavailable") }
+
+  private static func envelope(_ status: String) -> [String: Any] {
+    ["schemaVersion": 1, "stage": stage, "status": status]
+  }
+
+  private static func shape(_ candidate: ScriptCandidate) -> Shape? {
+    let scalars = Array(candidate.text.trimmingCharacters(in: CharacterSet(charactersIn: " \t")).unicodeScalars)
+    var digits = 0
+    for scalar in scalars {
+      if CharacterSet.decimalDigits.contains(scalar) { digits += 1 }
+      else if !punctuation.contains(scalar.value) { return nil }
+    }
+    return digits > 0 ? Shape(scalars: scalars.map(\.value), digits: digits) : nil
+  }
+
+  static func observe(_ candidatesByCrop: [[ScriptCandidate]], original: [ScriptCandidate?]) -> [String: Any] {
+    guard candidatesByCrop.count == original.count, candidatesByCrop.count <= 256 else { return envelope("invalid") }
+    var numericCrops = 0, eligibleCrops = 0, competingCrops = 0, disagreementCrops = 0
+    var eligibleShorterCrops = 0, anyShorterCrops = 0
+    var selectedBins = Dictionary(uniqueKeysWithValues: bins.map { ($0, 0) })
+    for index in candidatesByCrop.indices {
+      let candidates = candidatesByCrop[index]
+      let winner = original[index]
+      if let winner {
+        let present = candidates.contains {
+          $0.pack == winner.pack && $0.confidence.bitPattern == winner.confidence.bitPattern &&
+            $0.text.unicodeScalars.elementsEqual(winner.text.unicodeScalars)
+        }
+        guard present, ScriptRouteSelector.score(winner).isFinite else { return envelope("invalid") }
+      }
+      let numeric: [(ScriptCandidate, Shape)] = candidates.compactMap { candidate in
+        guard let value = shape(candidate) else { return nil }
+        return (candidate, value)
+      }
+      let eligible = numeric.filter { ScriptRouteSelector.score($0.0).isFinite }
+      if winner == nil && !eligible.isEmpty { return envelope("invalid") }
+      if !numeric.isEmpty { numericCrops += 1 }
+      if !eligible.isEmpty { eligibleCrops += 1 }
+      if eligible.count >= 2 { competingCrops += 1 }
+      if Set(eligible.map { $0.1.scalars }).count >= 2 { disagreementCrops += 1 }
+      let selected = winner.flatMap { shape($0) }
+      let bin: String
+      if winner == nil { bin = "noSelection" }
+      else if let selected {
+        switch selected.digits {
+        case 1: bin = "one"
+        case 2: bin = "two"
+        case 3: bin = "three"
+        case 4: bin = "four"
+        case 5...8: bin = "fiveToEight"
+        default: bin = "ninePlus"
+        }
+      } else { bin = "nonNumeric" }
+      selectedBins[bin, default: 0] += 1
+      if let selected {
+        if numeric.contains(where: { $0.1.digits > selected.digits }) { anyShorterCrops += 1 }
+        if eligible.contains(where: { $0.1.digits > selected.digits }) { eligibleShorterCrops += 1 }
+      }
+    }
+    var result = envelope("observed")
+    result["observedCropCount"] = candidatesByCrop.count
+    result["numericCandidateCropCount"] = numericCrops
+    result["eligibleNumericCandidateCropCount"] = eligibleCrops
+    result["competingEligibleNumericCandidateCropCount"] = competingCrops
+    result["eligibleNumericLiteralDisagreementCropCount"] = disagreementCrops
+    result["selectedShorterThanEligibleNumericAlternateCropCount"] = eligibleShorterCrops
+    result["selectedShorterThanAnyNumericAlternateCropCount"] = anyShorterCrops
+    result["selectedDigitCountBins"] = selectedBins
+    return result
+  }
+}
+
 enum RecognizedTextNormalizer {
   static func normalize(_ text: String, pack: RecognizerSpec) -> String {
     guard pack.acceptedScripts.contains(.arabic), containsArabic(text) else { return text }

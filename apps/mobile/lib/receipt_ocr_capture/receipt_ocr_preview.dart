@@ -225,6 +225,140 @@ class ReceiptOcrBlockEvidence {
   final List<ReceiptOcrPoint> points;
 }
 
+enum ReceiptOcrNumericRoutingStatus { observed, unavailable, invalid }
+
+// Run-level candidate shape only, before recovery/emission. These observations
+// neither identify a receipt field nor establish that an alternative is right.
+class ReceiptOcrNumericRoutingObservation {
+  const ReceiptOcrNumericRoutingObservation._(
+    this.status, {
+    this.counts = const {},
+    this.selectedDigitCountBins = const {},
+  });
+
+  static const stage = 'selectedOrientationPreRecovery';
+  static const countKeys = [
+    'observedCropCount',
+    'numericCandidateCropCount',
+    'eligibleNumericCandidateCropCount',
+    'competingEligibleNumericCandidateCropCount',
+    'eligibleNumericLiteralDisagreementCropCount',
+    'selectedShorterThanEligibleNumericAlternateCropCount',
+    'selectedShorterThanAnyNumericAlternateCropCount',
+  ];
+  static const binKeys = [
+    'noSelection',
+    'nonNumeric',
+    'one',
+    'two',
+    'three',
+    'four',
+    'fiveToEight',
+    'ninePlus',
+  ];
+  static const unavailable = ReceiptOcrNumericRoutingObservation._(
+    ReceiptOcrNumericRoutingStatus.unavailable,
+  );
+  static const invalid = ReceiptOcrNumericRoutingObservation._(
+    ReceiptOcrNumericRoutingStatus.invalid,
+  );
+
+  final ReceiptOcrNumericRoutingStatus status;
+  final Map<String, int> counts;
+  final Map<String, int> selectedDigitCountBins;
+
+  static bool _exactKeys(Map<Object?, Object?> value, List<String> keys) =>
+      value.length == keys.length && keys.every(value.containsKey);
+
+  static Map<String, int>? _counts(Object? value, List<String> keys) {
+    if (value is! Map<Object?, Object?> || !_exactKeys(value, keys)) {
+      return null;
+    }
+    if (keys.any(
+      (key) =>
+          value[key] is! int ||
+          (value[key]! as int) < 0 ||
+          (value[key]! as int) > 256,
+    )) {
+      return null;
+    }
+    return Map.unmodifiable({for (final key in keys) key: value[key]! as int});
+  }
+
+  // Optional malformed diagnostics must not convert a successful OCR response
+  // into provider failure, and their payload must never enter retained evidence.
+  static ReceiptOcrNumericRoutingObservation fromChannel(Object? value) {
+    try {
+      if (value is! Map<Object?, Object?> ||
+          value['schemaVersion'] != 1 ||
+          value['schemaVersion'] is! int ||
+          value['stage'] != stage) {
+        return invalid;
+      }
+      const envelope = ['schemaVersion', 'stage', 'status'];
+      if (value['status'] == 'unavailable' || value['status'] == 'invalid') {
+        if (!_exactKeys(value, envelope)) return invalid;
+        return value['status'] == 'unavailable' ? unavailable : invalid;
+      }
+      if (value['status'] != 'observed' ||
+          !_exactKeys(value, [
+            ...envelope,
+            ...countKeys,
+            'selectedDigitCountBins',
+          ])) {
+        return invalid;
+      }
+      final counts = _counts({
+        for (final key in countKeys) key: value[key],
+      }, countKeys);
+      final bins = _counts(value['selectedDigitCountBins'], binKeys);
+      if (counts == null || bins == null) return invalid;
+      final observed = counts[countKeys[0]]!;
+      final anyNumeric = counts[countKeys[1]]!;
+      final eligible = counts[countKeys[2]]!;
+      final competing = counts[countKeys[3]]!;
+      final disagreement = counts[countKeys[4]]!;
+      final eligibleShorter = counts[countKeys[5]]!;
+      final anyShorter = counts[countKeys[6]]!;
+      final selectedNumeric =
+          bins.values.fold(0, (a, b) => a + b) -
+          bins['noSelection']! -
+          bins['nonNumeric']!;
+      if (bins.values.fold(0, (a, b) => a + b) != observed ||
+          disagreement > competing ||
+          competing > eligible ||
+          eligible > anyNumeric ||
+          anyNumeric > observed ||
+          eligible > observed - bins['noSelection']! ||
+          selectedNumeric > eligible ||
+          eligibleShorter > anyShorter ||
+          anyShorter > selectedNumeric ||
+          eligibleShorter > disagreement) {
+        return invalid;
+      }
+      return ReceiptOcrNumericRoutingObservation._(
+        ReceiptOcrNumericRoutingStatus.observed,
+        counts: counts,
+        selectedDigitCountBins: bins,
+      );
+    } catch (_) {
+      return invalid;
+    }
+  }
+
+  Map<String, Object> toBoundedEvidence() => {
+    'schemaVersion': 1,
+    'stage': stage,
+    'status': status.name,
+    if (status == ReceiptOcrNumericRoutingStatus.observed) ...{
+      // Version 1 fixes these tuple orders to countKeys/binKeys. Repeating the
+      // long channel keys for 101 fixtures would exceed the marker byte bound.
+      'counts': [for (final key in countKeys) counts[key]!],
+      'bins': [for (final key in binKeys) selectedDigitCountBins[key]!],
+    },
+  };
+}
+
 class ReceiptOcrRunEvidence {
   const ReceiptOcrRunEvidence({
     this.detectionModelPackId,
@@ -234,6 +368,7 @@ class ReceiptOcrRunEvidence {
     this.detectionTimeMs,
     this.recognitionTimeMs,
     this.totalTimeMs,
+    this.numericRoutingObservation,
   });
   final String? detectionModelPackId;
   final String? detectionModelVersion;
@@ -242,6 +377,7 @@ class ReceiptOcrRunEvidence {
   final int? detectionTimeMs;
   final int? recognitionTimeMs;
   final int? totalTimeMs;
+  final ReceiptOcrNumericRoutingObservation? numericRoutingObservation;
 }
 
 class ReceiptOcrItemCandidate {

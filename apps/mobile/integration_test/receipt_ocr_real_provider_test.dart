@@ -1599,6 +1599,10 @@ Map<String, Object> _boundedRecognitionCoverage(
 
   return {
     'fixtureId': fixtureId,
+    'numericRoutingObservation':
+        (result.preview?.runEvidence?.numericRoutingObservation ??
+                ReceiptOcrNumericRoutingObservation.unavailable)
+            .toBoundedEvidence(),
     'blockCount': blocks.length,
     'rowCount': rows.length,
     'parserLineCount': result.preview?.rawTextLineCount ?? 0,

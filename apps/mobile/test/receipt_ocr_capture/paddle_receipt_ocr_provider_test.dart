@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
 void main() {
   tearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -68,6 +69,175 @@ void main() {
     expect(result.preview?.runEvidence?.detectionTimeMs, 20);
     expect(result.preview?.runEvidence?.recognitionTimeMs, 30);
     expect(result.preview?.runEvidence?.totalTimeMs, 55);
+    expect(result.preview?.runEvidence?.numericRoutingObservation, isNull);
+  });
+
+  test(
+    'provider preserves valid bounded numeric observations without altering receipt values',
+    () async {
+      final payload = _numericObservation();
+      final result = await _providerWithObservation(payload);
+      expect(result.status, ReceiptOcrStatus.extracted);
+      expect(result.preview?.total, '12.50');
+      expect(result.preview?.items.single.lineTotal, '12.50');
+      final observation =
+          result.preview!.runEvidence!.numericRoutingObservation!;
+      expect(observation.status, ReceiptOcrNumericRoutingStatus.observed);
+      expect(observation.toBoundedEvidence(), {
+        'schemaVersion': 1,
+        'stage': ReceiptOcrNumericRoutingObservation.stage,
+        'status': 'observed',
+        'counts': [3, 3, 3, 2, 1, 1, 2],
+        'bins': [0, 0, 3, 0, 0, 0, 0, 0],
+      });
+      payload['observedCropCount'] = 250;
+      expect(observation.counts['observedCropCount'], 3);
+      expect(
+        () => observation.counts['observedCropCount'] = 1,
+        throwsUnsupportedError,
+      );
+      expect(
+        () => observation.selectedDigitCountBins['one'] = 1,
+        throwsUnsupportedError,
+      );
+    },
+  );
+
+  test(
+    'optional malformed routing evidence never breaks a successful OCR response or echoes payload',
+    () async {
+      final valid = _numericObservation();
+      for (final payload in <Object?>[
+        null,
+        'private diagnostic text',
+        [],
+        {...valid, 'schemaVersion': 1.0},
+        {...valid, 'stage': 'private stage'},
+        {...valid, 'status': 'private status'},
+        {...valid, 'text': 'private diagnostic text'},
+        {...valid, 'observedCropCount': 257},
+        {...valid, 'numericCandidateCropCount': -1},
+        {...valid, 'eligibleNumericCandidateCropCount': 1},
+        {...valid, 'competingEligibleNumericCandidateCropCount': 0},
+        {...valid, 'eligibleNumericLiteralDisagreementCropCount': 0},
+        {...valid, 'selectedShorterThanAnyNumericAlternateCropCount': 0},
+        {...valid, 'selectedShorterThanEligibleNumericAlternateCropCount': 3},
+        {
+          ...valid,
+          'selectedDigitCountBins': {'one': 3},
+        },
+        {
+          ...valid,
+          'selectedDigitCountBins': {
+            ...valid['selectedDigitCountBins']! as Map<String, int>,
+            'one': 4,
+          },
+        },
+      ]) {
+        final result = await _providerWithObservation(payload);
+        expect(result.status, ReceiptOcrStatus.extracted);
+        expect(result.preview?.total, '12.50');
+        final observation =
+            result.preview!.runEvidence!.numericRoutingObservation!;
+        expect(observation.toBoundedEvidence(), {
+          'schemaVersion': 1,
+          'stage': ReceiptOcrNumericRoutingObservation.stage,
+          'status': 'invalid',
+        });
+      }
+    },
+  );
+
+  test(
+    'numeric evidence tuple order is fixed and impossible no-selection is rejected',
+    () {
+      final asymmetric = {
+        ..._numericObservation(),
+        'observedCropCount': 64,
+        'numericCandidateCropCount': 56,
+        'eligibleNumericCandidateCropCount': 48,
+        'competingEligibleNumericCandidateCropCount': 40,
+        'eligibleNumericLiteralDisagreementCropCount': 32,
+        'selectedShorterThanEligibleNumericAlternateCropCount': 16,
+        'selectedShorterThanAnyNumericAlternateCropCount': 24,
+        'selectedDigitCountBins': {
+          'noSelection': 10,
+          'nonNumeric': 6,
+          'one': 1,
+          'two': 3,
+          'three': 5,
+          'four': 7,
+          'fiveToEight': 11,
+          'ninePlus': 21,
+        },
+      };
+      final observed = ReceiptOcrNumericRoutingObservation.fromChannel(
+        asymmetric,
+      );
+      expect(observed.toBoundedEvidence(), {
+        'schemaVersion': 1,
+        'stage': ReceiptOcrNumericRoutingObservation.stage,
+        'status': 'observed',
+        'counts': [64, 56, 48, 40, 32, 16, 24],
+        'bins': [10, 6, 1, 3, 5, 7, 11, 21],
+      });
+      final impossible = {
+        ..._numericObservation(),
+        'observedCropCount': 1,
+        'numericCandidateCropCount': 1,
+        'eligibleNumericCandidateCropCount': 1,
+        'competingEligibleNumericCandidateCropCount': 0,
+        'eligibleNumericLiteralDisagreementCropCount': 0,
+        'selectedShorterThanEligibleNumericAlternateCropCount': 0,
+        'selectedShorterThanAnyNumericAlternateCropCount': 0,
+        'selectedDigitCountBins': {
+          'noSelection': 1,
+          'nonNumeric': 0,
+          'one': 0,
+          'two': 0,
+          'three': 0,
+          'four': 0,
+          'fiveToEight': 0,
+          'ninePlus': 0,
+        },
+      };
+      expect(
+        ReceiptOcrNumericRoutingObservation.fromChannel(impossible).status,
+        ReceiptOcrNumericRoutingStatus.invalid,
+      );
+    },
+  );
+
+  test('unavailable numeric observations do not invent zero observations', () {
+    const unavailable = ReceiptOcrNumericRoutingObservation.unavailable;
+    expect(
+      ReceiptOcrNumericRoutingObservation.fromChannel(
+        unavailable.toBoundedEvidence(),
+      ).status,
+      ReceiptOcrNumericRoutingStatus.unavailable,
+    );
+    expect(
+      unavailable.toBoundedEvidence().keys,
+      unorderedEquals(['schemaVersion', 'stage', 'status']),
+    );
+    final zero = _numericObservation();
+    for (final key in ReceiptOcrNumericRoutingObservation.countKeys) {
+      zero[key] = 0;
+    }
+    zero['selectedDigitCountBins'] = {
+      for (final key in ReceiptOcrNumericRoutingObservation.binKeys) key: 0,
+    };
+    expect(
+      ReceiptOcrNumericRoutingObservation.fromChannel(zero).status,
+      ReceiptOcrNumericRoutingStatus.observed,
+    );
+    expect(
+      ReceiptOcrNumericRoutingObservation.fromChannel({
+        ...unavailable.toBoundedEvidence(),
+        'observedCropCount': 0,
+      }).status,
+      ReceiptOcrNumericRoutingStatus.invalid,
+    );
   });
 
   test('provider maps channel failures to bounded manual fallback', () async {
@@ -169,6 +339,47 @@ void main() {
     expect(result.preview?.currency, 'AED');
   });
 }
+
+Map<String, Object> _numericObservation() => {
+  'schemaVersion': 1,
+  'stage': ReceiptOcrNumericRoutingObservation.stage,
+  'status': 'observed',
+  'observedCropCount': 3,
+  'numericCandidateCropCount': 3,
+  'eligibleNumericCandidateCropCount': 3,
+  'competingEligibleNumericCandidateCropCount': 2,
+  'eligibleNumericLiteralDisagreementCropCount': 1,
+  'selectedShorterThanEligibleNumericAlternateCropCount': 1,
+  'selectedShorterThanAnyNumericAlternateCropCount': 2,
+  'selectedDigitCountBins': {
+    'noSelection': 0,
+    'nonNumeric': 0,
+    'one': 3,
+    'two': 0,
+    'three': 0,
+    'four': 0,
+    'fiveToEight': 0,
+    'ninePlus': 0,
+  },
+};
+
+Future<ReceiptOcrResult> _providerWithObservation(Object? observation) =>
+    PaddleReceiptOcrProvider(
+      channel: _FakeChannel({
+        'blocks': [
+          {'text': 'Corner Cafe', 'order': 0, 'row': 0},
+          {'text': 'Tea 12.50', 'order': 1, 'row': 1},
+          {'text': 'TOTAL 12.50', 'order': 2, 'row': 2},
+        ],
+        'numericRoutingObservation': observation,
+      }),
+    ).extractReceipt(
+      ReceiptOcrRequest(
+        bytes: const [1],
+        contentType: 'image/jpeg',
+        fallbackCurrency: 'USD',
+      ),
+    );
 
 class _FakeChannel implements PaddleReceiptOcrChannel {
   _FakeChannel(this.response);

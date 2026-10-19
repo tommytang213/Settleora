@@ -92,6 +92,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
             }
             val blocks = mutableListOf<SettleoraOcrBlock>()
             var recognitionTimeMs = 0L
+            var numericRoutingObservation = NumericRoutingObserver.observe(emptyList(), emptyList())
 
             val validBoxes = mutableListOf<Pair<Int, com.paddle.ocr.model.OCRBox>>()
             try {
@@ -249,6 +250,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     // Later Polish/date/rupee recovery cannot create its own
                     // corroboration or change this orientation.
                     val original = candidatesByLine.map(ScriptRouteSelector::select)
+                    numericRoutingObservation = NumericRoutingObserver.observe(candidatesByLine, original)
                     val recoveryPoints = validBoxes.map { (_, box) ->
                         box.points.map { point ->
                             val normalized = documentOrientation.transform(
@@ -352,6 +354,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
                 detectionTimeMs = detection.timeMs,
                 recognitionTimeMs = recognitionTimeMs,
                 totalTimeMs = System.currentTimeMillis() - totalStart,
+                numericRoutingObservation = numericRoutingObservation,
             )
         } finally {
             crops.forEach { it.release() }
@@ -422,6 +425,7 @@ data class SettleoraOcrRunResult(
     val detectionTimeMs: Long,
     val recognitionTimeMs: Long,
     val totalTimeMs: Long,
+    val numericRoutingObservation: Map<String, Any> = NumericRoutingObserver.unavailable(),
 ) {
     fun toChannelValue(): Map<String, Any> = mapOf(
         "blocks" to blocks.map { it.toChannelValue() },
@@ -432,6 +436,7 @@ data class SettleoraOcrRunResult(
         "detectionTimeMs" to detectionTimeMs,
         "recognitionTimeMs" to recognitionTimeMs,
         "totalTimeMs" to totalTimeMs,
+        "numericRoutingObservation" to numericRoutingObservation,
     )
 }
 

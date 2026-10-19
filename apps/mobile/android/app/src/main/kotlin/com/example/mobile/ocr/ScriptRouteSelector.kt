@@ -291,3 +291,86 @@ internal object ScriptRouteSelector {
 
     private const val MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR = 4
 }
+
+// Content-free observations of the passed frozen winners, before recovery and
+// emission filtering. A longer/different literal is not a monetary correction.
+internal object NumericRoutingObserver {
+    private const val STAGE = "selectedOrientationPreRecovery"
+    private val bins = listOf("noSelection", "nonNumeric", "one", "two", "three", "four", "fiveToEight", "ninePlus")
+    private val punctuation = setOf(0x20, 0x09, 0x2E, 0x2C, 0x060C, 0x066B, 0x066C, 0x2B, 0x2D, 0x2212)
+    private data class Shape(val scalars: List<Int>, val digits: Int)
+
+    fun unavailable(): Map<String, Any> = envelope("unavailable")
+
+    private fun envelope(status: String): Map<String, Any> = mapOf(
+        "schemaVersion" to 1, "stage" to STAGE, "status" to status,
+    )
+
+    private fun shape(candidate: ScriptCandidate): Shape? {
+        val scalars = candidate.text.trim(' ', '\t').codePoints().toArray().toList()
+        var digits = 0
+        for (scalar in scalars) {
+            if (Character.getType(scalar) == Character.DECIMAL_DIGIT_NUMBER.toInt()) digits++
+            else if (scalar !in punctuation) return null
+        }
+        return if (digits > 0) Shape(scalars, digits) else null
+    }
+
+    fun observe(
+        candidatesByCrop: List<List<ScriptCandidate>>,
+        original: List<ScriptCandidate?>,
+    ): Map<String, Any> {
+        if (candidatesByCrop.size != original.size || candidatesByCrop.size > 256) {
+            return envelope("invalid")
+        }
+        var numericCrops = 0
+        var eligibleCrops = 0
+        var competingCrops = 0
+        var disagreementCrops = 0
+        var eligibleShorterCrops = 0
+        var anyShorterCrops = 0
+        val selectedBins = bins.associateWith { 0 }.toMutableMap()
+        for (index in candidatesByCrop.indices) {
+            val candidates = candidatesByCrop[index]
+            val winner = original[index]
+            if (winner != null && (winner !in candidates || !ScriptRouteSelector.score(winner).isFinite())) {
+                return envelope("invalid")
+            }
+            val numeric = candidates.mapNotNull { candidate ->
+                shape(candidate)?.let { candidate to it }
+            }
+            val eligible = numeric.filter { ScriptRouteSelector.score(it.first).isFinite() }
+            if (winner == null && eligible.isNotEmpty()) return envelope("invalid")
+            if (numeric.isNotEmpty()) numericCrops++
+            if (eligible.isNotEmpty()) eligibleCrops++
+            if (eligible.size >= 2) competingCrops++
+            if (eligible.map { it.second.scalars }.distinct().size >= 2) disagreementCrops++
+            val selected = winner?.let(::shape)
+            val bin = when {
+                winner == null -> "noSelection"
+                selected == null -> "nonNumeric"
+                selected.digits == 1 -> "one"
+                selected.digits == 2 -> "two"
+                selected.digits == 3 -> "three"
+                selected.digits == 4 -> "four"
+                selected.digits <= 8 -> "fiveToEight"
+                else -> "ninePlus"
+            }
+            selectedBins[bin] = selectedBins.getValue(bin) + 1
+            if (selected != null) {
+                if (numeric.any { it.second.digits > selected.digits }) anyShorterCrops++
+                if (eligible.any { it.second.digits > selected.digits }) eligibleShorterCrops++
+            }
+        }
+        return envelope("observed") + mapOf(
+            "observedCropCount" to candidatesByCrop.size,
+            "numericCandidateCropCount" to numericCrops,
+            "eligibleNumericCandidateCropCount" to eligibleCrops,
+            "competingEligibleNumericCandidateCropCount" to competingCrops,
+            "eligibleNumericLiteralDisagreementCropCount" to disagreementCrops,
+            "selectedShorterThanEligibleNumericAlternateCropCount" to eligibleShorterCrops,
+            "selectedShorterThanAnyNumericAlternateCropCount" to anyShorterCrops,
+            "selectedDigitCountBins" to selectedBins.toMap(),
+        )
+    }
+}

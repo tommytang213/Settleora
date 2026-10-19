@@ -389,6 +389,73 @@ class ScriptRouteSelectorTest {
         assertEquals(false, CyrillicRecovery.shouldProbe(values + common))
     }
 
+    @Test
+    fun numericObservationSeparatesEligibleDisagreementFromRejectedLongerAlternates() {
+        val short = candidate("common", ScriptEvidence.COMMON, "1", 0.95f)
+        val longer = short.copy(text = "12.50", confidence = 0.8f)
+        val rejected = longer.copy(confidence = Float.NaN)
+        val rows = listOf(listOf(short, longer), listOf(short, rejected), listOf(short, short.copy()))
+        val frozen = rows.map(ScriptRouteSelector::select)
+        val before = rows.map { it.toList() }
+        val observation = NumericRoutingObserver.observe(rows, frozen)
+        assertEquals("observed", observation["status"])
+        assertEquals(3, observation["numericCandidateCropCount"])
+        assertEquals(3, observation["eligibleNumericCandidateCropCount"])
+        assertEquals(2, observation["competingEligibleNumericCandidateCropCount"])
+        assertEquals(1, observation["eligibleNumericLiteralDisagreementCropCount"])
+        assertEquals(1, observation["selectedShorterThanEligibleNumericAlternateCropCount"])
+        assertEquals(2, observation["selectedShorterThanAnyNumericAlternateCropCount"])
+        assertEquals(before, rows)
+        assertEquals(frozen, rows.map(ScriptRouteSelector::select))
+        assertEquals(listOf(short, short, short), frozen)
+    }
+
+    @Test
+    fun numericObservationCountsUnicodeScalarsAndExactLiteralsWithoutMoneyInterpretation() {
+        val selected = candidate("common", ScriptEvidence.COMMON, " \t𝟙٢،३.４\t", 0.95f).let {
+            it.copy(pack = it.pack.copy(acceptedScripts = setOf(ScriptEvidence.COMMON, ScriptEvidence.ARABIC, ScriptEvidence.DEVANAGARI)))
+        }
+        val alternate = selected.copy(text = "12,3.4", confidence = 0.8f)
+        val values = listOf(listOf(selected, alternate))
+        val observation = NumericRoutingObserver.observe(values, values.map(ScriptRouteSelector::select))
+        assertEquals("observed", observation["status"])
+        assertEquals(1, observation["eligibleNumericLiteralDisagreementCropCount"])
+        assertEquals(0, observation["selectedShorterThanAnyNumericAlternateCropCount"])
+        assertEquals(1, (observation["selectedDigitCountBins"] as Map<*, *>)["four"])
+        for (text in listOf("TOTAL 12.50", "$12.50", "12/50", "12\n50", "½", "+ . ,")) {
+            val candidate = selected.copy(text = text)
+            val observed = NumericRoutingObserver.observe(listOf(listOf(candidate)), listOf(candidate))
+            assertEquals(text, 0, observed["numericCandidateCropCount"])
+            assertEquals(text, 1, (observed["selectedDigitCountBins"] as Map<*, *>)["nonNumeric"])
+        }
+        val date = selected.copy(text = "2031-04-19")
+        assertEquals(1, NumericRoutingObserver.observe(listOf(listOf(date)), listOf(date))["numericCandidateCropCount"])
+    }
+
+    @Test
+    fun numericObservationDistinguishesObservedZeroUnavailableAndInvalidWithoutPayload() {
+        val zero = NumericRoutingObserver.observe(emptyList(), emptyList())
+        assertEquals("observed", zero["status"])
+        assertEquals(0, zero["observedCropCount"])
+        assertEquals(mapOf("schemaVersion" to 1, "stage" to "selectedOrientationPreRecovery", "status" to "unavailable"),
+            NumericRoutingObserver.unavailable())
+        val value = candidate("common", ScriptEvidence.COMMON, "private text", 0.95f)
+        for (invalid in listOf(
+            NumericRoutingObserver.observe(listOf(listOf(value)), emptyList()),
+            NumericRoutingObserver.observe(List(257) { emptyList() }, List(257) { null }),
+            NumericRoutingObserver.observe(listOf(emptyList()), listOf(value)),
+            NumericRoutingObserver.observe(listOf(listOf(value.copy(text = "1"))), listOf(null)),
+            NumericRoutingObserver.observe(listOf(listOf(value.copy(confidence = Float.NaN))), listOf(value.copy(confidence = Float.NaN))),
+        )) {
+            assertEquals(mapOf("schemaVersion" to 1, "stage" to "selectedOrientationPreRecovery", "status" to "invalid"), invalid)
+        }
+        val rejected = value.copy(text = "12.50", confidence = Float.NaN)
+        val absent = NumericRoutingObserver.observe(listOf(listOf(rejected)), listOf(null))
+        assertEquals(1, absent["numericCandidateCropCount"])
+        assertEquals(0, absent["eligibleNumericCandidateCropCount"])
+        assertEquals(1, (absent["selectedDigitCountBins"] as Map<*, *>)["noSelection"])
+    }
+
     private fun candidate(
         id: String,
         script: ScriptEvidence,

@@ -666,6 +666,51 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
   };
 }
 
+function sanitizeNumericRoutingObservation(value) {
+  const label = "numericRoutingObservation";
+  const envelope = ["schemaVersion", "stage", "status"];
+  const countKeys = ["observedCropCount", "numericCandidateCropCount", "eligibleNumericCandidateCropCount",
+    "competingEligibleNumericCandidateCropCount", "eligibleNumericLiteralDisagreementCropCount",
+    "selectedShorterThanEligibleNumericAlternateCropCount", "selectedShorterThanAnyNumericAlternateCropCount"];
+  const binKeys = ["noSelection", "nonNumeric", "one", "two", "three", "four", "fiveToEight", "ninePlus"];
+  if (value == null || value.schemaVersion !== 1 || value.stage !== "selectedOrientationPreRecovery" ||
+      !["observed", "unavailable"].includes(value.status)) {
+    throw new Error("Numeric routing observation identity is invalid");
+  }
+  const observed = value.status === "observed";
+  assertExactKeys(value, [...envelope, ...(observed ? ["counts", "bins"] : [])], label);
+  const result = { schemaVersion: 1, stage: value.stage, status: value.status };
+  if (!observed) return result;
+  // Version 1 fixes the tuple orders to countKeys/binKeys; named native channel
+  // fields remain typed in Dart. Exact lengths/types are mandatory on this wire.
+  if (!Array.isArray(value.counts) || value.counts.length !== countKeys.length ||
+      !Array.isArray(value.bins) || value.bins.length !== binKeys.length) {
+    throw new Error("Numeric routing observation tuples are invalid");
+  }
+  const count = (value, name) => {
+    const result = boundedInteger(value, `${label}.${name}`);
+    if (result > 256) throw new Error("Numeric routing observation count is invalid");
+    return result;
+  };
+  const counts = Object.fromEntries(countKeys.map((key, index) => [key, count(value.counts[index], key)]));
+  const bins = Object.fromEntries(binKeys.map((key, index) => [key, count(value.bins[index], key)]));
+  const total = Object.values(bins).reduce((sum, value) => sum + value, 0);
+  const selectedNumeric = total - bins.noSelection - bins.nonNumeric;
+  if (total !== counts.observedCropCount ||
+      counts.eligibleNumericLiteralDisagreementCropCount > counts.competingEligibleNumericCandidateCropCount ||
+      counts.competingEligibleNumericCandidateCropCount > counts.eligibleNumericCandidateCropCount ||
+      counts.eligibleNumericCandidateCropCount > counts.numericCandidateCropCount ||
+      counts.numericCandidateCropCount > counts.observedCropCount ||
+      counts.eligibleNumericCandidateCropCount > counts.observedCropCount - bins.noSelection ||
+      selectedNumeric > counts.eligibleNumericCandidateCropCount ||
+      counts.selectedShorterThanEligibleNumericAlternateCropCount > counts.selectedShorterThanAnyNumericAlternateCropCount ||
+      counts.selectedShorterThanAnyNumericAlternateCropCount > selectedNumeric ||
+      counts.selectedShorterThanEligibleNumericAlternateCropCount > counts.eligibleNumericLiteralDisagreementCropCount) {
+    throw new Error("Numeric routing observation count relationships are invalid");
+  }
+  return { ...result, counts: Object.values(counts), bins: Object.values(bins) };
+}
+
 function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Acceptance marker must contain an object");
@@ -729,6 +774,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       "nordicFooterOwnershipFailureCounts"];
     const hasUnresolvedOwnership = unresolvedKeys.some((key) => Object.hasOwn(entry, key));
     const hasUnresolvedOtherDecisions = Object.hasOwn(entry, "unresolvedOtherBranchDecisionCounts");
+    const hasNumericRoutingObservation = Object.hasOwn(entry, "numericRoutingObservation");
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
@@ -743,6 +789,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasPatternReasons ? patternReasonKeys : []),
       ...(hasUnresolvedOwnership ? unresolvedKeys : []),
       ...(hasUnresolvedOtherDecisions ? ["unresolvedOtherBranchDecisionCounts"] : []),
+      ...(hasNumericRoutingObservation ? ["numericRoutingObservation"] : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -949,6 +996,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     }
     coverageFixtures.add(fixtureId);
     return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
+      ...(hasNumericRoutingObservation ? {
+        numericRoutingObservation: sanitizeNumericRoutingObservation(entry.numericRoutingObservation) } : {}),
       ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),
       ...(hasUnresolvedOtherDecisions ? { unresolvedOtherBranchDecisionCounts } : {}),
       totalExactTokenSeen: entry.totalExactTokenSeen, expectedItemCount, itemDescriptionsExactTextSeen,
@@ -980,6 +1029,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewHintCategory")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewHintCategory"))) {
     throw new Error("Recognition coverage review hint categories are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "numericRoutingObservation")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "numericRoutingObservation"))) {
+    throw new Error("Recognition coverage numeric routing observations are incomplete");
   }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "previewWarningCount")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "previewWarningCount"))) {

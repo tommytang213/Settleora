@@ -40,6 +40,20 @@ struct SettleoraOcrRunResult {
   let detectionTimeMs: Int
   let recognitionTimeMs: Int
   let totalTimeMs: Int
+  let numericRoutingObservation: [String: Any]
+
+  init(blocks: [SettleoraOcrBlock], detectionModelPackID: String, detectionModelVersion: String,
+       coldLoadTimeMs: Int, detectionTimeMs: Int, recognitionTimeMs: Int, totalTimeMs: Int,
+       numericRoutingObservation: [String: Any] = NumericRoutingObserver.unavailable()) {
+    self.blocks = blocks
+    self.detectionModelPackID = detectionModelPackID
+    self.detectionModelVersion = detectionModelVersion
+    self.coldLoadTimeMs = coldLoadTimeMs
+    self.detectionTimeMs = detectionTimeMs
+    self.recognitionTimeMs = recognitionTimeMs
+    self.totalTimeMs = totalTimeMs
+    self.numericRoutingObservation = numericRoutingObservation
+  }
 
   var channelValue: [String: Any] {
     [
@@ -51,6 +65,7 @@ struct SettleoraOcrRunResult {
       "detectionTimeMs": detectionTimeMs,
       "recognitionTimeMs": recognitionTimeMs,
       "totalTimeMs": totalTimeMs,
+      "numericRoutingObservation": numericRoutingObservation,
     ]
   }
 }
@@ -201,6 +216,7 @@ final class SettleoraPaddleOcrEngine {
     // Later Polish/date/rupee recovery cannot alter this selected orientation
     // or bootstrap corroboration from its own output.
     let original = candidates.map { ScriptRouteSelector.select($0) }
+    let numericRoutingObservation = NumericRoutingObserver.observe(candidates, original: original)
     let recoveryPoints = boxes.map { box in
       box.points.map { point -> CalendarDateRecovery.Point in
         let normalized = documentOrientation.transform(
@@ -250,7 +266,8 @@ final class SettleoraPaddleOcrEngine {
       coldLoadTimeMs: coldLoadTimeMs,
       detectionTimeMs: Int((detection.totalTime * 1000).rounded()),
       recognitionTimeMs: recognitionTimeMs,
-      totalTimeMs: milliseconds(since: totalStart)
+      totalTimeMs: milliseconds(since: totalStart),
+      numericRoutingObservation: numericRoutingObservation
     )
   }
 

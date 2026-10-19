@@ -451,6 +451,54 @@ test("retains only the bounded native acceptance schema", () => {
       assert.deepEqual(evidence.acceptance.recognitionCoverage, acceptance.recognitionCoverage);
     },
   );
+  const numericRoutingObservation = {
+    schemaVersion: 1, stage: "selectedOrientationPreRecovery", status: "observed",
+    counts: [3, 3, 3, 2, 1, 1, 2], bins: [0, 0, 3, 0, 0, 0, 0, 0],
+  };
+  const unavailable = { schemaVersion: 1, stage: "selectedOrientationPreRecovery", status: "unavailable" };
+  const observedZero = { ...numericRoutingObservation, counts: Array(7).fill(0), bins: Array(8).fill(0) };
+  const asymmetric = { ...numericRoutingObservation,
+    counts: [64, 56, 48, 40, 32, 16, 24], bins: [10, 6, 1, 3, 5, 7, 11, 21] };
+  const withNumericObservations = acceptance.recognitionCoverage.map((entry, index) => ({
+    ...entry, numericRoutingObservation: [numericRoutingObservation, unavailable, observedZero, asymmetric][index % 4],
+  }));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withNumericObservations,
+  })}`), (log) => {
+    const bounded = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
+    assert.deepEqual(bounded.recognitionCoverage, withNumericObservations);
+    assert.equal(bounded.mismatchCount, acceptance.mismatchCount);
+    assert.deepEqual(bounded.mismatches, acceptance.mismatches);
+  });
+  const withCounts = (counts) => ({ ...numericRoutingObservation, counts });
+  const withBins = (bins) => ({ ...numericRoutingObservation, bins });
+  for (const invalid of [null, [], "private diagnostic text",
+    { ...numericRoutingObservation, schemaVersion: 2 },
+    { ...numericRoutingObservation, stage: "afterRecovery" },
+    { ...numericRoutingObservation, status: "invalid" },
+    { ...numericRoutingObservation, text: "private diagnostic text" },
+    withCounts(null), withCounts({ one: 1 }), withCounts(Array(6).fill(0)), withCounts(Array(8).fill(0)),
+    withCounts([257, 3, 3, 2, 1, 1, 2]), withCounts([-1, 3, 3, 2, 1, 1, 2]),
+    withCounts([3.5, 3, 3, 2, 1, 1, 2]), withCounts(["3", 3, 3, 2, 1, 1, 2]),
+    withCounts([true, 3, 3, 2, 1, 1, 2]), withCounts([null, 3, 3, 2, 1, 1, 2]),
+    withCounts([2, 3, 3, 2, 1, 1, 2]), withCounts([3, 2, 3, 2, 1, 1, 2]),
+    withCounts([3, 3, 1, 2, 1, 1, 2]), withCounts([3, 3, 3, 0, 1, 1, 2]),
+    withCounts([3, 3, 3, 2, 0, 1, 2]), withCounts([3, 3, 3, 2, 1, 3, 2]),
+    withCounts([3, 3, 3, 2, 1, 1, 4]),
+    withBins(null), withBins({ one: 3 }), withBins(Array(7).fill(0)), withBins(Array(9).fill(0)),
+    withBins([0, 0, 4, 0, 0, 0, 0, 0]), withBins([0, 0, "3", 0, 0, 0, 0, 0]),
+    withBins([1, 0, 2, 0, 0, 0, 0, 0]),
+    { ...numericRoutingObservation, counts: [1, 1, 1, 0, 0, 0, 0], bins: [1, 0, 0, 0, 0, 0, 0, 0] },
+    { ...unavailable, counts: Array(7).fill(0) },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withNumericObservations[0], numericRoutingObservation: invalid },
+        ...withNumericObservations.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /[Nn]umeric/));
+  }
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [acceptance.recognitionCoverage[0], ...withNumericObservations.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /numeric routing observations are incomplete/));
   withLog(
     protocolLog(
       `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`,
@@ -818,6 +866,20 @@ test("retains only the bounded native acceptance schema", () => {
     ...acceptance, recognitionCoverage: withPatternReasons,
   })}`), (log) => assert.deepEqual(
     buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withPatternReasons));
+  // Exercise the full public coverage shape, including every existing verbose
+  // ownership table. A small/minimal row would miss the 512 KiB carrier limit.
+  const completeCoverage = manifestFixtureIds.map((_, index) => ({
+    ...withHeaderFields[index], ...withReviewDecisions[index],
+    ...withOtherDecisions[index], ...withPatternReasons[index],
+    numericRoutingObservation: { ...numericRoutingObservation,
+      counts: [256, 256, 224, 224, 224, 192, 192], bins: Array(8).fill(32) },
+  }));
+  const completeMarker = JSON.stringify({ ...acceptance, recognitionCoverage: completeCoverage });
+  assert.ok(Buffer.byteLength(completeMarker) > 480_000, "capacity control must include realistic complete coverage");
+  assert.ok(Buffer.byteLength(completeMarker) < 512 * 1024, "full tuple evidence must fit the unchanged marker bound");
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${completeMarker}`), (log) => {
+    assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, completeCoverage);
+  });
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
     ...acceptance, recognitionCoverage: [{ ...withRowShapes[0],
       expectedUnretainedPatternReasonCounts }, ...withRowShapes.slice(1)],

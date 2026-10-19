@@ -85,6 +85,12 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
             detectionTimeMs: response?['detectionTimeMs'] as int?,
             recognitionTimeMs: response?['recognitionTimeMs'] as int?,
             totalTimeMs: response?['totalTimeMs'] as int?,
+            numericRoutingObservation:
+                response?.containsKey('numericRoutingObservation') == true
+                ? ReceiptOcrNumericRoutingObservation.fromChannel(
+                    response?['numericRoutingObservation'],
+                  )
+                : null,
           ),
         ),
       );
