@@ -122,7 +122,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     args,
     platform,
     "SETTLEORA_OCR_ACCEPTANCE=",
-    (value, markerPlatform) => sanitizeAcceptance(value, markerPlatform, expectedFixtureIds),
+    (value, markerPlatform) => sanitizeAcceptance(value, markerPlatform, expectedFixtureIds, repoRoot),
     { completed: false },
   );
   const uiSmoke = extractFailureMarker(
@@ -711,7 +711,56 @@ function sanitizeNumericRoutingObservation(value) {
   return { ...result, counts: Object.values(counts), bins: Object.values(bins) };
 }
 
-function sanitizeAcceptance(value, platform, expectedFixtureIds) {
+const productReviewConditions = [null,
+  "printed unsupported fees need manual review",
+  "printed combined taxes and fees need manual review",
+  "printed fee and payment credit need manual review",
+  "printed total differs from visible charge-line arithmetic",
+  "printed item currency differs from charged receipt currency",
+  "printed surcharge and account credit need manual review"];
+function productReviewKinds(repoRoot) {
+  const file = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
+  const manifest = JSON.parse(readFileSync(file, "utf8"));
+  return new Map(manifest.fixtures.map((fixture) => {
+    const condition = fixture.expected?.expected_review_condition ?? null;
+    const index = productReviewConditions.indexOf(condition);
+    return [fixture.id, index === -1 ? 7 : index];
+  }));
+}
+
+const fixtureProcessingFailureFields = new Set(["normalization","provider_status","provider_exception","ocr_resource_lookup","ocr_model_open","ocr_model_configuration","ocr_runtime_initialization","ocr_runtime_initialization_opencv","ocr_runtime_initialization_onnxruntime","ocr_input_validation","ocr_postprocessing","ocr_detection_inference","ocr_recognition_inference","ocr_output_decode"]);
+
+function sanitizeProductObservation(value, entry, expectedKind, mismatches) {
+  if (!Array.isArray(value) || value.length !== 6 ||
+      value.some((part) => !Number.isSafeInteger(part))) {
+    throw new Error("Product observation tuple is invalid");
+  }
+  const [version, state, kind, match, checked, failed] = value;
+  const fields = mismatches.filter((m) => m.fixtureId === entry.fixtureId).map((m) => m.field);
+  const processingFailed = fields.some((field) => fixtureProcessingFailureFields.has(field));
+  const hasManifestFailure = fields.includes("manifest_shape");
+  const phaseMatches = state === 0 ? fields.length === 1 && hasManifestFailure
+    : state === 1 ? processingFailed && !hasManifestFailure
+      : state === 2 ? fields.length === 1 && fields[0] === "provider_status"
+        : state === 3 && !processingFailed && !hasManifestFailure;
+
+  // V1 witnesses only processing bit0. Every other safety/usability dimension
+  // is unassessed; a future positive witness needs a reviewed schema extension.
+  if (!phaseMatches || version !== 1 || state < 0 || state > 3 || kind !== expectedKind ||
+      match < 0 || match > 2 || checked !== (state === 0 ? 0 : 1) ||
+      failed !== (state === 1 || state === 2 ? 1 : 0) ||
+      typeof entry.previewPresent !== "boolean" ||
+      entry.previewPresent !== (state === 3) ||
+      (state !== 3 && match !== 0) || (state === 3 && match === 0) ||
+      (kind === 7 && state === 3 && match !== 2) ||
+      (state === 3 && (match === 2) !==
+        mismatches.some((m) => m.fixtureId === entry.fixtureId && m.field === "review_condition"))) {
+    throw new Error("Product observation facts are inconsistent");
+  }
+  return [...value];
+}
+
+function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Acceptance marker must contain an object");
   }
@@ -748,6 +797,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (!Array.isArray(recognitionCoverage) || recognitionCoverage.length > 101) {
     throw new Error("Recognition coverage evidence is not bounded");
   }
+  const hasProducts = recognitionCoverage.some((entry) => entry != null && Object.hasOwn(entry, "productObservation"));
+  const expectedReviewKinds = hasProducts ? productReviewKinds(repoRoot) : null;
   const coverageFixtures = new Set();
   const boundedRecognitionCoverage = recognitionCoverage.map((entry, index) => {
     if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
@@ -775,6 +826,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const hasUnresolvedOwnership = unresolvedKeys.some((key) => Object.hasOwn(entry, key));
     const hasUnresolvedOtherDecisions = Object.hasOwn(entry, "unresolvedOtherBranchDecisionCounts");
     const hasNumericRoutingObservation = Object.hasOwn(entry, "numericRoutingObservation");
+    const hasProductObservation = Object.hasOwn(entry, "productObservation");
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
@@ -790,6 +842,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasUnresolvedOwnership ? unresolvedKeys : []),
       ...(hasUnresolvedOtherDecisions ? ["unresolvedOtherBranchDecisionCounts"] : []),
       ...(hasNumericRoutingObservation ? ["numericRoutingObservation"] : []),
+      ...(hasProductObservation ? ["productObservation"] : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -996,6 +1049,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     }
     coverageFixtures.add(fixtureId);
     return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
+      ...(hasProductObservation ? { productObservation: sanitizeProductObservation(
+        entry.productObservation, entry, expectedReviewKinds.get(fixtureId), mismatches) } : {}),
       ...(hasNumericRoutingObservation ? {
         numericRoutingObservation: sanitizeNumericRoutingObservation(entry.numericRoutingObservation) } : {}),
       ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),
@@ -1026,6 +1081,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         expectedTaxTokenSeen: entry.expectedTaxTokenSeen,
         expectedSubtotalTokenSeen: entry.expectedSubtotalTokenSeen } : {}) };
   });
+  if (hasProducts && boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "productObservation"))) {
+    throw new Error("Recognition coverage product observations are incomplete");
+  }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewHintCategory")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewHintCategory"))) {
     throw new Error("Recognition coverage review hint categories are incomplete");
@@ -1401,7 +1459,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const acceptance = parseMarker(
     protocol.markerMessages,
     "SETTLEORA_OCR_ACCEPTANCE=",
-    (value) => sanitizeAcceptance(value, args.platform, expectedFixtureIds),
+    (value) => sanitizeAcceptance(value, args.platform, expectedFixtureIds, repoRoot),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
   );
   const uiSmoke = parseMarker(

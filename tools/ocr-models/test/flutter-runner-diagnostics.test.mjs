@@ -55,6 +55,40 @@ test("early Flutter failure retains fixed categories and machine progress withou
   });
 });
 
+test("closed-channel headers retain only their fixed phase enums", () => {
+  const headers = [
+    ["unhandled error during test:", "test_error_after_channel_closed"],
+    ["unhandled error during finalization of test:", "test_finalization_error_after_channel_closed"],
+  ];
+  for (const [header, category] of headers) {
+    for (const ending of ["", "\n", "\r\n"]) {
+      withStreams(events(
+        { type: "print", message: `${header}\n${secret}` },
+        { type: "error", error: `${header}\n${secret}`, stackTrace: secret },
+      ), header + ending, (out, err) => {
+        const result = summarizeFlutterRunner(out, err);
+        assert.deepEqual(result.stdout.signatureCategories, [category]);
+        assert.deepEqual(result.stderr.signatureCategories, [category]);
+        assert.equal(result.stdout.eventCounts.print, 1);
+        assert.ok(!JSON.stringify(result).includes(secret));
+      });
+    }
+    withStreams(events({ type: "print", message: `${header}\n${secret}` }), "", (out, err) => {
+      assert.deepEqual(summarizeFlutterRunner(out, err).stdout.signatureCategories, []);
+    });
+    for (const altered of [header.toUpperCase(), "prefix " + header, header + " " + secret]) {
+      withStreams("", altered, (out, err) => {
+        assert.deepEqual(summarizeFlutterRunner(out, err).stderr.signatureCategories, []);
+      });
+    }
+  }
+  withStreams("", `${headers[1][0]}\n${secret}\n${headers[0][0]}\n${headers[0][0]}\n`, (out, err) => {
+    const result = summarizeFlutterRunner(out, err);
+    assert.deepEqual(result.stderr.signatureCategories, headers.map(([, category]) => category));
+    assert.ok(!JSON.stringify(result).includes(secret));
+  });
+});
+
 test("unrecognized and malformed content is discarded, with no arbitrary property coercion", () => {
   withStreams(events(
     null, 7, [secret], { type: { toString: null, valueOf: null }, message: secret },
@@ -101,7 +135,9 @@ test("missing, nonregular and symlink evidence is unavailable, not empty success
 
 test("iOS CLI uploads bounded hints but still rejects every nonempty stderr and missing corpus", () => {
   withStreams(events({ type: "start" }, { type: "done", success: true }),
-    `Error waiting for a debug connection: ${secret}\n`, (out, err, root) => {
+    `Error waiting for a debug connection: ${secret}\n` +
+    `unhandled error during test:\n${secret}\n` +
+    `unhandled error during finalization of test:\n${secret}\n`, (out, err, root) => {
       const artifact = path.join(root, "evidence.json");
       const args = { log: out, "stderr-log": err, out: artifact, platform: "ios", "source-sha": "a".repeat(40),
         "test-status": "1", "runner-image": "test", "os-runtime": "test", "sdk-toolchain": "test", device: "test",
@@ -116,7 +152,8 @@ test("iOS CLI uploads bounded hints but still rejects every nonempty stderr and 
       assert.equal(value.stderrDiagnostic, "other_nonempty");
       assert.equal(value.acceptance.completed, false);
       assert.equal(value.uiSmoke.completed, false);
-      assert.deepEqual(value.flutterRunnerDiagnostics.stderr.signatureCategories, ["debug_connection_failed"]);
+      assert.deepEqual(value.flutterRunnerDiagnostics.stderr.signatureCategories, ["debug_connection_failed",
+        "test_error_after_channel_closed", "test_finalization_error_after_channel_closed"]);
       assert.equal(isCompleteEvidence(value), false);
       assert.ok(!JSON.stringify(value).includes(secret));
       assert.equal(Object.hasOwn(buildFailureEvidence({ ...args, platform: "android" }), "flutterRunnerDiagnostics"), false);

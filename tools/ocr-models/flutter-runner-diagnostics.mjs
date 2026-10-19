@@ -22,6 +22,11 @@ const signatures = [
   ["process_exception", /(?:^|\n|\s)ProcessException:/],
   ["socket_exception", /(?:^|\n|\s)SocketException:/],
   ["timeout_exception", /(?:^|\n|\s)TimeoutException(?: after [0-9:.]+)?:/],
+  // Flutter 3.44.8 flutter_platform.dart emits these fixed headers when the
+  // harness channel has already closed. Never inspect or retain the following
+  // test path, error or stack. A category is a hint, never an stderr exemption.
+  ["test_error_after_channel_closed", /(?:^|\n)unhandled error during test:(?:\r?\n|$)/],
+  ["test_finalization_error_after_channel_closed", /(?:^|\n)unhandled error during finalization of test:(?:\r?\n|$)/],
 ];
 
 function readPrefix(file) {

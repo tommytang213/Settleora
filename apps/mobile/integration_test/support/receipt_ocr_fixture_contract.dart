@@ -1,4 +1,5 @@
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 
 // Fixed labels distinguish strict header mismatch shapes without retaining
 // receipt values or treating a warning-free value as calibrated confidence.
@@ -477,4 +478,45 @@ class ReceiptOcrFixtureItem {
   // Match the preview's exact evidence: an ISO code or the unresolved printed
   // yen marker. A marker does not resolve the receipt's currency/provenance.
   final String? currency;
+}
+
+// Diagnostic facts only. Tuple v1 is:
+// [version, processingState, sourceReviewKind, reviewMatch, checked, failed].
+// Processing: 0 not attempted, 1 failed, 2 completed without an extracted
+// preview, 3 completed with one. Failures include normalization/comparison
+// exceptions, so state 1 does not attribute a failure to the OCR provider.
+// Review kind 0 means no declared condition; 1..6 are existing source contracts;
+// 7 is unrecognized. Review match: 0 unassessed, 1 matched, 2 mismatched.
+//
+// Only check bit 0 (fixture processing) has a witness in v1. Money/currency
+// authority, evidence retention, contradiction/ambiguity visibility, Apply/save,
+// editability and usefulness remain unassessed. Adding those checks requires
+// actual source/UI witnesses and a reviewed schema extension. A matched review
+// contract, strict pass or warning-free preview is never a usable-draft proof.
+List<int> receiptOcrFixtureProductObservation(
+  Map<String, Object?> expected, {
+  ReceiptOcrResult? result,
+  bool processingFailed = false,
+}) {
+  final condition = expected['expected_review_condition'];
+  final kind = switch (condition) {
+    null => 0,
+    'printed unsupported fees need manual review' => 1,
+    'printed combined taxes and fees need manual review' => 2,
+    'printed fee and payment credit need manual review' => 3,
+    'printed total differs from visible charge-line arithmetic' => 4,
+    'printed item currency differs from charged receipt currency' => 5,
+    'printed surcharge and account credit need manual review' => 6,
+    _ => 7,
+  };
+  if (processingFailed || result?.status == ReceiptOcrStatus.failed) {
+    return [1, 1, kind, 0, 1, 1];
+  }
+  if (result == null) return [1, 0, kind, 0, 0, 0];
+  final preview = result.preview;
+  if (result.status != ReceiptOcrStatus.extracted || preview == null) {
+    return [1, 2, kind, 0, 1, 1];
+  }
+  final matches = receiptOcrFixtureReviewMatches(preview, expected);
+  return [1, 3, kind, matches ? 1 : 2, 1, 0];
 }

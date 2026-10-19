@@ -661,6 +661,113 @@ test("retains only the bounded native acceptance schema", () => {
     })),
   })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
     /header field states are invalid/));
+  const reviewKinds = [null,
+    "printed unsupported fees need manual review",
+    "printed combined taxes and fees need manual review",
+    "printed fee and payment credit need manual review",
+    "printed total differs from visible charge-line arithmetic",
+    "printed item currency differs from charged receipt currency",
+    "printed surcharge and account credit need manual review"];
+  const sourceKinds = new Map(JSON.parse(readFileSync(path.join(repoRoot,
+    "apps/mobile/test/fixtures/receipt_ocr/manifest.json"), "utf8")).fixtures.map((fixture) =>
+    [fixture.id, reviewKinds.indexOf(fixture.expected.expected_review_condition ?? null)]));
+  const productTuple = (entry, state = 3, match = 1) =>
+    [1, state, sourceKinds.get(entry.fixtureId), state === 3 ? match : 0,
+      state === 0 ? 0 : 1, state === 1 || state === 2 ? 1 : 0];
+  const withProducts = withHeaderFields.map((entry) => ({
+    ...entry, productObservation: productTuple(entry),
+  }));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withProducts,
+  })}`), (log) => {
+    const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+    assert.deepEqual(evidence.acceptance.recognitionCoverage, withProducts);
+    assert.deepEqual(evidence.acceptance.mismatches, acceptance.mismatches);
+    assert.equal(evidence.acceptance.passedFixtureCount, 100);
+    assert.equal(evidence.acceptance.mismatchCount, 1);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+  const processingCases = [
+    [0, "manifest_shape"], [1, "normalization"], [1, "provider_exception"],
+    [1, "provider_status"], [1, "ocr_recognition_inference"], [2, "provider_status"],
+  ];
+  for (const [state, field] of processingCases) {
+    const rows = [{ ...withProducts[0], previewPresent: false,
+      headerFieldStates: headerMap("noPreview"), productObservation: productTuple(withProducts[0], state) },
+      ...withProducts.slice(1)];
+    const failures = [{ fixtureId: withProducts[0].fixtureId, field }];
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, mismatches: failures, recognitionCoverage: rows,
+    })}`), (log) => {
+      const bounded = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
+      assert.deepEqual(bounded.recognitionCoverage, rows);
+      assert.deepEqual(bounded.mismatches, failures);
+    });
+  }
+  // A known failure must not contradict strict success or borrow an unrelated
+  // description mismatch. New tuples are optional; legacy omissions stay valid.
+  for (const state of [0, 1, 2]) {
+    const rows = [{ ...withProducts[0], previewPresent: false,
+      headerFieldStates: headerMap("noPreview"), productObservation: productTuple(withProducts[0], state) },
+      ...withProducts.slice(1)];
+    for (const strict of [acceptance, { ...acceptance, passedFixtureCount: 101,
+      mismatchCount: 0, mismatches: [], perScript: { Latin: { total: 101, passed: 101 } } }]) {
+      withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+        ...strict, recognitionCoverage: rows,
+      })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /Product observation/));
+    }
+  }
+  for (const field of ["manifest_shape", "normalization", "provider_exception",
+    "provider_status", "ocr_recognition_inference"]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, mismatches: [{ fixtureId: withProducts[0].fixtureId, field }],
+      recognitionCoverage: withProducts,
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /Product observation/));
+  }
+  for (const [state, field] of [[0, "normalization"], [1, "manifest_shape"],
+    [2, "ocr_recognition_inference"]]) {
+    const rows = [{ ...withProducts[0], previewPresent: false,
+      headerFieldStates: headerMap("noPreview"), productObservation: productTuple(withProducts[0], state) },
+      ...withProducts.slice(1)];
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, mismatches: [{ fixtureId: withProducts[0].fixtureId, field }],
+      recognitionCoverage: rows,
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /Product observation/));
+  }
+  // ocr_evidence is an extracted-preview comparison, not a provider failure.
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, mismatches: [{ fixtureId: withProducts[0].fixtureId, field: "ocr_evidence" }],
+    recognitionCoverage: withProducts,
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withProducts));
+  const validProduct = withProducts[0].productObservation;
+  for (const invalid of [null, {}, "private data", [], [...validProduct, 0],
+    validProduct.slice(1), ["1", ...validProduct.slice(1)], [true, ...validProduct.slice(1)],
+    [2, ...validProduct.slice(1)], [1, 4, ...validProduct.slice(2)],
+    [1, -1, ...validProduct.slice(2)], [1, 3, 7, 1, 1, 0],
+    [1, 3, validProduct[2], 0, 1, 0], [1, 3, validProduct[2], 2, 1, 0],
+    [1, 3, validProduct[2], 1, 0, 0], [1, 3, validProduct[2], 1, 3, 0],
+    [1, 3, validProduct[2], 1, 1, 1], [1, 1, validProduct[2], 0, 1, 1],
+    [1, 3, validProduct[2], 1, 1, -1], [1, 3, validProduct[2], 1, 1.5, 0]]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withProducts[0], productObservation: invalid }, ...withProducts.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /Product observation/));
+  }
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [withHeaderFields[0], ...withProducts.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /product observations are incomplete/));
+  const reviewMismatchRows = [{ ...withProducts[0],
+    productObservation: productTuple(withProducts[0], 3, 2) }, ...withProducts.slice(1)];
+  const reviewMismatches = [...acceptance.mismatches,
+    { fixtureId: withProducts[0].fixtureId, field: "review_condition" }];
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, mismatchCount: 2, mismatches: reviewMismatches, recognitionCoverage: reviewMismatchRows,
+  })}`), (log) => {
+    const bounded = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
+    assert.deepEqual(bounded.mismatches, reviewMismatches);
+    assert.deepEqual(bounded.recognitionCoverage, reviewMismatchRows);
+  });
+
   const withReviewDecisions = acceptance.recognitionCoverage.map((entry) => ({
     ...entry, reviewDecision: "none", incompleteAdjustmentReasons: [],
   }));
@@ -871,6 +978,7 @@ test("retains only the bounded native acceptance schema", () => {
   const completeCoverage = manifestFixtureIds.map((_, index) => ({
     ...withHeaderFields[index], ...withReviewDecisions[index],
     ...withOtherDecisions[index], ...withPatternReasons[index],
+    productObservation: productTuple(withHeaderFields[index]),
     numericRoutingObservation: { ...numericRoutingObservation,
       counts: [256, 256, 224, 224, 224, 192, 192], bins: Array(8).fill(32) },
   }));

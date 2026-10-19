@@ -378,13 +378,14 @@ void main() {
           scriptResult.total += 1;
           final expected = entry['expected']! as Map<String, Object?>;
           final coverageIndex = recognitionCoverage.length;
-          recognitionCoverage.add(
-            _boundedRecognitionCoverage(
+          recognitionCoverage.add({
+            ..._boundedRecognitionCoverage(
               fixtureId,
               const ReceiptOcrResult.failed(''),
               expected,
             ),
-          );
+            'productObservation': receiptOcrFixtureProductObservation(expected),
+          });
           final fixtureMismatches = <_BoundedMismatch>[];
           if (expected.keys
               .toSet()
@@ -400,6 +401,7 @@ void main() {
               entry['expected_currency_resolution'] as Map<String, Object?>?;
           final fixtureBytes = await fixtures.load(entry['file']! as String);
           final stopwatch = Stopwatch()..start();
+          ReceiptOcrResult? observedResult;
           try {
             failure.set('corpus_normalization', fixtureId: fixtureId);
             ReceiptImageArtifactResult? artifact;
@@ -465,6 +467,7 @@ void main() {
                 );
                 recognitionCoverage[coverageIndex] =
                     _boundedRecognitionCoverage(fixtureId, result, expected);
+                observedResult = result;
               } catch (_) {
                 // Preserve only a bounded category. Native exception details can
                 // contain OCR text, local paths, or provider diagnostics and must
@@ -477,6 +480,14 @@ void main() {
           } finally {
             stopwatch.stop();
             fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
+            // Preserve all legacy coverage and strict mismatches. A completed
+            // fixture-processing attempt is distinct from its content quality.
+            recognitionCoverage[coverageIndex]['productObservation'] =
+                receiptOcrFixtureProductObservation(
+                  expected,
+                  result: observedResult,
+                  processingFailed: observedResult == null,
+                );
           }
           if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
           mismatches.addAll(fixtureMismatches);
