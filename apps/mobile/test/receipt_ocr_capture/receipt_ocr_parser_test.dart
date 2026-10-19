@@ -10761,6 +10761,72 @@ Total $145.00''',
     expect(extra.reviewHints, isNotEmpty);
   });
 
+  test('a partially owned priced row retains a warning without a total', () {
+    ReceiptOcrBlockEvidence cell(
+      String text,
+      int order,
+      int row,
+      double left,
+      double right,
+      double top,
+      double bottom,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      order: order,
+      row: row,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+
+    final preview = const ReceiptOcrParser().parse(
+      'Market\nCoffee 45USD 5USD',
+      fallbackCurrency: 'USD',
+      blocks: [
+        cell('Market', 0, 0, 20, 350, 0, 12),
+        cell('Coffee 45USD', 1, 1, 20, 160, 20, 32),
+        cell('5USD', 2, 1, 300, 350, 120, 132),
+      ],
+    );
+    expect(preview.items.single.description, 'Coffee');
+    expect(preview.items.single.lineTotal, '45');
+    expect(preview.total, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+    expect(preview.unresolvedItemLikeCount, greaterThan(0));
+    expect(
+      preview.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
+  });
+
+  test('a capped joined-currency item list retains review evidence', () {
+    final preview = const ReceiptOcrParser().parse(
+      ['Market', ...List.filled(41, 'Coffee 1USD')].join('\n'),
+      fallbackCurrency: 'USD',
+    );
+    expect(preview.items, hasLength(40));
+    expect(preview.total, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.itemLimit),
+    );
+    expect(preview.unresolvedItemLikeCount, greaterThan(0));
+    expect(
+      preview.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
+  });
+
   test('priced or uncertain tax context remains reviewable', () {
     const parser = ReceiptOcrParser();
     final pricedTax = parser.parse(

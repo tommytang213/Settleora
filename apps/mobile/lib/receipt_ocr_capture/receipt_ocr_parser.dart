@@ -389,6 +389,7 @@ class ReceiptOcrParser {
       nordicFailureCounts: nordicFooterOwnershipFailureCounts,
       unresolvedOtherBranchDecisionCounts: unresolvedOtherBranchDecisionCounts,
       itemLineDecisions: extractedItems.lineDecisions,
+      hasCompletePricedItemEvidence: hasCompletePricedItemEvidence,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       merchantName: merchant,
       layoutRows: itemLayoutRows,
@@ -7191,6 +7192,7 @@ class ReceiptOcrParser {
     >
     unresolvedOtherBranchDecisionCounts,
     required List<ReceiptOcrItemLineDecision> itemLineDecisions,
+    required bool hasCompletePricedItemEvidence,
     Set<int> merchantLineIndices = const {},
     String? merchantName,
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
@@ -7291,12 +7293,14 @@ class ReceiptOcrParser {
           nonItemSummaryRows.contains(lineIndex)) {
         continue;
       }
-      // The item pass already owns a selected row. In particular, a printed
+      // A complete item pass owns its selected rows. In particular, a printed
       // amount joined to its currency token (such as 45kr) can be selected as
       // a priced item while the coarse amount-presence check below rejects
-      // that token boundary. Do not count the same row again as unpriced.
-      if (itemLineDecisions[lineIndex] ==
-          ReceiptOcrItemLineDecision.pricedItemSelected) {
+      // that token boundary. A partial or capped pass may own only one fragment
+      // of a row; retain ordinary unresolved counting in that case.
+      if (hasCompletePricedItemEvidence &&
+          itemLineDecisions[lineIndex] ==
+              ReceiptOcrItemLineDecision.pricedItemSelected) {
         continue;
       }
       // Only a recognized buyer heading, its bounded paired address rows,
