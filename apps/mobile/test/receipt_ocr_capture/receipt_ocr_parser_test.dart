@@ -17629,6 +17629,146 @@ Total USD 4.00
       expect(review.safeDiagnosticSummary, isNot(contains('payment')));
     },
   );
+
+  group('complete named metadata field chains', () {
+    for (final hasPrintedSubtotal in [false, true]) {
+      test('owned names preserve subtotal state: $hasPrintedSubtotal', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Corner Market\n'
+          'Customer Name: Suma Reader Account Number: 13572468\n'
+          'Notebook USD 12.00\n'
+          '${hasPrintedSubtotal ? 'Subtotal USD 12.00\n' : ''}'
+          'Carbon Tax USD 2.00\n'
+          'Total USD 14.00',
+        );
+        expect(
+          preview.items.map((item) => item.description),
+          hasPrintedSubtotal ? ['Notebook'] : ['Notebook', 'Carbon Tax'],
+        );
+        expect(preview.tax, hasPrintedSubtotal ? '2.00' : isNull);
+        expect(preview.items.first.lineTotal, '12.00');
+      });
+    }
+
+    const examples = [
+      'Customer Name: Alex Reader Account Number: AC123456',
+      'Customer Name: Alex Reader Account Number: 13572468',
+      'Client Name: Dana Rivera Reference ID: R-87654',
+      'Account Name：李 小林 Customer No.：C-4567',
+      'Customer Name: Bill Tax Account Number: 246810',
+    ];
+    for (final line in examples) {
+      test('whole original row owns its identifier: $line', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Corner Market\n$line\nNotebook USD 12.00\nTotal USD 12.00',
+        );
+        expect(preview.items.map((item) => item.description), ['Notebook']);
+        expect(preview.items.single.lineTotal, '12.00');
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.warnings, isEmpty);
+        expect(preview.tax, isNull);
+        expect(preview.service, isNull);
+        expect(preview.discount, isNull);
+        expect(
+          preview.itemLineDecisions[1],
+          ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+        );
+      });
+    }
+
+    const complete = 'Customer Name: Alex Reader Account Number: 13572468';
+    for (final suffix in [
+      '9.99',
+      'USD 9.99',
+      '9.99 USD',
+      'EUR 9.99',
+      '- 9.99',
+    ]) {
+      test(
+        'a separate trailing price survives ownership rejection: $suffix',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'Corner Market\n$complete $suffix\nTotal USD 9.99',
+          );
+          final retained = preview.items.any(
+            (item) => item.lineTotal == '9.99',
+          );
+          if (!retained) {
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(
+              preview.incompleteAdjustmentReasons,
+              anyOf(
+                contains(
+                  ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem,
+                ),
+                contains(
+                  ReceiptOcrIncompleteAdjustmentReason.detachedAmountSign,
+                ),
+              ),
+            );
+            expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
+          }
+        },
+      );
+    }
+
+    for (final line in [
+      'Customer Name Alex Reader Account Number: AC123456',
+      'Customer Name: Alex Reader Account Number AC123456',
+      'Customer Name: Studio 54 Account Number: AC123456',
+      'Customer Name: Alex Reader Account Number: 1234.00',
+      'Customer Name: Alex Reader Account Number: AC123456 extra',
+    ]) {
+      test('incomplete or qualified fields acquire no ownership: $line', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Corner Market\n$line\nNotebook USD 12.00\nTotal USD 12.00',
+        );
+        expect(
+          preview.itemLineDecisions[1],
+          isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+        );
+      });
+    }
+
+    test('matching source blocks preserve whole field ownership', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Market\n$complete\nNotebook USD 12.00\nTotal USD 12.00',
+        blocks: [
+          _layoutBlock('Corner Market', 0, 0, 20, 250),
+          _layoutBlock('Customer Name:', 1, 1, 20, 130),
+          _layoutBlock('Alex Reader', 2, 1, 150, 280),
+          _layoutBlock('Account Number:', 3, 1, 350, 480),
+          _layoutBlock('13572468', 4, 1, 500, 600),
+          _layoutBlock('Notebook USD 12.00', 5, 2, 20, 600),
+          _layoutBlock('Total USD 12.00', 6, 3, 20, 600),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), ['Notebook']);
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.reviewHints, isEmpty);
+    });
+
+    test('a conflicting block price cannot acquire complete ownership', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Market\n$complete\nNotebook USD 12.00\nTotal USD 12.00',
+        blocks: [
+          _layoutBlock('Corner Market', 0, 0, 20, 250),
+          _layoutBlock('Customer Name:', 1, 1, 20, 130),
+          _layoutBlock('Alex Reader', 2, 1, 150, 280),
+          _layoutBlock('Account Number:', 3, 1, 350, 480),
+          _layoutBlock('13572468', 4, 1, 500, 600),
+          _layoutBlock('USD 9.99', 5, 1, 650, 740),
+          _layoutBlock('Notebook USD 12.00', 6, 2, 20, 600),
+          _layoutBlock('Total USD 12.00', 7, 3, 20, 600),
+        ],
+      );
+      expect(
+        preview.itemLineDecisions[1],
+        isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+      );
+    });
+  });
 }
 
 class _FakeReceiptOcrProvider implements ReceiptOcrProvider {

@@ -98,6 +98,14 @@ class ReceiptOcrParser {
     }
 
     final layoutRows = _matchingLayoutRows(lines, blocks);
+    // Establish ownership from complete original rows, before any merchant
+    // projection can remove neighboring content. Supplied blocks must agree
+    // with all original rows before a new exemption can use their text.
+    final ownedNamedMetadataRows = <int>{
+      if (blocks.isEmpty || layoutRows.length == lines.length)
+        for (var index = 0; index < lines.length; index++)
+          if (_isCompleteNamedMetadataFieldChain(lines[index])) index,
+    };
     final ownedContactBlocks = <ReceiptOcrBlockEvidence>{};
     final supportHoursRows = _ownedSupportHoursRows(
       layoutRows,
@@ -108,7 +116,11 @@ class ReceiptOcrParser {
     final chargeTable = _classifyChargeTableRows(
       lines,
       detachedAmountSignRows: detachedAmountSignRows,
-      nonItemEvidenceRows: {...supportHoursRows, ...meterReadingRows},
+      nonItemEvidenceRows: {
+        ...supportHoursRows,
+        ...meterReadingRows,
+        ...ownedNamedMetadataRows,
+      },
     );
     final chargeTableRows = chargeTable.items;
     final currencyDetection = _detectCurrency(
@@ -279,7 +291,7 @@ class ReceiptOcrParser {
       ownedActivityFeeRows: ownedActivityFeeRows,
       ownedMerchantNameRows: headerRoles.names,
       ownedAccountSummaryRows: utilityAccountSummaryRows,
-      ownedSupportMetadataRows: supportHoursRows,
+      ownedMetadataRows: {...supportHoursRows, ...ownedNamedMetadataRows},
     );
     final localizedHeaderRows = _ownedLocalizedAddressRows(
       lines,
@@ -326,6 +338,7 @@ class ReceiptOcrParser {
       },
       detachedAmountSignRows: detachedAmountSignRows,
       ownedAccountSummaryRows: utilityAccountSummaryRows,
+      ownedNamedMetadataRows: ownedNamedMetadataRows,
       nonItemEvidenceRows: {
         ...supportHoursRows,
         ...meterReadingRows,
@@ -405,6 +418,7 @@ class ReceiptOcrParser {
         ...extractedItems.nonItemSummaryRows,
         ...skewedSummaryLines.keys,
         ...supportHoursRows,
+        ...ownedNamedMetadataRows,
         ...meterReadingRows,
         ...localizedHeaderRows,
         ...brandCopyRows,
@@ -2561,7 +2575,7 @@ class ReceiptOcrParser {
     Set<int> ownedActivityFeeRows = const {},
     Set<int> ownedMerchantNameRows = const {},
     Set<int> ownedAccountSummaryRows = const {},
-    Set<int> ownedSupportMetadataRows = const {},
+    Set<int> ownedMetadataRows = const {},
   }) {
     String? subtotal;
     int? selectedSubtotalRow;
@@ -2636,7 +2650,7 @@ class ReceiptOcrParser {
       // Their service heading must not become an unresolved receipt charge.
       if (ownedMerchantNameRows.contains(lineIndex) ||
           ownedAccountSummaryRows.contains(lineIndex) ||
-          ownedSupportMetadataRows.contains(lineIndex)) {
+          ownedMetadataRows.contains(lineIndex)) {
         continue;
       }
       final subtotalEvidence =
@@ -3522,6 +3536,7 @@ class ReceiptOcrParser {
     Set<int> layoutAdjustmentRows = const {},
     Set<int> detachedAmountSignRows = const {},
     Set<int> ownedAccountSummaryRows = const {},
+    Set<int> ownedNamedMetadataRows = const {},
     Set<int> nonItemEvidenceRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
@@ -3572,6 +3587,14 @@ class ReceiptOcrParser {
         : _ownedFuelPumpRows(lines, layoutRows, fuelItem);
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       var line = lines[lineIndex];
+      // Owned names cannot start a financial section merely because a name
+      // contains a localized subtotal word. Other subtotal paths stay ordered.
+      if (ownedNamedMetadataRows.contains(lineIndex)) {
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.metadataOrHeaderSkipped;
+        wrappedDescriptionLines.clear();
+        continue;
+      }
       if (_hasSubtotalLabel(line, line.toLowerCase())) {
         afterSubtotal = true;
       }
@@ -14407,6 +14430,27 @@ String? _labeledCalendarDate(String line, {bool includeSpecificRoles = false}) {
     dayFirst ? second : first,
     dayFirst ? first : second,
   );
+}
+
+// This predicate owns a complete source row only. Never apply it to an item
+// description after a separate price has been removed. Every character must
+// belong to two explicit fields; extra prices, qualifiers and partial fields
+// remain ordinary item or unresolved evidence.
+bool _isCompleteNamedMetadataFieldChain(String line) {
+  if (_printedCurrencyMarkerMatches(line).isNotEmpty ||
+      _unsupportedIsoCurrencyMarkers(line).isNotEmpty ||
+      RegExp(r'\p{Sc}', unicode: true).hasMatch(line)) {
+    return false;
+  }
+  final match = RegExp(
+    r'^(?:customer|client|account)\s+name\s*[:：]\s*'
+    r'[\p{L}\p{M}][\p{L}\p{M} .\x27’-]{0,119}\s+'
+    r'(?:customer|account|reference)\s+(?:number|no\.?|id)\s*[:：]\s*'
+    r'([a-z0-9][a-z0-9-]{0,63})$',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(line.trim());
+  return match != null && RegExp(r'\d').hasMatch(match.group(1)!);
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
