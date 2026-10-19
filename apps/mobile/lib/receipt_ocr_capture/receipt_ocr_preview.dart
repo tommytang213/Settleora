@@ -35,6 +35,7 @@ class ReceiptOcrPreview {
     this.unresolvedItemLikeCount = 0,
     this.unresolvedItemLikeRoleCounts = const {},
     this.nordicFooterOwnershipFailureCounts = const {},
+    this.unresolvedOtherBranchDecisionCounts = const {},
     this.total,
     this.rawTextLineCount = 0,
     this.confidence,
@@ -84,6 +85,11 @@ class ReceiptOcrPreview {
   final Map<ReceiptOcrUnresolvedItemLikeRole, int> unresolvedItemLikeRoleCounts;
   final Map<ReceiptOcrNordicFooterOwnershipFailure, int>
   nordicFooterOwnershipFailureCounts;
+  final Map<
+    ReceiptOcrUnresolvedOtherBranch,
+    Map<ReceiptOcrItemLineDecision, int>
+  >
+  unresolvedOtherBranchDecisionCounts;
   final String? total;
   final int rawTextLineCount;
   final double? confidence;
@@ -121,6 +127,12 @@ enum ReceiptOcrCurrencyProvenance {
 }
 
 enum ReceiptOcrUnresolvedItemLikeRole { nordicCourtesy, other }
+
+enum ReceiptOcrUnresolvedOtherBranch {
+  explicitModifier,
+  ordinaryCourtesy,
+  otherDescription,
+}
 
 enum ReceiptOcrNordicFooterOwnershipFailure {
   noTotal,

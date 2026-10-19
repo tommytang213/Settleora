@@ -722,6 +722,83 @@ test("retains only the bounded native acceptance schema", () => {
     buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withItemDecisions));
   const unretainedShapeNames = ["noParserAmountToken", "trailingText", "trailingSymbol",
     "joinedAmount", "multipleAmounts", "other"];
+  const unresolvedBranches = ["explicitModifier", "ordinaryCourtesy", "otherDescription"];
+  const emptyOtherDecisions = () => Object.fromEntries(unresolvedBranches.map((branch) => [branch,
+    Object.fromEntries(itemDecisionNames.map((decision) => [decision, 0]))]));
+  const withOtherDecisions = withUnresolvedOwnership.map((entry) => ({ ...entry,
+    unresolvedOtherBranchDecisionCounts: emptyOtherDecisions() }));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withOtherDecisions,
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withOtherDecisions));
+  for (const branch of unresolvedBranches) {
+    for (const decision of itemDecisionNames) {
+      const counts = emptyOtherDecisions();
+      counts[branch][decision] = 8;
+      const rows = [{ ...withOtherDecisions[0], unresolvedOtherBranchDecisionCounts: counts,
+        itemLineDecisionCounts: Object.fromEntries(itemDecisionNames.map((name) => [name, name === decision ? 8 : 0])),
+        unresolvedItemLikeCount: 8, unresolvedItemLikeRoleCounts: { nordicCourtesy: 0, other: 8 },
+        incompleteAdjustmentReasons: ["unresolvedItemLikeLine"] }, ...withOtherDecisions.slice(1)];
+      withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+        ...acceptance, recognitionCoverage: rows,
+      })}`), (log) => assert.deepEqual(
+        buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
+    }
+  }
+  const mixedOtherDecisions = emptyOtherDecisions();
+  for (const branch of unresolvedBranches) mixedOtherDecisions[branch].unclassified = 1;
+  const mixedOtherRows = [{ ...withOtherDecisions[0], unresolvedOtherBranchDecisionCounts: mixedOtherDecisions,
+    unresolvedItemLikeCount: 4, unresolvedItemLikeRoleCounts: { nordicCourtesy: 1, other: 3 },
+    nordicFooterOwnershipFailureCounts: { ...nordicFailures, other: 1 },
+    incompleteAdjustmentReasons: ["unresolvedItemLikeLine"] }, ...withOtherDecisions.slice(1)];
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: mixedOtherRows,
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, mixedOtherRows));
+  const invalidOtherMaps = [
+    null, [], {}, { ...emptyOtherDecisions(), rawText: {} },
+    { ...emptyOtherDecisions(), explicitModifier: null },
+    { ...emptyOtherDecisions(), explicitModifier: [] },
+    { ...emptyOtherDecisions(), explicitModifier: {} },
+    { ...emptyOtherDecisions(), explicitModifier: { ...emptyOtherDecisions().explicitModifier, coordinates: 0 } },
+    ...[-1, 0.5, "private-content", null, 9].map((value) => ({
+      ...emptyOtherDecisions(), explicitModifier: {
+        ...emptyOtherDecisions().explicitModifier, unclassified: value,
+      },
+    })),
+    { ...emptyOtherDecisions(), explicitModifier: {
+      ...emptyOtherDecisions().explicitModifier, unclassified: undefined,
+    } },
+    mixedOtherDecisions,
+  ];
+  for (const counts of invalidOtherMaps) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withOtherDecisions[0],
+        unresolvedOtherBranchDecisionCounts: counts }, ...withOtherDecisions.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
+  }
+  const excessDecisionCounts = emptyOtherDecisions();
+  excessDecisionCounts.explicitModifier.unclassified = 1;
+  excessDecisionCounts.otherDescription.unclassified = 1;
+  const invalidOtherEntries = [
+    { ...withOtherDecisions[0], unresolvedItemLikeCount: undefined,
+      unresolvedItemLikeRoleCounts: undefined, nordicFooterOwnershipFailureCounts: undefined },
+    { ...withOtherDecisions[0], itemLineDecisionCounts: undefined, expectedDescriptionDecisionCounts: undefined },
+    { ...withOtherDecisions[0], unresolvedItemLikeCount: 2,
+      unresolvedItemLikeRoleCounts: { nordicCourtesy: 0, other: 2 },
+      unresolvedOtherBranchDecisionCounts: excessDecisionCounts,
+      incompleteAdjustmentReasons: ["unresolvedItemLikeLine"],
+      itemLineDecisionCounts: { ...itemLineDecisionCounts, unclassified: 1, metadataOrHeaderSkipped: 7 } },
+  ];
+  for (const entry of invalidOtherEntries) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [entry, ...withOtherDecisions.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
+  }
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [withUnresolvedOwnership[0], ...withOtherDecisions.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+    /unresolved branch decisions are incomplete/));
   const expectedUnretainedRowShapeCounts = Object.fromEntries(unretainedShapeNames.map((name) => [name, 0]));
   const selectedRowWithoutExpectedPairDecisionCounts = Object.fromEntries(itemDecisionNames.map((name) => [name, 0]));
   const withRowShapes = withItemDecisions.map((entry) => ({ ...entry,

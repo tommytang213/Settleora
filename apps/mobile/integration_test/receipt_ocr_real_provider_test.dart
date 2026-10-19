@@ -1639,6 +1639,17 @@ Map<String, Object> _boundedRecognitionCoverage(
         reason.name:
             result.preview?.nordicFooterOwnershipFailureCounts[reason] ?? 0,
     },
+    'unresolvedOtherBranchDecisionCounts': {
+      for (final branch in ReceiptOcrUnresolvedOtherBranch.values)
+        branch.name: {
+          for (final decision in ReceiptOcrItemLineDecision.values)
+            decision.name:
+                result
+                    .preview
+                    ?.unresolvedOtherBranchDecisionCounts[branch]?[decision] ??
+                0,
+        },
+    },
     'reviewDecision':
         result.preview?.reviewHintDecision.name ??
         ReceiptOcrReviewDecision.none.name,

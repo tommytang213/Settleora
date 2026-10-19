@@ -378,10 +378,17 @@ class ReceiptOcrParser {
         <ReceiptOcrUnresolvedItemLikeRole, int>{};
     final nordicFooterOwnershipFailureCounts =
         <ReceiptOcrNordicFooterOwnershipFailure, int>{};
+    final unresolvedOtherBranchDecisionCounts =
+        <
+          ReceiptOcrUnresolvedOtherBranch,
+          Map<ReceiptOcrItemLineDecision, int>
+        >{};
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       itemLines,
       unresolvedRoleCounts: unresolvedItemLikeRoleCounts,
       nordicFailureCounts: nordicFooterOwnershipFailureCounts,
+      unresolvedOtherBranchDecisionCounts: unresolvedOtherBranchDecisionCounts,
+      itemLineDecisions: extractedItems.lineDecisions,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       merchantName: merchant,
       layoutRows: itemLayoutRows,
@@ -614,6 +621,12 @@ class ReceiptOcrParser {
       nordicFooterOwnershipFailureCounts: Map.unmodifiable(
         nordicFooterOwnershipFailureCounts,
       ),
+      unresolvedOtherBranchDecisionCounts: Map.unmodifiable({
+        for (final entry in unresolvedOtherBranchDecisionCounts.entries)
+          entry.key: Map<ReceiptOcrItemLineDecision, int>.unmodifiable(
+            entry.value,
+          ),
+      }),
       blocks: blocks,
       runEvidence: runEvidence,
     );
@@ -7172,6 +7185,12 @@ class ReceiptOcrParser {
     required Map<ReceiptOcrUnresolvedItemLikeRole, int> unresolvedRoleCounts,
     required Map<ReceiptOcrNordicFooterOwnershipFailure, int>
     nordicFailureCounts,
+    required Map<
+      ReceiptOcrUnresolvedOtherBranch,
+      Map<ReceiptOcrItemLineDecision, int>
+    >
+    unresolvedOtherBranchDecisionCounts,
+    required List<ReceiptOcrItemLineDecision> itemLineDecisions,
     Set<int> merchantLineIndices = const {},
     String? merchantName,
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
@@ -7218,7 +7237,7 @@ class ReceiptOcrParser {
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
       ReceiptOcrNordicFooterOwnershipFailure? nordicFailure;
-      void recordUnresolved() {
+      void recordUnresolved(ReceiptOcrUnresolvedOtherBranch branch) {
         count += 1;
         final nordic = _isNordicCourtesyFooterPhrase(line);
         final role = nordic
@@ -7229,7 +7248,20 @@ class ReceiptOcrParser {
           (value) => value + 1,
           ifAbsent: () => 1,
         );
-        if (!nordic) return;
+        if (!nordic) {
+          // Correlate only an actual counted row with its already computed
+          // first-pass decision. Never export its text or identity.
+          final decisions = unresolvedOtherBranchDecisionCounts.putIfAbsent(
+            branch,
+            () => <ReceiptOcrItemLineDecision, int>{},
+          );
+          decisions.update(
+            itemLineDecisions[lineIndex],
+            (value) => value + 1,
+            ifAbsent: () => 1,
+          );
+          return;
+        }
         // Report only a line the original pass actually counted. The helper
         // runs before the final-row boundary, so retain its first rejection.
         final failure =
@@ -7381,7 +7413,7 @@ class ReceiptOcrParser {
       // because its name contains a street/building number.
       if (_isPrintedModifierLine(line) && !_isPricedItemLine(line)) {
         if (ownedModifierRows.contains(lineIndex)) continue;
-        recordUnresolved();
+        recordUnresolved(ReceiptOcrUnresolvedOtherBranch.explicitModifier);
         continue;
       }
       final courtesy = _isReceiptCourtesyLine(line);
@@ -7446,7 +7478,11 @@ class ReceiptOcrParser {
       final letterCount = _unicodeLetterPattern.allMatches(cleaned).length;
       if (letterCount >= 2 &&
           (courtesy || !_isLikelyNonItemDescription(cleaned))) {
-        recordUnresolved();
+        recordUnresolved(
+          courtesy
+              ? ReceiptOcrUnresolvedOtherBranch.ordinaryCourtesy
+              : ReceiptOcrUnresolvedOtherBranch.otherDescription,
+        );
       }
     }
 

@@ -10920,6 +10920,106 @@ Total $145.00''',
   );
 
   test(
+    'unresolved other diagnostics correlate the actual branch and first pass',
+    () {
+      const parser = ReceiptOcrParser();
+      final description = parser.parse(
+        'Cafe\nExtra shot\nCoffee USD 45.00\nTotal USD 45.00',
+      );
+      final modifier = parser.parse(
+        'Cafe\n+ Extra shot\nCoffee USD 45.00\nTotal USD 45.00',
+      );
+      ReceiptOcrPreview courtesy(double left) {
+        const lines = [
+          'Cafe',
+          'Coffee USD 45.00',
+          'Total USD 45.00',
+          'Thank you',
+        ];
+        return parser.parse(
+          lines.join('\n'),
+          blocks: [
+            for (final (index, line) in lines.indexed)
+              _layoutBlock(
+                line,
+                index,
+                index,
+                index == 3 ? left : 20,
+                index == 3 ? left + 70 : 350,
+              ),
+          ],
+        );
+      }
+
+      final leftCourtesy = courtesy(20);
+      final centeredCourtesy = courtesy(150);
+      expect(description.unresolvedOtherBranchDecisionCounts, {
+        ReceiptOcrUnresolvedOtherBranch.otherDescription: {
+          description.itemLineDecisions[1]: 1,
+        },
+      });
+      expect(modifier.unresolvedOtherBranchDecisionCounts, {
+        ReceiptOcrUnresolvedOtherBranch.explicitModifier: {
+          modifier.itemLineDecisions[1]: 1,
+        },
+      });
+      expect(leftCourtesy.unresolvedOtherBranchDecisionCounts, {
+        ReceiptOcrUnresolvedOtherBranch.ordinaryCourtesy: {
+          leftCourtesy.itemLineDecisions[3]: 1,
+        },
+      });
+      expect(centeredCourtesy.unresolvedOtherBranchDecisionCounts, isEmpty);
+      for (final preview in [
+        description,
+        modifier,
+        leftCourtesy,
+        centeredCourtesy,
+      ]) {
+        final counts = preview.unresolvedOtherBranchDecisionCounts;
+        expect(
+          counts.values
+              .expand((value) => value.values)
+              .fold(0, (a, b) => a + b),
+          preview.unresolvedItemLikeRoleCounts[ReceiptOcrUnresolvedItemLikeRole
+                  .other] ??
+              0,
+        );
+        for (final decision in ReceiptOcrItemLineDecision.values) {
+          final count = counts.values.fold(
+            0,
+            (sum, branch) => sum + (branch[decision] ?? 0),
+          );
+          expect(
+            count,
+            lessThanOrEqualTo(
+              preview.itemLineDecisions
+                  .where((value) => value == decision)
+                  .length,
+            ),
+          );
+        }
+        expect(preview.items.single.description, 'Coffee');
+        expect(preview.items.single.lineTotal, '45.00');
+        expect(preview.total, '45.00');
+        expect(
+          () => counts[ReceiptOcrUnresolvedOtherBranch.otherDescription] = {},
+          throwsUnsupportedError,
+        );
+        for (final branch in counts.values) {
+          expect(
+            () => branch[ReceiptOcrItemLineDecision.unclassified] = 42,
+            throwsUnsupportedError,
+          );
+        }
+      }
+      expect(description.reviewHints, isNotEmpty);
+      expect(modifier.reviewHints, isNotEmpty);
+      expect(leftCourtesy.reviewHints, isNotEmpty);
+      expect(centeredCourtesy.reviewHints, isEmpty);
+    },
+  );
+
+  test(
     'Nordic diagnostics retain first ownership failure and unresolved products',
     () {
       const parser = ReceiptOcrParser();

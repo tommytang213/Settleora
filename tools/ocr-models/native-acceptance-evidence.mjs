@@ -728,6 +728,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const unresolvedKeys = ["unresolvedItemLikeCount", "unresolvedItemLikeRoleCounts",
       "nordicFooterOwnershipFailureCounts"];
     const hasUnresolvedOwnership = unresolvedKeys.some((key) => Object.hasOwn(entry, key));
+    const hasUnresolvedOtherDecisions = Object.hasOwn(entry, "unresolvedOtherBranchDecisionCounts");
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
@@ -741,6 +742,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasRowShapes ? rowShapeKeys : []),
       ...(hasPatternReasons ? patternReasonKeys : []),
       ...(hasUnresolvedOwnership ? unresolvedKeys : []),
+      ...(hasUnresolvedOtherDecisions ? ["unresolvedOtherBranchDecisionCounts"] : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -880,6 +882,27 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const itemDecisionTotal = hasItemDecisions
       ? Object.values(entry.itemLineDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
         `recognitionCoverage[${index}].itemLineDecisionCounts`), 0) : null;
+    let unresolvedOtherBranchDecisionCounts = null;
+    if (hasUnresolvedOtherDecisions) {
+      const label = `recognitionCoverage[${index}].unresolvedOtherBranchDecisionCounts`;
+      const branches = ["explicitModifier", "ordinaryCourtesy", "otherDescription"];
+      assertExactKeys(entry.unresolvedOtherBranchDecisionCounts, branches, label);
+      if (!hasUnresolvedOwnership || !hasItemDecisions) {
+        throw new Error("Recognition coverage unresolved branch decisions require ownership and item decisions");
+      }
+      unresolvedOtherBranchDecisionCounts = Object.fromEntries(branches.map((branch) => {
+        assertExactKeys(entry.unresolvedOtherBranchDecisionCounts[branch], itemDecisionNames, `${label}.${branch}`);
+        return [branch, Object.fromEntries(itemDecisionNames.map((decision) => [decision,
+          boundedInteger(entry.unresolvedOtherBranchDecisionCounts[branch][decision], `${label}.${branch}.${decision}`)]))];
+      }));
+      const counts = Object.values(unresolvedOtherBranchDecisionCounts).flatMap(Object.values);
+      if (counts.some((count) => count > parserLineCount) ||
+          counts.reduce((sum, count) => sum + count, 0) !== unresolvedOwnership.unresolvedItemLikeRoleCounts.other ||
+          itemDecisionNames.some((decision) => branches.reduce((sum, branch) =>
+            sum + unresolvedOtherBranchDecisionCounts[branch][decision], 0) > entry.itemLineDecisionCounts[decision])) {
+        throw new Error("Recognition coverage unresolved branch decisions are invalid");
+      }
+    }
     const expectedDecisionTotal = hasItemDecisions
       ? Object.values(entry.expectedDescriptionDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
         `recognitionCoverage[${index}].expectedDescriptionDecisionCounts`), 0) : null;
@@ -927,6 +950,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     coverageFixtures.add(fixtureId);
     return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
       ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),
+      ...(hasUnresolvedOtherDecisions ? { unresolvedOtherBranchDecisionCounts } : {}),
       totalExactTokenSeen: entry.totalExactTokenSeen, expectedItemCount, itemDescriptionsExactTextSeen,
       ...(hasLayoutCoverage ? { rowCount, actualItemCount,
         merchantExactTextInOneRow: entry.merchantExactTextInOneRow,
@@ -988,6 +1012,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "unresolvedItemLikeCount")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "unresolvedItemLikeCount"))) {
     throw new Error("Recognition coverage unresolved ownership is incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "unresolvedOtherBranchDecisionCounts")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "unresolvedOtherBranchDecisionCounts"))) {
+    throw new Error("Recognition coverage unresolved branch decisions are incomplete");
   }
   if (Object.hasOwn(value, "recognitionCoverage") &&
       (boundedRecognitionCoverage.length !== expectedFixtureIds.size ||
