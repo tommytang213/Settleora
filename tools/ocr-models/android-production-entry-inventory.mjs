@@ -3,6 +3,14 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 reviewed product and runner observations source at 09792a86.
+  // One strict offline Flutter 3.44.8 Release build verified 2743 tracked blobs.
+  // Independent review approved this exact source/representation pair.
+  // Real signature and complete v2 structure passed; prior APKs retained.
+  // Native/iOS/hosted and merge gates remain separate.
+  "5e15ef278329eb638a111f5f12e9d4e02d725283a3e042a6169798e8f3068137": Object.freeze([
+    "5bfd97c7e72c02e885e64bb42fc4a74886c7b0348ee34e42e1b1921a3a44e1a7",
+  ]),
   // #1309 reviewed numeric routing diagnostic source at d00163f7.
   // One strict offline Flutter 3.44.8 Release build verified 2742 tracked blobs.
   // Independent review approved this exact source/representation pair.
