@@ -768,6 +768,69 @@ test("retains only the bounded native acceptance schema", () => {
     assert.deepEqual(bounded.recognitionCoverage, reviewMismatchRows);
   });
 
+  const withUi = withProducts.map((entry) => ({
+    ...entry, uiWitness: [1, 3, 503 | (entry.actualItemCount > 0 ? 8 : 0), 0, 1, 0],
+  }));
+  const checkUiRows = (rows, expectedError = null, strict = acceptance) => {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...strict, recognitionCoverage: rows,
+    })}`), (log) => {
+      if (expectedError) {
+        assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), expectedError);
+      } else {
+        const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+        assert.deepEqual(evidence.acceptance.recognitionCoverage, rows);
+        assert.deepEqual(evidence.acceptance.mismatches, strict.mismatches);
+        assert.equal(evidence.acceptance.mismatchCount, strict.mismatchCount);
+        // The existing strict failure is retained even after every structural
+        // replay operation succeeds. There is no product-domain promotion.
+        assert.equal(isCompleteEvidence(evidence), false);
+      }
+    });
+  };
+  checkUiRows(withUi);
+  checkUiRows([{ ...withUi[0], actualItemCount: 0,
+    expectedItemDescriptionsInDraft: 0, expectedItemPairsInDraft: 0,
+    uiWitness: [1, 3, 503, 0, 1, 0] }, ...withUi.slice(1)]);
+  for (const uiWitness of [[1, 2, 1, 1, 1, 0], [1, 4, 7, 4, 1, 0],
+    [1, 4, 0, 0, 0, 0], [1, 4, 255, 128, 1, 1],
+    [1, 4, 1, 1, 0, 0], [1, 4, 511, 256, 2, 0]]) {
+    checkUiRows([{ ...withUi[0], uiWitness }, ...withUi.slice(1)]);
+  }
+  for (const [productState, field] of processingCases) {
+    const state = productState === 0 ? 0 : 1;
+    const rows = [{ ...withUi[0], previewPresent: false,
+      headerFieldStates: headerMap("noPreview"), productObservation: productTuple(withUi[0], productState),
+      uiWitness: [1, state, 0, 0, 0, 0] }, ...withUi.slice(1)];
+    checkUiRows(rows, null, { ...acceptance, mismatches: [{ fixtureId: rows[0].fixtureId, field }] });
+    checkUiRows([{ ...rows[0], uiWitness: [1, 3, 511, 0, 1, 0] }, ...rows.slice(1)], /UI witness/,
+      { ...acceptance, mismatches: [{ fixtureId: rows[0].fixtureId, field }] });
+  }
+  for (const uiWitness of [null, {}, "private content", [], [1, 3, 511, 0, 1],
+    [1, 3, 511, 0, 1, 0, 0], [2, 3, 511, 0, 1, 0], ["1", 3, 511, 0, 1, 0],
+    [1, true, 511, 0, 1, 0], [1, -1, 511, 0, 1, 0], [1, 5, 511, 0, 1, 0],
+    [1, 3, 511.5, 0, 1, 0], [1, 3, 1023, 0, 1, 0], [1, 4, 3, 4, 1, 0],
+    [1, 3, 503, 0, 1, 0], [1, 3, 511, 1, 1, 0], [1, 3, 511, 0, 0, 0],
+    [1, 3, 511, 0, 2, 0], [1, 3, 511, 0, 1, 1], [1, 4, 0, 0, -1, 0],
+    [1, 4, 0, 0, 10001, 0], [1, 4, 0, 0, 0, 10001], [1, 4, 511, 0, 1, 0],
+    [1, 4, 128, 0, 1, 1], [1, 4, 256, 0, 0, 0],
+    [1, 4, 128, 128, 1, 0], [1, 4, 256, 256, 1, 0],
+    [1, 4, 129, 0, 1, 1], [1, 4, 257, 0, 2, 0],
+    [1, 4, 129, 128, 1, 0], [1, 4, 257, 256, 1, 0],
+    [1, 4, 1, 0, 0, 0], [1, 4, 3, 0, 0, 0],
+    [1, 4, 2, 0, 1, 0], [1, 4, 3, 1, 1, 0], [1, 4, 256, 256, 0, 0],
+    [1, 0, 0, 0, 0, 0], [1, 1, 0, 0, 0, 0], [1, 2, 1, 0, 1, 0]]) {
+    checkUiRows([{ ...withUi[0], uiWitness }, ...withUi.slice(1)], /UI witness/);
+  }
+  checkUiRows([withProducts[0], ...withUi.slice(1)], /UI witnesses are incomplete/);
+  for (const uiWitness of [[1, 4, 11, 0, 1, 0], [1, 4, 11, 8, 1, 0]]) {
+    checkUiRows([{ ...withUi[0], actualItemCount: 0,
+      expectedItemDescriptionsInDraft: 0, expectedItemPairsInDraft: 0,
+      uiWitness }, ...withUi.slice(1)], /UI witness/);
+  }
+  const { productObservation: omittedProduct, ...withoutProduct } = withUi[0];
+  checkUiRows([withoutProduct, ...withUi.slice(1)], /UI witness|product observations/);
+
   const withReviewDecisions = acceptance.recognitionCoverage.map((entry) => ({
     ...entry, reviewDecision: "none", incompleteAdjustmentReasons: [],
   }));
@@ -979,6 +1042,7 @@ test("retains only the bounded native acceptance schema", () => {
     ...withHeaderFields[index], ...withReviewDecisions[index],
     ...withOtherDecisions[index], ...withPatternReasons[index],
     productObservation: productTuple(withHeaderFields[index]),
+    uiWitness: [1, 3, 503 | (withHeaderFields[index].actualItemCount > 0 ? 8 : 0), 0, 1, 0],
     numericRoutingObservation: { ...numericRoutingObservation,
       counts: [256, 256, 224, 224, 224, 192, 192], bins: Array(8).fill(32) },
   }));

@@ -1,5 +1,6 @@
 import 'support/receipt_ocr_fixture_contract.dart';
 import 'support/receipt_ocr_model_catalog_evidence.dart';
+import 'support/receipt_ocr_ui_witness.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -385,6 +386,7 @@ void main() {
               expected,
             ),
             'productObservation': receiptOcrFixtureProductObservation(expected),
+            'uiWitness': receiptOcrUiWitnessUnattempted,
           });
           final fixtureMismatches = <_BoundedMismatch>[];
           if (expected.keys
@@ -402,6 +404,7 @@ void main() {
           final fixtureBytes = await fixtures.load(entry['file']! as String);
           final stopwatch = Stopwatch()..start();
           ReceiptOcrResult? observedResult;
+          ReceiptOcrRequest? observedRequest;
           try {
             failure.set('corpus_normalization', fixtureId: fixtureId);
             ReceiptImageArtifactResult? artifact;
@@ -431,13 +434,12 @@ void main() {
             } else {
               try {
                 failure.set('corpus_provider', fixtureId: fixtureId);
-                final result = await provider.extractReceipt(
-                  ReceiptOcrRequest(
-                    bytes: artifact.normalizedJpegBytes!,
-                    contentType: artifact.normalizedContentType!,
-                    fallbackCurrency: entry['fallback_currency'] as String?,
-                  ),
+                final request = ReceiptOcrRequest(
+                  bytes: artifact.normalizedJpegBytes!,
+                  contentType: artifact.normalizedContentType!,
+                  fallbackCurrency: entry['fallback_currency'] as String?,
                 );
+                final result = await provider.extractReceipt(request);
                 final evidence = result.preview?.runEvidence;
                 if (evidence?.totalTimeMs != null) {
                   nativeDurationsMs.add(evidence!.totalTimeMs!);
@@ -468,6 +470,7 @@ void main() {
                 recognitionCoverage[coverageIndex] =
                     _boundedRecognitionCoverage(fixtureId, result, expected);
                 observedResult = result;
+                observedRequest = request;
               } catch (_) {
                 // Preserve only a bounded category. Native exception details can
                 // contain OCR text, local paths, or provider diagnostics and must
@@ -488,6 +491,18 @@ void main() {
                   result: observedResult,
                   processingFailed: observedResult == null,
                 );
+            // Sequential UI replay is outside each OCR stopwatch. The existing
+            // whole-corpus RSS sampler still includes its allocations, and UI
+            // work may affect later OCR timings. No second native call occurs.
+            recognitionCoverage[coverageIndex]['uiWitness'] =
+                observedRequest == null || observedResult == null
+                ? [1, 1, 0, 0, 0, 0]
+                : await receiptOcrUiWitness(
+                    tester,
+                    sourceBytes: fixtureBytes,
+                    sourceRequest: observedRequest,
+                    result: observedResult,
+                  );
           }
           if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
           mismatches.addAll(fixtureMismatches);

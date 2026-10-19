@@ -760,6 +760,38 @@ function sanitizeProductObservation(value, entry, expectedKind, mismatches) {
   return [...value];
 }
 
+function sanitizeUiWitness(value, entry) {
+  if (!Array.isArray(value) || value.length !== 6 ||
+      value.some((part) => !Number.isSafeInteger(part))) {
+    throw new Error("UI witness tuple is invalid");
+  }
+  const [version, state, checked, failed, calls, repositoryCalls] = value;
+  const productState = entry.productObservation?.[1];
+  const expectedChecks = 503 | (entry.actualItemCount > 0 ? 8 : 0);
+  const associationPassed = Boolean(checked & 1) && !(failed & 1);
+  const contextChecksMatch = (!associationPassed || calls >= 1) &&
+    (!(checked & ~1) || associationPassed) &&
+    (!(checked & 8) || (Number.isSafeInteger(entry.actualItemCount) && entry.actualItemCount > 0));
+  const counterChecksMatch = (!(checked & 128) || Boolean(failed & 128) === (repositoryCalls !== 0)) &&
+    (!(checked & 256) || Boolean(failed & 256) === (calls !== 1));
+  const validState = state === 0 ? productState === 0 && checked === 0 && failed === 0 && calls === 0 && repositoryCalls === 0
+    : state === 1 ? (productState === 1 || productState === 2) && checked === 0 && failed === 0 && calls === 0 && repositoryCalls === 0
+      : state === 2 ? productState === 3 && checked === 1 && failed === 1 && calls === 1 && repositoryCalls === 0
+        : state === 3 ? productState === 3 && Number.isSafeInteger(entry.actualItemCount) &&
+          checked === expectedChecks && failed === 0 && calls === 1 && repositoryCalls === 0
+          : state === 4 && productState === 3 &&
+            (checked !== expectedChecks || failed !== 0 || calls !== 1 || repositoryCalls !== 0);
+  // These bits describe selected structural operations only. They never set a
+  // product-domain bit or change strict/native/stderr acceptance semantics.
+  if (version !== 1 || checked < 0 || checked > 511 || failed < 0 || failed > 511 ||
+      (failed & ~checked) !== 0 || calls < 0 || calls > 10000 ||
+      repositoryCalls < 0 || repositoryCalls > 10000 ||
+      !contextChecksMatch || !counterChecksMatch || !validState) {
+    throw new Error("UI witness facts are inconsistent");
+  }
+  return [...value];
+}
+
 function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Acceptance marker must contain an object");
@@ -827,6 +859,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
     const hasUnresolvedOtherDecisions = Object.hasOwn(entry, "unresolvedOtherBranchDecisionCounts");
     const hasNumericRoutingObservation = Object.hasOwn(entry, "numericRoutingObservation");
     const hasProductObservation = Object.hasOwn(entry, "productObservation");
+    const hasUiWitness = Object.hasOwn(entry, "uiWitness");
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
@@ -843,6 +876,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
       ...(hasUnresolvedOtherDecisions ? ["unresolvedOtherBranchDecisionCounts"] : []),
       ...(hasNumericRoutingObservation ? ["numericRoutingObservation"] : []),
       ...(hasProductObservation ? ["productObservation"] : []),
+      ...(hasUiWitness ? ["uiWitness"] : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -1051,6 +1085,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
     return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
       ...(hasProductObservation ? { productObservation: sanitizeProductObservation(
         entry.productObservation, entry, expectedReviewKinds.get(fixtureId), mismatches) } : {}),
+      ...(hasUiWitness ? { uiWitness: sanitizeUiWitness(entry.uiWitness, entry) } : {}),
       ...(hasNumericRoutingObservation ? {
         numericRoutingObservation: sanitizeNumericRoutingObservation(entry.numericRoutingObservation) } : {}),
       ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),
@@ -1083,6 +1118,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
   });
   if (hasProducts && boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "productObservation"))) {
     throw new Error("Recognition coverage product observations are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "uiWitness")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "uiWitness"))) {
+    throw new Error("Recognition coverage UI witnesses are incomplete");
   }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewHintCategory")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewHintCategory"))) {

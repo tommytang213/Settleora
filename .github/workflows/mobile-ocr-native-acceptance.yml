@@ -128,6 +128,11 @@ jobs:
           fi
           echo "Android KVM preflight passed"
 
+      - name: Initialize bounded Android setup observation
+        id: setup_boundary
+        shell: bash
+        run: printf '%s\n' 'settleora_setup_before_action=1' >> "$GITHUB_OUTPUT" || true
+
       - name: Execute Android real-provider acceptance on trusted emulator
         id: acceptance
         timeout-minutes: 180
@@ -142,7 +147,38 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -no-metrics -gpu swiftshader_indirect
           working-directory: apps/mobile
-          script: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"
+          pre-emulator-launch-script: printf '%s\n' 'settleora_setup_pre_launch=1' >> "$GITHUB_OUTPUT" || true
+          script: |
+            printf '%s\n' 'settleora_setup_callback=1' >> "$GITHUB_OUTPUT" || true
+            bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"
+
+      - name: Collect bounded Android setup observation
+        if: ${{ always() }}
+        env:
+          SETUP_BEFORE_ACTION: ${{ steps.setup_boundary.outputs.settleora_setup_before_action }}
+          SETUP_PRE_LAUNCH: ${{ steps.acceptance.outputs.settleora_setup_pre_launch }}
+          SETUP_CALLBACK: ${{ steps.acceptance.outputs.settleora_setup_callback }}
+          SETUP_ACTION_OUTCOME: ${{ steps.acceptance.outcome }}
+        shell: bash
+        run: |
+          node tools/ocr-models/android-setup-boundary.mjs \
+            --source-sha="$EXPECTED_HEAD" \
+            --run-id="$GITHUB_RUN_ID" \
+            --run-attempt="$GITHUB_RUN_ATTEMPT" \
+            --before-action="$SETUP_BEFORE_ACTION" \
+            --pre-launch="$SETUP_PRE_LAUNCH" \
+            --callback="$SETUP_CALLBACK" \
+            --action-outcome="$SETUP_ACTION_OUTCOME" \
+            --output="$RUNNER_TEMP/android-ocr-setup-boundary.json"
+
+      - name: Upload bounded Android setup observation
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-ocr-setup-boundary-${{ env.EXPECTED_HEAD }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-ocr-setup-boundary.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Measure Android package and model payload delta
         if: ${{ !cancelled() && steps.kvm_preflight.outcome == 'success' }}
