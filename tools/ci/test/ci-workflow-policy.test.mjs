@@ -15,6 +15,16 @@ const runCommands = (job) => stepsFor(job).map((step) => step.run ?? step.with?.
 const flutterVersion = '3.44.8';
 const sharedMobileReleaseGate = './tool/validate-release.sh';
 
+function assertAndroidNativeAcceptanceCallbackPolicy(script) {
+  // Only the metadata append tolerates failure. Keep native execution separate
+  // and unwrapped so its exit status and stderr still reach the emulator action.
+  assert.equal(script, [
+    String.raw`printf '%s\n' 'settleora_setup_callback=1' >> "$GITHUB_OUTPUT" || true`,
+    'bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"',
+    '',
+  ].join('\n'));
+}
+
 function assertNativeFixtureScoringPolicy(nativeTest, fixtureContract) {
   assert.match(nativeTest, /import 'support\/receipt_ocr_fixture_contract\.dart';/);
   assert.match(
@@ -371,8 +381,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const androidCommands = runCommands(native.jobs['android-native-acceptance']).join('\n');
   const androidRunner = read('tools/ocr-models/run-android-native-acceptance.sh');
   const androidExecution = native.jobs['android-native-acceptance'].steps.find((step) => step.id === 'acceptance');
-  assert.equal(androidExecution.with.script, 'bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"');
-  assert.equal(androidExecution.with.script.includes('\n'), false);
+  assertAndroidNativeAcceptanceCallbackPolicy(androidExecution.with.script);
   assert.ok(androidRunner.includes('$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager'));
   assert.ok(androidCommands.includes('$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer'));
   assert.ok(androidRunner.includes('$ANDROID_HOME/platform-tools/adb'));
@@ -699,6 +708,30 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);
   assert.doesNotMatch(serialized, /ios-pod-lock-/);
+});
+
+test('Android native callback policy rejects masked exits and extra commands', async (t) => {
+  const callback = workflow('mobile-ocr-native-acceptance.yml')
+    .jobs['android-native-acceptance'].steps.find((step) => step.id === 'acceptance').with.script;
+  const nativeCommand = 'bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"';
+  const marker = callback.split('\n')[0];
+  assert.doesNotThrow(() => assertAndroidNativeAcceptanceCallbackPolicy(callback));
+  const mutations = [
+    ['missing marker', nativeCommand],
+    ['native exit masked', callback.replace(nativeCommand, `${nativeCommand} || true`)],
+    ['native stderr discarded', callback.replace(nativeCommand, `${nativeCommand} 2>/dev/null`)],
+    ['marker after native command', `${nativeCommand}\n${marker}\n`],
+    ['trailing success command', `${callback}true\n`],
+    ['extra command before native', callback.replace(nativeCommand, `echo unreviewed\n${nativeCommand}`)],
+    ['joined marker and native command', callback.replace('|| true\nbash', '|| true; bash')],
+    ['wrapped native command', callback.replace(nativeCommand, `(${nativeCommand})`)],
+  ];
+  for (const [name, mutated] of mutations) {
+    await t.test(name, () => {
+      assert.notEqual(mutated, callback);
+      assert.throws(() => assertAndroidNativeAcceptanceCallbackPolicy(mutated));
+    });
+  }
 });
 
 test('native fixture scoring policy rejects removed comparisons and disconnected scoring', async (t) => {
