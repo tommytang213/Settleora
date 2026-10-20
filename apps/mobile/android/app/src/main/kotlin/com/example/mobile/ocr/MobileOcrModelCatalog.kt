@@ -12,6 +12,7 @@ internal data class DetectionModelSpec(
 internal data class MobileOcrModelCatalog(
     val detection: DetectionModelSpec,
     val recognizers: List<RecognizerSpec>,
+    val rupeeRecovery: RecognizerSpec? = null,
 ) {
     companion object {
         private const val ASSET_ROOT = "receipt_ocr_models"
@@ -25,6 +26,7 @@ internal data class MobileOcrModelCatalog(
             val packs = root.getJSONArray("packs")
             var detection: DetectionModelSpec? = null
             val recognizers = mutableListOf<RecognizerSpec>()
+            var rupeeRecovery: RecognizerSpec? = null
             for (index in 0 until packs.length()) {
                 val pack = packs.getJSONObject(index)
                 val directory = pack.getString("assetDirectory")
@@ -46,6 +48,20 @@ internal data class MobileOcrModelCatalog(
                         configAssetPath = "$ASSET_ROOT/$directory/inference.yml",
                         acceptedScripts = scriptEvidence(pack),
                     )
+                    "recognition_recovery" -> {
+                        check(rupeeRecovery == null &&
+                            pack.getString("recoveryPolicy") == "corroborated_rupee_money") {
+                            "Unsupported or duplicate OCR recovery pack"
+                        }
+                        rupeeRecovery = RecognizerSpec(
+                            modelPackId = pack.getString("modelPackId"),
+                            modelVersion = pack.getString("modelVersion"),
+                            modelAssetPath = modelPath,
+                            configAssetPath = "$ASSET_ROOT/$directory/inference.yml",
+                            acceptedScripts = scriptEvidence(pack),
+                        )
+                        check(rupeeRecovery.acceptedScripts == setOf(ScriptEvidence.COMMON))
+                    }
                     else -> error("Unsupported OCR model role")
                 }
             }
@@ -53,6 +69,7 @@ internal data class MobileOcrModelCatalog(
             return MobileOcrModelCatalog(
                 detection = checkNotNull(detection) { "OCR catalog has no detector" },
                 recognizers = recognizers,
+                rupeeRecovery = rupeeRecovery,
             )
         }
 

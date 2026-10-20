@@ -9819,6 +9819,17 @@ class ReceiptOcrReviewSourceValues {
   static const Set<ReceiptOcrReviewSource> values = {onDevice, manualEntry, importedReviewedData};
 }
 
+/// Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Both unresolved states block draft Apply. included_unresolved retains high-confidence source evidence of an included-tax label while the reviewed arithmetic is contradictory; it does not authorize Apply or prove an amount. Omitted or null on a new review retains legacy additive behavior.
+typedef ReceiptOcrTaxReconciliationMode = String;
+class ReceiptOcrTaxReconciliationModeValues {
+  const ReceiptOcrTaxReconciliationModeValues._();
+  static const ReceiptOcrTaxReconciliationMode addToBase = "add_to_base";
+  static const ReceiptOcrTaxReconciliationMode alreadyInBase = "already_in_base";
+  static const ReceiptOcrTaxReconciliationMode unresolved = "unresolved";
+  static const ReceiptOcrTaxReconciliationMode includedUnresolved = "included_unresolved";
+  static const Set<ReceiptOcrTaxReconciliationMode> values = {addToBase, alreadyInBase, unresolved, includedUnresolved};
+}
+
 /// Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.
 typedef ReceiptOcrCandidateAmount = String;
 
@@ -9938,6 +9949,75 @@ class ReceiptOcrReviewAdjustmentResponse {
   }
 }
 
+/// Stable role of provisional printed header evidence.
+typedef ReceiptOcrReviewHeaderRole = String;
+class ReceiptOcrReviewHeaderRoleValues {
+  const ReceiptOcrReviewHeaderRoleValues._();
+  static const ReceiptOcrReviewHeaderRole subtotal = "subtotal";
+  static const ReceiptOcrReviewHeaderRole tax = "tax";
+  static const ReceiptOcrReviewHeaderRole serviceCharge = "service_charge";
+  static const ReceiptOcrReviewHeaderRole discount = "discount";
+  static const Set<ReceiptOcrReviewHeaderRole> values = {subtotal, tax, serviceCharge, discount};
+}
+
+/// A bounded printed header candidate with its own supported currency. It is never authoritative bill money, including if the selected review currency later changes to match the printed currency.
+class ReceiptOcrReviewHeaderEvidenceRequest {
+  const ReceiptOcrReviewHeaderEvidenceRequest({
+    required this.role,
+    required this.amount,
+    required this.currency,
+  });
+
+  final ReceiptOcrReviewHeaderRole role;
+  final ReceiptOcrCandidateAmount amount;
+  final CurrencyCode currency;
+
+  factory ReceiptOcrReviewHeaderEvidenceRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewHeaderEvidenceRequest(
+      role: json["role"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "role": role,
+      "amount": amount,
+      "currency": currency,
+    };
+  }
+}
+
+/// Persisted provisional printed header candidate; apply ignores this collection.
+class ReceiptOcrReviewHeaderEvidenceResponse {
+  const ReceiptOcrReviewHeaderEvidenceResponse({
+    required this.role,
+    required this.amount,
+    required this.currency,
+  });
+
+  final ReceiptOcrReviewHeaderRole role;
+  final ReceiptOcrCandidateAmount amount;
+  final CurrencyCode currency;
+
+  factory ReceiptOcrReviewHeaderEvidenceResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewHeaderEvidenceResponse(
+      role: json["role"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "role": role,
+      "amount": amount,
+      "currency": currency,
+    };
+  }
+}
+
 /// One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
 class ReceiptOcrReviewLineRequest {
   static const Object _unsetQuantity = Object();
@@ -10005,6 +10085,7 @@ class ReceiptOcrReviewUpsertRequest {
   static const Object _unsetCurrency = Object();
   static const Object _unsetSubtotalAmount = Object();
   static const Object _unsetTaxAmount = Object();
+  static const Object _unsetTaxReconciliationMode = Object();
   static const Object _unsetServiceChargeAmount = Object();
   static const Object _unsetDiscountAmount = Object();
   static const Object _unsetGrandTotalAmount = Object();
@@ -10017,11 +10098,13 @@ class ReceiptOcrReviewUpsertRequest {
     Object? currency = _unsetCurrency,
     Object? subtotalAmount = _unsetSubtotalAmount,
     Object? taxAmount = _unsetTaxAmount,
+    Object? taxReconciliationMode = _unsetTaxReconciliationMode,
     Object? serviceChargeAmount = _unsetServiceChargeAmount,
     Object? discountAmount = _unsetDiscountAmount,
     Object? grandTotalAmount = _unsetGrandTotalAmount,
     this.lines,
     this.adjustmentEvidence,
+    this.headerEvidence,
   })
       : merchantText = identical(merchantText, _unsetMerchantText) ? null : merchantText as String?,
         _hasMerchantText = !identical(merchantText, _unsetMerchantText),
@@ -10033,6 +10116,8 @@ class ReceiptOcrReviewUpsertRequest {
         _hasSubtotalAmount = !identical(subtotalAmount, _unsetSubtotalAmount),
         taxAmount = identical(taxAmount, _unsetTaxAmount) ? null : taxAmount as ReceiptOcrCandidateAmount?,
         _hasTaxAmount = !identical(taxAmount, _unsetTaxAmount),
+        taxReconciliationMode = identical(taxReconciliationMode, _unsetTaxReconciliationMode) ? null : taxReconciliationMode as ReceiptOcrTaxReconciliationMode?,
+        _hasTaxReconciliationMode = !identical(taxReconciliationMode, _unsetTaxReconciliationMode),
         serviceChargeAmount = identical(serviceChargeAmount, _unsetServiceChargeAmount) ? null : serviceChargeAmount as ReceiptOcrCandidateAmount?,
         _hasServiceChargeAmount = !identical(serviceChargeAmount, _unsetServiceChargeAmount),
         discountAmount = identical(discountAmount, _unsetDiscountAmount) ? null : discountAmount as ReceiptOcrCandidateAmount?,
@@ -10055,6 +10140,9 @@ class ReceiptOcrReviewUpsertRequest {
   final bool _hasSubtotalAmount;
   final ReceiptOcrCandidateAmount? taxAmount;
   final bool _hasTaxAmount;
+  /// Optional explicit review tax relation. An old-client omitted or null update preserves a stored explicit mode only when currency, header money, and ordered line values are unchanged; otherwise the server stores unresolved and blocks Apply. The server validates exact amounts before Apply.
+  final ReceiptOcrTaxReconciliationMode? taxReconciliationMode;
+  final bool _hasTaxReconciliationMode;
   final ReceiptOcrCandidateAmount? serviceChargeAmount;
   final bool _hasServiceChargeAmount;
   /// Optional non-negative discount magnitude candidate. It is not a signed authoritative adjustment.
@@ -10066,6 +10154,8 @@ class ReceiptOcrReviewUpsertRequest {
   final List<ReceiptOcrReviewLineRequest>? lines;
   /// Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
   final List<ReceiptOcrReviewAdjustmentRequest>? adjustmentEvidence;
+  /// Optional provisional printed header candidates, usually foreign to the selected review currency. Evidence remains review-only if a later currency edit makes the currencies match. At most one entry per role; a scalar and evidence cannot share a role. Absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
+  final List<ReceiptOcrReviewHeaderEvidenceRequest>? headerEvidence;
 
   factory ReceiptOcrReviewUpsertRequest.fromJson(JsonObject json) {
     return ReceiptOcrReviewUpsertRequest(
@@ -10086,6 +10176,9 @@ class ReceiptOcrReviewUpsertRequest {
       taxAmount: json.containsKey("taxAmount")
           ? json["taxAmount"] == null ? null : json["taxAmount"] as String
           : _unsetTaxAmount,
+      taxReconciliationMode: json.containsKey("taxReconciliationMode")
+          ? json["taxReconciliationMode"] == null ? null : json["taxReconciliationMode"] as String
+          : _unsetTaxReconciliationMode,
       serviceChargeAmount: json.containsKey("serviceChargeAmount")
           ? json["serviceChargeAmount"] == null ? null : json["serviceChargeAmount"] as String
           : _unsetServiceChargeAmount,
@@ -10097,6 +10190,7 @@ class ReceiptOcrReviewUpsertRequest {
           : _unsetGrandTotalAmount,
       lines: json["lines"] == null ? null : (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       adjustmentEvidence: json["adjustmentEvidence"] == null ? null : (json["adjustmentEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewAdjustmentRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      headerEvidence: json["headerEvidence"] == null ? null : (json["headerEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewHeaderEvidenceRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
     );
   }
 
@@ -10106,11 +10200,13 @@ class ReceiptOcrReviewUpsertRequest {
     final currencyJsonValue = currency;
     final subtotalAmountJsonValue = subtotalAmount;
     final taxAmountJsonValue = taxAmount;
+    final taxReconciliationModeJsonValue = taxReconciliationMode;
     final serviceChargeAmountJsonValue = serviceChargeAmount;
     final discountAmountJsonValue = discountAmount;
     final grandTotalAmountJsonValue = grandTotalAmount;
     final linesJsonValue = lines;
     final adjustmentEvidenceJsonValue = adjustmentEvidence;
+    final headerEvidenceJsonValue = headerEvidence;
 
     return {
       "status": status,
@@ -10120,11 +10216,13 @@ class ReceiptOcrReviewUpsertRequest {
       if (_hasCurrency) "currency": currencyJsonValue,
       if (_hasSubtotalAmount) "subtotalAmount": subtotalAmountJsonValue,
       if (_hasTaxAmount) "taxAmount": taxAmountJsonValue,
+      if (_hasTaxReconciliationMode) "taxReconciliationMode": taxReconciliationModeJsonValue,
       if (_hasServiceChargeAmount) "serviceChargeAmount": serviceChargeAmountJsonValue,
       if (_hasDiscountAmount) "discountAmount": discountAmountJsonValue,
       if (_hasGrandTotalAmount) "grandTotalAmount": grandTotalAmountJsonValue,
       if (linesJsonValue != null) "lines": linesJsonValue.map((item) => item.toJson()).toList(growable: false),
       if (adjustmentEvidenceJsonValue != null) "adjustmentEvidence": adjustmentEvidenceJsonValue.map((item) => item.toJson()).toList(growable: false),
+      if (headerEvidenceJsonValue != null) "headerEvidence": headerEvidenceJsonValue.map((item) => item.toJson()).toList(growable: false),
     };
   }
 }
@@ -10214,7 +10312,9 @@ class ReceiptOcrReviewSummaryResponse {
     required this.source,
     required this.merchantText,
     required this.currency,
+    required this.taxReconciliationMode,
     required this.lineCount,
+    required this.headerEvidence,
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -10232,8 +10332,11 @@ class ReceiptOcrReviewSummaryResponse {
   /// Optional reviewed or candidate merchant text. It is bounded review data, not raw OCR full text.
   final String? merchantText;
   final CurrencyCode? currency;
+  /// Stored review-level tax reconciliation mode. Null is the legacy additive state.
+  final ReceiptOcrTaxReconciliationMode? taxReconciliationMode;
   /// Number of bounded reviewed/candidate line rows linked to the review.
   final int lineCount;
+  final List<ReceiptOcrReviewHeaderEvidenceResponse> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 
@@ -10247,7 +10350,9 @@ class ReceiptOcrReviewSummaryResponse {
       source: json["source"] as String,
       merchantText: json["merchantText"] == null ? null : json["merchantText"] as String,
       currency: json["currency"] == null ? null : json["currency"] as String,
+      taxReconciliationMode: json["taxReconciliationMode"] == null ? null : json["taxReconciliationMode"] as String,
       lineCount: (json["lineCount"] as num).toInt(),
+      headerEvidence: (json["headerEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewHeaderEvidenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
     );
@@ -10257,6 +10362,7 @@ class ReceiptOcrReviewSummaryResponse {
     final groupIdJsonValue = groupId;
     final merchantTextJsonValue = merchantText;
     final currencyJsonValue = currency;
+    final taxReconciliationModeJsonValue = taxReconciliationMode;
 
     return {
       "reviewId": reviewId,
@@ -10267,7 +10373,9 @@ class ReceiptOcrReviewSummaryResponse {
       "source": source,
       "merchantText": merchantTextJsonValue,
       "currency": currencyJsonValue,
+      "taxReconciliationMode": taxReconciliationModeJsonValue,
       "lineCount": lineCount,
+      "headerEvidence": headerEvidence.map((item) => item.toJson()).toList(growable: false),
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
     };
@@ -10286,6 +10394,7 @@ class ReceiptOcrReviewResponse {
     required this.merchantText,
     required this.receiptIssuedAtUtc,
     required this.currency,
+    required this.taxReconciliationMode,
     required this.subtotalAmount,
     required this.taxAmount,
     required this.serviceChargeAmount,
@@ -10293,6 +10402,7 @@ class ReceiptOcrReviewResponse {
     required this.grandTotalAmount,
     required this.lines,
     required this.adjustmentEvidence,
+    required this.headerEvidence,
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -10310,6 +10420,8 @@ class ReceiptOcrReviewResponse {
   final String? merchantText;
   final DateTime? receiptIssuedAtUtc;
   final CurrencyCode? currency;
+  /// Stored review-level tax reconciliation mode. Null is the legacy additive state.
+  final ReceiptOcrTaxReconciliationMode? taxReconciliationMode;
   final String? subtotalAmount;
   final String? taxAmount;
   final String? serviceChargeAmount;
@@ -10317,6 +10429,7 @@ class ReceiptOcrReviewResponse {
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLineResponse> lines;
   final List<ReceiptOcrReviewAdjustmentResponse> adjustmentEvidence;
+  final List<ReceiptOcrReviewHeaderEvidenceResponse> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 
@@ -10331,6 +10444,7 @@ class ReceiptOcrReviewResponse {
       merchantText: json["merchantText"] == null ? null : json["merchantText"] as String,
       receiptIssuedAtUtc: json["receiptIssuedAtUtc"] == null ? null : DateTime.parse(json["receiptIssuedAtUtc"] as String),
       currency: json["currency"] == null ? null : json["currency"] as String,
+      taxReconciliationMode: json["taxReconciliationMode"] == null ? null : json["taxReconciliationMode"] as String,
       subtotalAmount: json["subtotalAmount"] == null ? null : json["subtotalAmount"] as String,
       taxAmount: json["taxAmount"] == null ? null : json["taxAmount"] as String,
       serviceChargeAmount: json["serviceChargeAmount"] == null ? null : json["serviceChargeAmount"] as String,
@@ -10338,6 +10452,7 @@ class ReceiptOcrReviewResponse {
       grandTotalAmount: json["grandTotalAmount"] == null ? null : json["grandTotalAmount"] as String,
       lines: (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       adjustmentEvidence: (json["adjustmentEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewAdjustmentResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      headerEvidence: (json["headerEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewHeaderEvidenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
     );
@@ -10348,6 +10463,7 @@ class ReceiptOcrReviewResponse {
     final merchantTextJsonValue = merchantText;
     final receiptIssuedAtUtcJsonValue = receiptIssuedAtUtc;
     final currencyJsonValue = currency;
+    final taxReconciliationModeJsonValue = taxReconciliationMode;
     final subtotalAmountJsonValue = subtotalAmount;
     final taxAmountJsonValue = taxAmount;
     final serviceChargeAmountJsonValue = serviceChargeAmount;
@@ -10364,6 +10480,7 @@ class ReceiptOcrReviewResponse {
       "merchantText": merchantTextJsonValue,
       "receiptIssuedAtUtc": receiptIssuedAtUtcJsonValue == null ? null : receiptIssuedAtUtcJsonValue.toUtc().toIso8601String(),
       "currency": currencyJsonValue,
+      "taxReconciliationMode": taxReconciliationModeJsonValue,
       "subtotalAmount": subtotalAmountJsonValue,
       "taxAmount": taxAmountJsonValue,
       "serviceChargeAmount": serviceChargeAmountJsonValue,
@@ -10371,6 +10488,7 @@ class ReceiptOcrReviewResponse {
       "grandTotalAmount": grandTotalAmountJsonValue,
       "lines": lines.map((item) => item.toJson()).toList(growable: false),
       "adjustmentEvidence": adjustmentEvidence.map((item) => item.toJson()).toList(growable: false),
+      "headerEvidence": headerEvidence.map((item) => item.toJson()).toList(growable: false),
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
     };
@@ -10576,9 +10694,11 @@ class ReceiptOcrReviewApplyPreviewIssueCodeValues {
   static const ReceiptOcrReviewApplyPreviewIssueCode lineTotalMismatch = "line_total_mismatch";
   static const ReceiptOcrReviewApplyPreviewIssueCode lineSumMismatch = "line_sum_mismatch";
   static const ReceiptOcrReviewApplyPreviewIssueCode headerTotalMismatch = "header_total_mismatch";
+  static const ReceiptOcrReviewApplyPreviewIssueCode taxReconciliationUnresolved = "tax_reconciliation_unresolved";
+  static const ReceiptOcrReviewApplyPreviewIssueCode taxReconciliationInvalid = "tax_reconciliation_invalid";
   static const ReceiptOcrReviewApplyPreviewIssueCode adjustmentsNotAutoApplied = "adjustments_not_auto_applied";
   static const ReceiptOcrReviewApplyPreviewIssueCode adjustmentCurrencyNotReconciled = "adjustment_currency_not_reconciled";
-  static const Set<ReceiptOcrReviewApplyPreviewIssueCode> values = {unsupportedReviewStatus, unsupportedReviewSource, missingCurrency, unsupportedCurrency, currencyMismatch, missingGrandTotal, emptyLineSet, lineTotalMissing, unsupportedLineState, lineTotalMismatch, lineSumMismatch, headerTotalMismatch, adjustmentsNotAutoApplied, adjustmentCurrencyNotReconciled};
+  static const Set<ReceiptOcrReviewApplyPreviewIssueCode> values = {unsupportedReviewStatus, unsupportedReviewSource, missingCurrency, unsupportedCurrency, currencyMismatch, missingGrandTotal, emptyLineSet, lineTotalMissing, unsupportedLineState, lineTotalMismatch, lineSumMismatch, headerTotalMismatch, taxReconciliationUnresolved, taxReconciliationInvalid, adjustmentsNotAutoApplied, adjustmentCurrencyNotReconciled};
 }
 
 /// Safe proposed bill-item candidate derived from one bounded receipt OCR review line. It excludes bill-item IDs, split allocation input, raw OCR text, file bytes, storage/provider internals, payment details, and unrelated users.

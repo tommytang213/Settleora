@@ -17,17 +17,36 @@ test("committed mobile OCR catalog is pinned and internally consistent", async (
   assert.equal(catalog.distribution, "bundled_global_core");
   assert.equal(catalog.license, "Apache-2.0");
   assert.deepEqual(
-    catalog.packs.flatMap((pack) => pack.routeScripts).filter((script) => script !== "Any").sort(),
+    catalog.packs.filter((pack) => pack.role === "recognition")
+      .flatMap((pack) => pack.routeScripts).sort(),
     ["Arabic", "Cyrillic", "Devanagari", "HanSimplified", "HanTraditional", "Japanese", "Korean", "Latin", "Thai"],
   );
   const result = await verifyCatalog(repoRoot);
   assert.equal(result.ok, true, result.failures.join("\n"));
 });
 
+test("rupee recovery stays separate from the six mandatory original recognizers", () => {
+  const { catalog } = loadCatalog(repoRoot);
+  assert.equal(catalog.catalogVersion, "2026.10.12.1");
+  const original = catalog.packs.filter((pack) => pack.role === "recognition");
+  assert.equal(original.length, 6);
+  assert.equal(original.filter((pack) => pack.routeScripts.includes("Latin")).length, 1);
+  assert.equal(original.find((pack) => pack.routeScripts.includes("Latin")).modelPackId,
+    "paddleocr.ppocrv6.small.rec.common");
+  assert.deepEqual(catalog.packs.filter((pack) => pack.role === "recognition_recovery")
+    .map((pack) => ({ id: pack.modelPackId, policy: pack.recoveryPolicy, scripts: pack.routeScripts })), [
+    { id: "paddleocr.ppocrv6.tiny.rec.common", policy: "corroborated_rupee_money", scripts: ["Latin"] },
+  ]);
+  assert.equal(catalog.acceptanceContract.status, "pending_native_provider_acceptance");
+});
+
 test("native semantic binding covers the exact provider execution path", () => {
   const { catalog } = loadCatalog(repoRoot);
   const expected = [
     "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart",
+    "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart",
+    "apps/mobile/integration_test/support/receipt_ocr_model_catalog_evidence.dart",
+    "apps/mobile/integration_test/support/receipt_ocr_ui_witness.dart",
     "apps/mobile/lib/app/app_bootstrap.dart",
     "apps/mobile/lib/app/server_mode_shell.dart",
     "apps/mobile/lib/bills/bill_list_screen.dart",
@@ -42,17 +61,20 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/pubspec.lock",
     "apps/mobile/android/app/build.gradle.kts",
     "apps/mobile/android/app/proguard-rules.pro",
-    "apps/mobile/android/app/src/release/kotlin/dev/flutter/plugins/integration_test/IntegrationTestPlugin.kt",
     "apps/mobile/android/gradle/verification-metadata.xml",
     "apps/mobile/android/settings.gradle.kts",
     "apps/mobile/android/app/src/androidTest/kotlin/com/example/mobile/ocr/ReceiptOcrCorpusInstrumentedTest.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt",
+    "apps/mobile/android/app/src/debug/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt",
+    "apps/mobile/android/app/src/profile/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt",
+    "apps/mobile/android/app/src/release/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptDocumentOrientation.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrFailureClassifier.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOrientationSelector.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RupeeCurrencyRecovery.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt",
@@ -77,6 +99,8 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/OpenCVUtils.kt",
     "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/YamlUtils.kt",
     "apps/mobile/ios/Podfile",
+    "apps/mobile/ios/Podfile.lock",
+    "tools/ocr-models/baselines/ios-pre-native-Podfile.lock",
     "apps/mobile/ios/Runner.xcodeproj/project.pbxproj",
     "apps/mobile/ios/Runner/AppDelegate.swift",
     "apps/mobile/ios/Runner/PaddleOCR/Engine/BoxSorter.swift",
@@ -99,11 +123,36 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/ios/Runner/PaddleOCR/ReceiptOcrOrdering.swift",
     "apps/mobile/ios/Runner/PaddleOCR/SettleoraORTSessionManager.swift",
     "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift",
+    "apps/mobile/ios/Runner/PaddleOCR/RupeeCurrencyRecovery.swift",
     "apps/mobile/ios/Runner/PaddleOCR/SettleoraPaddleOcrEngine.swift",
     "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.cpp",
     "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.hpp",
     "apps/mobile/ios/Runner/Runner-Bridging-Header.h",
     "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift",
+    "packages/google_mlkit_commons/CHANGELOG.md",
+    "packages/google_mlkit_commons/LICENSE",
+    "packages/google_mlkit_commons/README.md",
+    "packages/google_mlkit_commons/SETTLEORA_PATCH.md",
+    "packages/google_mlkit_commons/UPSTREAM.json",
+    "packages/google_mlkit_commons/analysis_options.yaml",
+    "packages/google_mlkit_commons/android/build.gradle",
+    "packages/google_mlkit_commons/android/settings.gradle",
+    "packages/google_mlkit_commons/android/src/main/AndroidManifest.xml",
+    "packages/google_mlkit_commons/android/src/main/java/com/google_mlkit_commons/GenericModelManager.java",
+    "packages/google_mlkit_commons/android/src/main/java/com/google_mlkit_commons/GoogleMlKitCommonsPlugin.java",
+    "packages/google_mlkit_commons/android/src/main/java/com/google_mlkit_commons/InputImageConverter.java",
+    "packages/google_mlkit_commons/example/README.md",
+    "packages/google_mlkit_commons/ios/Classes/GenericModelManager.h",
+    "packages/google_mlkit_commons/ios/Classes/GenericModelManager.m",
+    "packages/google_mlkit_commons/ios/Classes/GoogleMlKitCommonsPlugin.h",
+    "packages/google_mlkit_commons/ios/Classes/GoogleMlKitCommonsPlugin.m",
+    "packages/google_mlkit_commons/ios/Classes/MLKVisionImage+FlutterPlugin.m",
+    "packages/google_mlkit_commons/ios/google_mlkit_commons.podspec",
+    "packages/google_mlkit_commons/lib/google_mlkit_commons.dart",
+    "packages/google_mlkit_commons/lib/src/input_image.dart",
+    "packages/google_mlkit_commons/lib/src/model_manager.dart",
+    "packages/google_mlkit_commons/lib/src/rect.dart",
+    "packages/google_mlkit_commons/pubspec.yaml",
   ].sort();
   const actual = catalog.acceptanceContract.nativeSemantics.files
     .map((source) => source.path)
