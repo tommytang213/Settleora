@@ -517,9 +517,10 @@ class ReceiptOcrParser {
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
     }
-    // Typed unretained evidence remains ambiguous when a matching subtotal
-    // has no grand total available for the separate arithmetic review hints.
-    if (extractedItems.unretainedPricedItem) {
+    // Unretained prices and retained currency conflicts remain ambiguous
+    // even without a grand total for the separate arithmetic review hints.
+    if (extractedItems.unretainedPricedItem ||
+        itemCandidates.any((item) => item.currencyUnresolved)) {
       warnings.add(
         'Some item price evidence remains unresolved. Review the original receipt before applying.',
       );

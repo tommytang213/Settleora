@@ -415,6 +415,67 @@ void main() {
     }
   }
 
+  // Owned conflicting currencies need a visible warning independently of totals.
+  for (final slope in [0.0, 0.1]) {
+    for (final includeTotal in [false, true]) {
+      test(
+        'owned currency conflict stays visible; slope=$slope; total=$includeTotal',
+        () {
+          final p = ownershipReceipt(
+            slope: slope,
+            amount: 'USD 2.00',
+            marker: 'EUR',
+            nearby: true,
+            includeTotal: includeTotal,
+          );
+          expect(p.currency, 'USD');
+          expect(p.subtotal, '2.00');
+          expect(p.total, includeTotal ? '2.00' : isNull);
+          expect(p.items.length, 1);
+          final item = p.items.single;
+          expect(item.description, 'Grapes');
+          expect(item.quantity, '0.500');
+          expect(item.unitPrice, '4.00');
+          expect(item.lineTotal, '2.00');
+          expect(item.currency, isNull);
+          expect(item.currencyUnresolved, isTrue);
+          expect(p.blocks.map((b) => b.text), contains('EUR'));
+          expect(p.adjustmentsComplete, isTrue);
+          expect(p.incompleteAdjustmentReasons, isEmpty);
+          expect(p.reviewHints, isEmpty);
+          expectSavedMoneyWithheld(p);
+          expect(p.warnings, isNotEmpty);
+        },
+      );
+      test(
+        'nearby matching currency stays quiet; slope=$slope; total=$includeTotal',
+        () {
+          final p = ownershipReceipt(
+            slope: slope,
+            amount: 'USD 2.00',
+            marker: 'USD',
+            nearby: true,
+            includeTotal: includeTotal,
+          );
+          expect(p.currency, 'USD');
+          expect(p.subtotal, '2.00');
+          expect(p.total, includeTotal ? '2.00' : isNull);
+          expect(p.items.length, 1);
+          expect(p.items.single.currency, 'USD');
+          expect(p.items.single.currencyUnresolved, isFalse);
+          expect(p.items.single.lineTotal, '2.00');
+          expect(p.adjustmentsComplete, isTrue);
+          expect(p.incompleteAdjustmentReasons, isEmpty);
+          expect(p.reviewHints, isEmpty);
+          expect(p.warnings, isEmpty);
+          final lines = receiptOcrReviewLinesFromPreview(p);
+          expect(lines.single.unitPriceAmount, isNotNull);
+          expect(lines.single.lineTotalAmount, isNotNull);
+        },
+      );
+    }
+  }
+
   // Additional ownership controls. The original 29 controls above are intact.
   for (final slope in [0.0, 0.1]) {
     for (final amount in ['2.00', 'USD 2.00']) {
