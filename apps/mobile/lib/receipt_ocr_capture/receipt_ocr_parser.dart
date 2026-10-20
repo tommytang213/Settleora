@@ -106,6 +106,12 @@ class ReceiptOcrParser {
         for (var index = 0; index < lines.length; index++)
           if (_isCompleteNamedMetadataFieldChain(lines[index])) index,
     };
+    final ownedCalendarMetadataRows = <int>{
+      if (blocks.isEmpty || layoutRows.length == lines.length)
+        for (var index = 0; index < lines.length; index++)
+          if (_isCompleteOriginalCalendarMetadataRow(lines[index])) index,
+    };
+    detachedAmountSignRows.removeAll(ownedCalendarMetadataRows);
     final ownedContactBlocks = <ReceiptOcrBlockEvidence>{};
     final supportHoursRows = _ownedSupportHoursRows(
       layoutRows,
@@ -120,6 +126,7 @@ class ReceiptOcrParser {
         ...supportHoursRows,
         ...meterReadingRows,
         ...ownedNamedMetadataRows,
+        ...ownedCalendarMetadataRows,
       },
     );
     final chargeTableRows = chargeTable.items;
@@ -291,7 +298,11 @@ class ReceiptOcrParser {
       ownedActivityFeeRows: ownedActivityFeeRows,
       ownedMerchantNameRows: headerRoles.names,
       ownedAccountSummaryRows: utilityAccountSummaryRows,
-      ownedMetadataRows: {...supportHoursRows, ...ownedNamedMetadataRows},
+      ownedMetadataRows: {
+        ...supportHoursRows,
+        ...ownedNamedMetadataRows,
+        ...ownedCalendarMetadataRows,
+      },
     );
     final localizedHeaderRows = _ownedLocalizedAddressRows(
       lines,
@@ -338,7 +349,10 @@ class ReceiptOcrParser {
       },
       detachedAmountSignRows: detachedAmountSignRows,
       ownedAccountSummaryRows: utilityAccountSummaryRows,
-      ownedNamedMetadataRows: ownedNamedMetadataRows,
+      ownedNamedMetadataRows: {
+        ...ownedNamedMetadataRows,
+        ...ownedCalendarMetadataRows,
+      },
       nonItemEvidenceRows: {
         ...supportHoursRows,
         ...meterReadingRows,
@@ -419,6 +433,7 @@ class ReceiptOcrParser {
         ...skewedSummaryLines.keys,
         ...supportHoursRows,
         ...ownedNamedMetadataRows,
+        ...ownedCalendarMetadataRows,
         ...meterReadingRows,
         ...localizedHeaderRows,
         ...brandCopyRows,
@@ -3761,7 +3776,8 @@ class ReceiptOcrParser {
         wrappedDescriptionLines.clear();
         continue;
       }
-      if (ambiguousLayoutItemRows.remove(lineIndex)) {
+      final ambiguousLayoutItemRow = ambiguousLayoutItemRows.remove(lineIndex);
+      if (ambiguousLayoutItemRow) {
         // Keep a complete text-derived draft with all printed evidence, but
         // do not treat its competing monetary cells as resolved ownership.
         unretainedPricedItem = true;
@@ -3961,8 +3977,15 @@ class ReceiptOcrParser {
       // A text match cannot discard conflicting currency evidence already
       // proven to belong to this row's bounded monetary cells.
       final ownedCurrencyConflict = layoutFallback?.currencyUnresolved == true;
+      // An outside marker keeps this row reviewable, but cannot override the
+      // denomination established by its bounded monetary cells when flattened.
+      final boundedCurrencyItem = ambiguousLayoutItemRow
+          ? layoutFallback
+          : null;
       final lineCurrency = ownedCurrencyConflict
           ? null
+          : boundedCurrencyItem != null
+          ? boundedCurrencyItem.currency
           : _itemCurrencyFromPrintedText(
               line,
               currency,
@@ -3970,7 +3993,8 @@ class ReceiptOcrParser {
             );
       final currencyUnresolved =
           ownedCurrencyConflict ||
-          _selectedItemCurrencyUnresolved(line, currency);
+          (boundedCurrencyItem?.currencyUnresolved ??
+              _selectedItemCurrencyUnresolved(line, currency));
       final lineConfidence = lineIndex < layoutRows.length
           ? _averageBlockConfidence(layoutRows[lineIndex])
           : null;
@@ -4448,12 +4472,14 @@ class ReceiptOcrParser {
       ...descriptionBlocks,
       ?includedSizeBlock,
     ]..sort((left, right) => left.order.compareTo(right.order));
+    final ownedItemCells = [
+      amountCell,
+      ...nearbyCurrencyBlocks,
+      ...ownedDescriptionBlocks,
+    ];
     if (ownedDescriptionBlocks.isNotEmpty &&
-        !_chargeTableCellsSharePrintedRow([
-          amountCell,
-          ...nearbyCurrencyBlocks,
-          ...ownedDescriptionBlocks,
-        ])) {
+        !_chargeTableCellsSharePrintedRow(ownedItemCells) &&
+        !_itemCellsShareProjectedPrintedRow(ownedItemCells)) {
       rejectedRows.add(rowIndex);
       return null;
     }
@@ -9758,6 +9784,69 @@ double _blockLeft(ReceiptOcrBlockEvidence block) =>
 double _blockRight(ReceiptOcrBlockEvidence block) =>
     block.points.map((point) => point.x).reduce((x, y) => x > y ? x : y);
 
+// A sloped item row can have disjoint axis-aligned bands. Require each
+// detector quadrilateral to independently support the same printed baseline;
+// a provider row number alone never establishes ownership.
+bool _itemCellsShareProjectedPrintedRow(List<ReceiptOcrBlockEvidence> cells) {
+  if (cells.length < 2) return false;
+  final geometry = <({double x, double y, double height, double slope})>[];
+  for (final cell in cells) {
+    final p = cell.points;
+    if (p.length != 4 ||
+        p.any((v) => !v.x.isFinite || !v.y.isFinite) ||
+        p[1].x <= p[0].x ||
+        p[2].x <= p[3].x ||
+        p[3].y <= p[0].y ||
+        p[2].y <= p[1].y) {
+      return false;
+    }
+    final turns = [
+      for (var i = 0; i < 4; i++)
+        (p[(i + 1) % 4].x - p[i].x) * (p[(i + 2) % 4].y - p[(i + 1) % 4].y) -
+            (p[(i + 1) % 4].y - p[i].y) * (p[(i + 2) % 4].x - p[(i + 1) % 4].x),
+    ];
+    if (turns.any((v) => !v.isFinite || v <= 0)) return false;
+    final leftX = (p[0].x + p[3].x) / 2;
+    final rightX = (p[1].x + p[2].x) / 2;
+    final leftY = (p[0].y + p[3].y) / 2;
+    final rightY = (p[1].y + p[2].y) / 2;
+    final slope = (rightY - leftY) / (rightX - leftX);
+    final topSlope = (p[1].y - p[0].y) / (p[1].x - p[0].x);
+    final bottomSlope = (p[2].y - p[3].y) / (p[2].x - p[3].x);
+    if (!slope.isFinite ||
+        !topSlope.isFinite ||
+        !bottomSlope.isFinite ||
+        slope.abs() > 0.2 ||
+        (topSlope - bottomSlope).abs() > 0.025) {
+      return false;
+    }
+    final x = (leftX + rightX) / 2;
+    final y = (leftY + rightY) / 2;
+    final height = ((p[3].y - p[0].y) + (p[2].y - p[1].y)) / 2;
+    if (!x.isFinite || !y.isFinite || !height.isFinite || height <= 0) {
+      return false;
+    }
+    geometry.add((x: x, y: y, height: height, slope: slope));
+  }
+  for (var i = 0; i < geometry.length; i++) {
+    for (var j = i + 1; j < geometry.length; j++) {
+      final a = geometry[i], b = geometry[j];
+      final height = a.height < b.height ? a.height : b.height;
+      final dx = b.x - a.x, dy = b.y - a.y;
+      final residualA = dy - dx * a.slope;
+      final residualB = dy - dx * b.slope;
+      if (!residualA.isFinite ||
+          !residualB.isFinite ||
+          (a.slope - b.slope).abs() > 0.025 ||
+          residualA.abs() > height * 0.35 ||
+          residualB.abs() > height * 0.35) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool _chargeTableCellsSharePrintedRow(List<ReceiptOcrBlockEvidence> cells) {
   if (cells.length < 2) return false;
   final bands = <({double top, double bottom})>[];
@@ -14324,6 +14413,29 @@ bool _isCompleteCalendarMetadataLine(String line) {
   );
   return withoutClock != line &&
       _labeledCalendarDate(withoutClock, includeSpecificRoles: true) != null;
+}
+
+// Own only complete original calendar fields. A two-field chain needs
+// two explicit colon labels and complete values; extra money or prose cannot
+// disappear through a matching prefix or a stripped item description.
+bool _isCompleteOriginalCalendarMetadataRow(String line) {
+  if (_isCompleteCalendarMetadataLine(line)) return true;
+  final text = line.trim();
+  final labels = RegExp(
+    '(?<!\\S)(?:$_calendarRoleQualifierPattern'
+    '(?:$_specificCalendarRolePattern\\s+(?:date|on)|issued)|'
+    '(?:(?:customer|account|bill|invoice|statement|payment)\\s+)?due\\s+date|'
+    '(?:date|datum|dato|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक))'
+    '\\s*[:：]\\s*',
+    caseSensitive: false,
+  ).allMatches(text).toList(growable: false);
+  if (labels.length != 2 || labels.first.start != 0) return false;
+  for (var i = 0; i < labels.length; i++) {
+    final end = i + 1 < labels.length ? labels[i + 1].start : text.length;
+    final value = text.substring(labels[i].end, end).trim();
+    if (!_isCompleteCalendarMetadataLine('Date: $value')) return false;
+  }
+  return true;
 }
 
 bool _hasUnownedAmountAfterCalendarField(String line) {
