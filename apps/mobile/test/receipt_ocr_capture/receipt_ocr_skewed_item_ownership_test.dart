@@ -40,8 +40,9 @@ Fragment fragment(String text, Quad points, {String? direction}) =>
 bool oldAxisBandAccepts(List<Quad> cells) {
   final bands = <(double, double)>[];
   for (final p in cells) {
-    if (p.length != 4 || p.any((v) => !v.$1.isFinite || !v.$2.isFinite))
+    if (p.length != 4 || p.any((v) => !v.$1.isFinite || !v.$2.isFinite)) {
       return false;
+    }
     final xs = p.map((v) => v.$1).toList()..sort();
     final ys = p.map((v) => v.$2).toList()..sort();
     if (xs.last <= xs.first || ys.last <= ys.first) return false;
@@ -278,7 +279,7 @@ void main() {
     ),
   };
   for (final entry in rejected.entries) {
-    test('does not admit ' + entry.key, () {
+    test('does not admit ${entry.key}', () {
       final (d, a) = entry.value;
       expect(
         oldAxisBandAccepts([a, d]),
