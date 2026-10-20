@@ -1072,6 +1072,16 @@ class ReceiptOcrParser {
     void Function()? onAmbiguousReceiptDate,
     void Function()? onStayOnlyDate,
   }) {
+    // Split only fully owned original calendar rows. Keep the original row
+    // position for scoring and allow wrapped roles only on its first field.
+    final dateFields = [
+      for (var index = 0; index < lines.length; index += 1)
+        for (final (fieldIndex, field)
+            in (_completeOriginalCalendarMetadataFields(lines[index]) ??
+                    [lines[index]])
+                .indexed)
+          (text: field, sourceIndex: index, firstInRow: fieldIndex == 0),
+    ];
     ({String date, int score})? best;
     final explicitReceiptDates = <String>{};
     // Values owned by the same primary date role must corroborate. Keep
@@ -1094,12 +1104,15 @@ class ReceiptOcrParser {
     final standaloneStayLabel = RegExp(
       r'^\s*(?:stay|check[ -]?in|check[ -]?out|arrival|departure)(?:\s+(?:date|dates|period))?\s*[:：]?\s*$',
     );
-    for (var index = 0; index < lines.length; index += 1) {
-      final line = lines[index];
+    for (final field in dateFields) {
+      final index = field.sourceIndex;
+      final line = field.text;
       final lower = line.toLowerCase();
       // Whole generic date fields contribute conflict evidence without
       // outranking specific bill/invoice/statement roles below.
-      final labeledDate = _labeledCalendarDate(line);
+      final labeledDate = _labeledCalendarDate(
+        _calendarMetadataFieldWithoutClock(line),
+      );
       // Reading order only breaks nearby ties; an explicit role must remain
       // stronger than a distant unlabeled date on a long document.
       final positionScore = 100 - (index < 10 ? index : 10);
@@ -1158,6 +1171,7 @@ class ReceiptOcrParser {
                     lower.substring(0, nearest.start),
                   ) ||
                   (lower.substring(0, nearest.start).trim().isEmpty &&
+                      field.firstInRow &&
                       index > 0 &&
                       standaloneDateQualifier.hasMatch(
                         lines[index - 1].toLowerCase(),
@@ -1187,6 +1201,7 @@ class ReceiptOcrParser {
           }
         } else if (date != null &&
             selectTransactionDate &&
+            field.firstInRow &&
             precedingStayRange &&
             RegExp(
               r'^\s*(?:(?:to|through|until)|[-–—])?\s*$',
@@ -1195,7 +1210,9 @@ class ReceiptOcrParser {
           // label. A new transaction label still establishes its own role.
           sawStayDate = true;
           return;
-        } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
+        } else if (field.firstInRow &&
+            index > 0 &&
+            !_lineHasAmount(lines[index - 1])) {
           final previous = lines[index - 1].toLowerCase();
           // A standalone qualifier can own a wrapped primary label and its
           // immediately following date, but cannot cross unrelated text.
@@ -14408,6 +14425,15 @@ final _specificCalendarFieldLabelPattern = RegExp(
   caseSensitive: false,
 );
 
+String _calendarMetadataFieldWithoutClock(String line) => line.replaceFirst(
+  RegExp(
+    r'\s+(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?|'
+    r'(?:0?[1-9]|1[0-2]):[0-5]\d(?::[0-5]\d)?\s*(?:am|pm))\s*$',
+    caseSensitive: false,
+  ),
+  '',
+);
+
 // Metadata ownership is separate from transaction-date selection. Recognize
 // only a complete field, optionally followed by an unambiguous clock, so a
 // date separator is not a monetary sign and extra prices remain reviewable.
@@ -14415,14 +14441,7 @@ bool _isCompleteCalendarMetadataLine(String line) {
   if (_labeledCalendarDate(line, includeSpecificRoles: true) != null) {
     return true;
   }
-  final withoutClock = line.replaceFirst(
-    RegExp(
-      r'\s+(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?|'
-      r'(?:0?[1-9]|1[0-2]):[0-5]\d(?::[0-5]\d)?\s*(?:am|pm))\s*$',
-      caseSensitive: false,
-    ),
-    '',
-  );
+  final withoutClock = _calendarMetadataFieldWithoutClock(line);
   return withoutClock != line &&
       _labeledCalendarDate(withoutClock, includeSpecificRoles: true) != null;
 }
@@ -14430,8 +14449,11 @@ bool _isCompleteCalendarMetadataLine(String line) {
 // Own only complete original calendar fields. A two-field chain needs
 // two explicit colon labels and complete values; extra money or prose cannot
 // disappear through a matching prefix or a stripped item description.
-bool _isCompleteOriginalCalendarMetadataRow(String line) {
-  if (_isCompleteCalendarMetadataLine(line)) return true;
+bool _isCompleteOriginalCalendarMetadataRow(String line) =>
+    _completeOriginalCalendarMetadataFields(line) != null;
+
+List<String>? _completeOriginalCalendarMetadataFields(String line) {
+  if (_isCompleteCalendarMetadataLine(line)) return [line];
   final text = line.trim();
   final labels = RegExp(
     '(?<!\\S)(?:$_calendarRoleQualifierPattern'
@@ -14441,13 +14463,15 @@ bool _isCompleteOriginalCalendarMetadataRow(String line) {
     '\\s*[:：]\\s*',
     caseSensitive: false,
   ).allMatches(text).toList(growable: false);
-  if (labels.length != 2 || labels.first.start != 0) return false;
+  if (labels.length != 2 || labels.first.start != 0) return null;
+  final fields = <String>[];
   for (var i = 0; i < labels.length; i++) {
     final end = i + 1 < labels.length ? labels[i + 1].start : text.length;
     final value = text.substring(labels[i].end, end).trim();
-    if (!_isCompleteCalendarMetadataLine('Date: $value')) return false;
+    if (!_isCompleteCalendarMetadataLine('Date: $value')) return null;
+    fields.add(text.substring(labels[i].start, end).trim());
   }
-  return true;
+  return fields;
 }
 
 bool _hasUnownedAmountAfterCalendarField(String line) {

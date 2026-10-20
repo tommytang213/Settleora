@@ -223,4 +223,90 @@ void main() {
     );
     expectExtraPricePreserved(preview, 'Calendar');
   });
+
+  for (final values in [
+    ['2026-09-17 12:34', '2026-09-18 12:34'],
+    ['2026-09-17', '2026-09-18'],
+    ['Apr 10, 2025 1:34 pm', 'Apr 11, 2025 12:34'],
+    ['2026·09·17 12:34', '2026·09·18 12:34'],
+    ['2026年09月17日 12:34', '2026年09月18日 12:34'],
+  ]) {
+    for (final reverse in [false, true]) {
+      for (final withBlocks in [false, true]) {
+        test('conflicting complete generic fields stay unresolved: '
+            '$values,$reverse,$withBlocks', () {
+          final ordered = reverse ? values.reversed.toList() : values;
+          final first = 'Datum: ${ordered[0]}';
+          final second = 'Date: ${ordered[1]}';
+          final row = '$first $second';
+          final preview = const ReceiptOcrParser().parse(
+            receipt(row),
+            fallbackCurrency: 'USD',
+            blocks: withBlocks
+                ? [
+                    block('Example Shop', 0, 0, 20, 250),
+                    block(first, 1, 1, 20, 350),
+                    block(second, 2, 1, 400, 750),
+                    block('Notebook', 3, 2, 20, 180),
+                    block('USD 5.00', 4, 2, 650, 730),
+                    block('Subtotal USD 5.00', 5, 3, 20, 730),
+                    block('Total USD 5.00', 6, 4, 20, 730),
+                  ]
+                : const [],
+          );
+          expect(preview.receiptDate, isNull);
+          expect(preview.warnings, contains(contains('receipt dates')));
+          expect(preview.items.length, 1);
+          expect(preview.items.single.description, 'Notebook');
+          expect(preview.items.single.lineTotal, '5.00');
+          expect(preview.subtotal, '5.00');
+          expect(preview.total, '5.00');
+        });
+      }
+    }
+  }
+
+  for (final value in [
+    '2026-09-17',
+    '2026-09-17 12:34',
+    'Sep 17, 2026 1:34 pm',
+    '2026·09·17 12:34',
+    '2026年09月17日 12:34',
+  ]) {
+    test('corroborating complete generic fields stay quiet: $value', () {
+      final preview = parseRow('Datum: $value Date: $value');
+      expectCleanNotebook(preview);
+      expect(preview.receiptDate, '2026-09-17');
+    });
+  }
+
+  for (final fields in [
+    ['Due Date: 2026-09-18 12:34', 'Datum: 2026-09-17 12:34'],
+    ['Due Bill Date: 2026-09-18 12:34', 'Date: 2026-09-17 12:34'],
+    ['Order Date: 2026-09-16 12:34', 'Receipt Date: 2026-09-17 12:34'],
+    ['Stay Bill Date: 2026-09-18 12:34', 'Datum: 2026-09-17 12:34'],
+  ]) {
+    for (final reverse in [false, true]) {
+      test('complete date field roles remain separate: $fields,$reverse', () {
+        final ordered = reverse ? fields.reversed.toList() : fields;
+        final preview = parseRow(ordered.join(' '));
+        expectCleanNotebook(preview);
+        expect(preview.receiptDate, '2026-09-17');
+      });
+    }
+  }
+
+  test('generic dates on separate clocked rows retain conflict evidence', () {
+    final preview = parseRow('Datum: 2026-09-17 12:34\nDate: 2026-09-18 12:34');
+    expect(preview.receiptDate, isNull);
+    expect(preview.warnings, contains(contains('receipt dates')));
+  });
+
+  test('a complete generic field conflicts with an explicit receipt field', () {
+    final preview = parseRow(
+      'Datum: 2026-09-18 12:34 Receipt Date: 2026-09-17 12:34',
+    );
+    expect(preview.receiptDate, isNull);
+    expect(preview.warnings, contains(contains('receipt dates')));
+  });
 }
