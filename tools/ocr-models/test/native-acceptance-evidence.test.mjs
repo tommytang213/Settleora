@@ -1189,7 +1189,7 @@ test("complete evidence requires both package measurements and a positive delta"
   assert.equal(isCompleteEvidence(evidence), true);
   // A recovered failure envelope cannot become accepted proof by attaching
   // otherwise complete execution/package fields or clearing its marker value.
-  for (const key of ["collectionFailure", "collectionFailureReason", "stderrDiagnostic"]) {
+  for (const key of ["collectionRejection", "collectionFailure", "collectionFailureReason", "stderrDiagnostic"]) {
     for (const value of ["invalid_or_unavailable_bounded_evidence", "unclassified", null, ""]) {
       assert.equal(isCompleteEvidence({ ...evidence, [key]: value }), false);
     }
@@ -1422,6 +1422,7 @@ test("failure evidence retains bounded phase and status before environment colle
       acceptance: { completed: false },
       uiSmoke: { completed: false },
       diagnostics: [],
+      collectionRejection: { schemaVersion: 1, phase: "unclassified", reason: "unclassified" },
       collectionFailure: "invalid_or_unavailable_bounded_evidence",
       collectionFailureReason: "unclassified",
       stderrDiagnostic: "not_classified",
@@ -2398,3 +2399,170 @@ for (const lifecycle of [false, true]) {
     });
   }
 }
+
+test("first collection rejection identifies only the actual failing boundary", () => {
+  const cases = [
+    ["arguments", protocolLog(), (args) => ({ ...args, "source-sha": "private-invalid-sha" })],
+    ["input_streams", protocolLog(), (args) => ({ ...args, log: args.log + ".missing" })],
+    ["runner_protocol", "private invalid protocol\n", (args) => args],
+    ["fixture_inventory", protocolLog(), (args) => args, (log) => path.dirname(log)],
+    ["acceptance_marker", protocolLog("SETTLEORA_OCR_ACCEPTANCE={"), (args) => args],
+    ["ui_smoke_marker", protocolLog("SETTLEORA_OCR_UI_SMOKE={"), (args) => args],
+    ["diagnostic_markers", protocolLog("SETTLEORA_OCR_DIAGNOSTIC={"), (args) => args],
+    ["collection_metadata", protocolLog(), (args) => ({ ...args, "base-sha": "private-invalid-base" })],
+  ];
+  for (const [phase, contents, configure, root] of cases) {
+    withLog(contents, (log) => {
+      const args = configure(evidenceArgs(log));
+      let caught;
+      assert.throws(() => {
+        try { buildEvidence(args, root ? root(log) : repoRoot); }
+        catch (error) { caught = error; throw error; }
+      });
+      const evidence = buildFailureEvidence(args, repoRoot, caught);
+      assert.deepEqual(evidence.collectionRejection, {
+        schemaVersion: 1, phase, reason: "boundary_rejected",
+      });
+      assert.equal(evidence.collectionFailureReason, "unclassified");
+      assert.equal(evidence.stderrDiagnostic, "not_classified");
+      assert.equal(isCompleteEvidence(evidence), false);
+      assert.doesNotMatch(JSON.stringify(evidence), /private|Acceptance runner|ENOENT/);
+      assert.equal(Object.hasOwn(evidence.execution, "protocolSucceeded"), false);
+      assert.equal(Object.hasOwn(evidence, "identities"), false);
+      assert.equal(Object.hasOwn(evidence, "packageEvidence"), false);
+    });
+  }
+});
+
+test("first collection rejection preserves the original thrown value and first phase", () => {
+  withLog("private malformed protocol\n", (log) => {
+    for (const original of [new Error("private original error"), {}, () => {}, "private primitive", null, 7]) {
+      const args = evidenceArgs(log);
+      Object.defineProperty(args, "log", { get() { throw original; } });
+      let caught;
+      try { buildEvidence(args, repoRoot); } catch (error) { caught = error; }
+      assert.equal(caught, original);
+      const evidence = buildFailureEvidence(evidenceArgs(log), repoRoot, caught);
+      assert.deepEqual(evidence.collectionRejection, {
+        schemaVersion: 1,
+        phase: original !== null && ["object", "function"].includes(typeof original)
+          ? "arguments" : "unclassified",
+        reason: original !== null && ["object", "function"].includes(typeof original)
+          ? "boundary_rejected" : "unclassified",
+      });
+      assert.doesNotMatch(JSON.stringify(evidence), /private|original error/);
+    }
+  });
+});
+
+test("collection phase observation does not inspect a thrown Proxy", () => {
+  withLog(protocolLog(), (log) => {
+    const trap = () => { throw new Error("private proxy trap"); };
+    const live = new Proxy({}, { getPrototypeOf: trap, get: trap, ownKeys: trap });
+    const revocable = Proxy.revocable({}, {});
+    revocable.revoke();
+    for (const original of [live, revocable.proxy]) {
+      const args = evidenceArgs(log);
+      Object.defineProperty(args, "log", { get() { throw original; } });
+      let caught;
+      try { buildEvidence(args, repoRoot); } catch (error) { caught = error; }
+      assert.equal(caught, original);
+    }
+  });
+});
+
+test("collection rejection metadata cannot be forged, mutated, or inferred from recovery", () => {
+  withLog("private invalid protocol\n", (log) => {
+    let original;
+    try { buildEvidence(evidenceArgs(log), repoRoot); } catch (error) { original = error; }
+    const expected = { schemaVersion: 1, phase: "runner_protocol", reason: "boundary_rejected" };
+    const first = buildFailureEvidence(evidenceArgs(log), repoRoot, original);
+    assert.deepEqual(first.collectionRejection, expected);
+    first.collectionRejection.phase = "private mutated result";
+    original.collectionRejection = { schemaVersion: 1, phase: "private forged", reason: "private forged" };
+    original.name = "private forged name";
+    original.message = "private forged message";
+    writeFileSync(log, protocolLog(), { mode: 0o600 });
+    assert.deepEqual(buildFailureEvidence(evidenceArgs(log), repoRoot, original).collectionRejection, expected);
+    for (const supplied of [undefined, null, "runner_protocol", new Error("private forged"),
+      { ...original }, { collectionRejection: expected }, { phase: "runner_protocol", reason: "boundary_rejected" }]) {
+      const evidence = buildFailureEvidence(evidenceArgs(log), repoRoot, supplied);
+      assert.deepEqual(evidence.collectionRejection, {
+        schemaVersion: 1, phase: "unclassified", reason: "unclassified",
+      });
+      assert.doesNotMatch(JSON.stringify(evidence), /private|forged/);
+    }
+  });
+});
+
+test("first collection rejection keeps stderr precedence and all existing CLI failures", () => {
+  for (const platform of ["android", "ios"]) {
+    withLog("private invalid protocol\n", (log) => {
+      writeFileSync(log + ".stderr", "private stderr\n", { mode: 0o600 });
+      let caught;
+      try { buildEvidence(evidenceArgs(log, platform), repoRoot); } catch (error) { caught = error; }
+      const evidence = buildFailureEvidence(evidenceArgs(log, platform), repoRoot, caught);
+      assert.deepEqual(evidence.collectionRejection, {
+        schemaVersion: 1, phase: "runner_protocol", reason: "non_allowlisted_stderr",
+      });
+      assert.equal(evidence.collectionFailureReason, "non_allowlisted_stderr");
+      assert.equal(evidence.stderrDiagnostic, "other_nonempty");
+      assert.equal(isCompleteEvidence(evidence), false);
+      assert.doesNotMatch(JSON.stringify(evidence), /private/);
+      for (const status of ["0", "1"]) {
+        const args = { ...evidenceArgs(log, platform), "test-status": status,
+          out: log + ".evidence.json", "require-complete": "true" };
+        const result = spawnSync(process.execPath, [
+          path.join(repoRoot, "tools/ocr-models/native-acceptance-evidence.mjs"),
+          ...Object.entries(args).map(([key, value]) => `--${key}=${value}`),
+        ], { cwd: repoRoot, encoding: "utf8" });
+        assert.equal(result.status, 1);
+        assert.equal(result.stdout, "");
+        assert.equal(result.stderr, "bounded_native_ocr_evidence_failed\n");
+        assert.deepEqual(JSON.parse(readFileSync(args.out, "utf8")).collectionRejection,
+          evidence.collectionRejection);
+      }
+    });
+  }
+});
+
+test("successful collection omits the failure-only rejection field", () => {
+  withLog(protocolLog(), (log) => {
+    const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, true);
+    assert.equal(Object.hasOwn(evidence, "collectionRejection"), false);
+    const complete = completeEvidenceControl();
+    assert.equal(isCompleteEvidence(complete), true);
+    for (const value of [null, undefined, "", {}, [], { schemaVersion: 1, phase: "arguments", reason: "boundary_rejected" }]) {
+      assert.equal(isCompleteEvidence({ ...complete, collectionRejection: value }), false);
+    }
+  });
+});
+
+test("a reused exception gets the first rejection phase of its latest collection call", () => {
+  withLog(protocolLog(), (log) => {
+    const original = new Error("private reusable error");
+    const firstArgs = evidenceArgs(log);
+    Object.defineProperty(firstArgs, "log", { get() { throw original; } });
+    let first;
+    try { buildEvidence(firstArgs, repoRoot); } catch (error) { first = error; }
+    assert.equal(first, original);
+    assert.deepEqual(buildFailureEvidence(evidenceArgs(log), repoRoot, first).collectionRejection, {
+      schemaVersion: 1, phase: "arguments", reason: "boundary_rejected",
+    });
+    const secondArgs = evidenceArgs(log);
+    let reads = 0;
+    Object.defineProperty(secondArgs, "log", { get() {
+      if (++reads === 1) return log;
+      throw original;
+    } });
+    let second;
+    try { buildEvidence(secondArgs, repoRoot); } catch (error) { second = error; }
+    assert.equal(second, original);
+    const expected = { schemaVersion: 1, phase: "input_streams", reason: "boundary_rejected" };
+    assert.deepEqual(buildFailureEvidence(evidenceArgs(log), repoRoot, second).collectionRejection, expected);
+    // Error-only recovery can retain only this object's latest observation;
+    // it does not create a token or history for a delayed earlier recovery.
+    assert.deepEqual(buildFailureEvidence(evidenceArgs(log), repoRoot, first).collectionRejection, expected);
+  });
+});

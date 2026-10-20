@@ -45,3 +45,28 @@ tools/ocr-models/test/native-acceptance-evidence.test.mjs`, plus the complete
 the all-tracked-input Android source fingerprint; the prior canonical APK
 binding does not cover the new head. A fresh reviewed canonical package binding
 and exact-head hosted checks are required for the next publication cycle.
+
+Failure recovery additionally emits `collectionRejection` with schema version1
+and fixed phase/reason enums. A phase is recorded only when the original
+exception passes an instrumented collection boundary: `arguments`,
+`input_streams`, `runner_protocol`, `fixture_inventory`, `acceptance_marker`,
+`ui_smoke_marker`, `diagnostic_markers`, or the outer `collection_metadata`
+boundary. The first inner boundary within each collection call wins. If an exception
+object is reused across calls, its newest observed call replaces the prior
+association. Error-only recovery exposes that object's latest observation, not
+a per-call history for delayed recovery. `boundary_rejected` means only that
+this boundary threw; it does not identify a particular validator, native
+producer, input line, or root cause. `non_allowlisted_stderr` retains the
+existing stderr classification. Unregistered or primitive thrown values use
+`unclassified` for both fields.
+
+The association is module-private and uses the original exception identity;
+error messages, names, properties and copies cannot supply a classification.
+Recovery snapshots the association before best-effort marker extraction and
+does not infer a phase from recovered logs. The original exception is rethrown.
+No exception content, log excerpts, receipt data or private hashes are emitted.
+The legacy failure/stderr fields are unchanged. Successful collection omits
+this failure-only field, and its presence always prevents complete acceptance,
+including null, empty or forged values. These diagnostics cannot retrospectively
+classify old artifacts and do not change protocol, stdout/stderr, payload-size,
+fixture, scoring, completion, package, signing or process-exit requirements.

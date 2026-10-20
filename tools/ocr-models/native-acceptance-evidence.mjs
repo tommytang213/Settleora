@@ -21,14 +21,45 @@ const knownAndroidJavacNotes = Buffer.from(
 );
 // Only this internal error type can classify a collection failure. Never
 // serialize arbitrary errors, messages, paths, or native/plugin output.
+const nonAllowlistedStderrRejections = new WeakSet();
 class NonAllowlistedStderrError extends Error {
   constructor(stderrBytes, platform) {
     super("Acceptance runner emitted non-allowlisted stderr");
+    nonAllowlistedStderrRejections.add(this);
     this.diagnostic = platform === "android" && stderrBytes.equals(knownAndroidJavacNotes)
       ? "known_javac_unchecked_notes_only"
       : "other_nonempty";
   }
 }
+// Only failures actually observed inside this collector receive a phase. The
+// private map preserves the thrown value and never trusts error text/properties.
+const collectionRejections = new WeakMap();
+function observeCollectionPhase(phase, collect, observedInThisCall) {
+  try {
+    return collect();
+  } catch (error) {
+    if (((typeof error === "object" && error !== null) || typeof error === "function") &&
+        !observedInThisCall.has(error)) {
+      observedInThisCall.add(error);
+      collectionRejections.set(error, Object.freeze({
+        schemaVersion: 1,
+        phase,
+        reason: nonAllowlistedStderrRejections.has(error)
+          ? "non_allowlisted_stderr" : "boundary_rejected",
+      }));
+    }
+    throw error;
+  }
+}
+
+function firstCollectionRejection(error) {
+  const observed = ((typeof error === "object" && error !== null) ||
+    typeof error === "function") ? collectionRejections.get(error) : undefined;
+  return observed ? { ...observed } : {
+    schemaVersion: 1, phase: "unclassified", reason: "unclassified",
+  };
+}
+
 const androidPreflightFailurePhases = new Set([
   "kvm_setup",
   "kvm_preflight",
@@ -100,6 +131,8 @@ function immutableFixtureIds(repoRoot) {
 }
 
 export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {
+  // Snapshot before any best-effort recovery; recovery does not establish cause.
+  const collectionRejection = firstCollectionRejection(collectionError);
   const platform = new Set(["android", "ios"]).has(args.platform) ? args.platform : null;
   const statusToken = args["test-status"];
   const parsedStatus = typeof statusToken === "string" && /^(0|[1-9][0-9]*)$/.test(statusToken)
@@ -156,6 +189,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     uiSmoke,
     diagnostics: extractFailureDiagnostics(args, platform, expectedFixtureIds),
     ...(platform !== null ? { flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]) } : {}),
+    collectionRejection,
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
     collectionFailureReason: collectionError instanceof NonAllowlistedStderrError
       ? "non_allowlisted_stderr"
@@ -1474,6 +1508,12 @@ function parseMarker(lines, marker, sanitize, fallback) {
 }
 
 export function buildEvidence(args, repoRoot = process.cwd()) {
+  const observedInThisCall = new WeakSet();
+  const observe = (phase, collect) => observeCollectionPhase(phase, collect, observedInThisCall);
+  return observe("collection_metadata", () => collectEvidence(args, repoRoot, observe));
+}
+
+function validateCollectionArguments(args) {
   for (const required of ["log", "stderr-log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device", "native-image", "base-sha", "base-tree", "base-tooling-sha", "base-dependency-lock-sha256"]) {
     if (!args[required]) throw new Error(`Missing --${required}`);
   }
@@ -1483,31 +1523,42 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   if (!/^[0-9a-f]{40}$/.test(args["source-sha"])) {
     throw new Error("Source SHA must be an exact lowercase commit SHA");
   }
-  if (statSync(args.log).size > maxLogBytes) {
-    throw new Error("Acceptance log exceeds the bounded parser limit");
-  }
-  if (statSync(args["stderr-log"]).size > maxLogBytes) {
-    throw new Error("Acceptance stderr log exceeds the bounded parser limit");
-  }
-  const log = readFileSync(args.log, "utf8");
-  const stderrBytes = readFileSync(args["stderr-log"]);
-  const protocol = parseSafeRunnerLog(log, stderrBytes, args.platform);
+}
+
+function collectEvidence(args, repoRoot, observe) {
+  observe("arguments", () => validateCollectionArguments(args));
+  const { log, stderrBytes } = observe("input_streams", () => {
+    if (statSync(args.log).size > maxLogBytes) {
+      throw new Error("Acceptance log exceeds the bounded parser limit");
+    }
+    if (statSync(args["stderr-log"]).size > maxLogBytes) {
+      throw new Error("Acceptance stderr log exceeds the bounded parser limit");
+    }
+    return {
+      log: readFileSync(args.log, "utf8"),
+      stderrBytes: readFileSync(args["stderr-log"]),
+    };
+  });
+  const protocol = observe("runner_protocol",
+    () => parseSafeRunnerLog(log, stderrBytes, args.platform));
   const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
   const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
-  const expectedFixtureIds = immutableFixtureIds(repoRoot);
-  const acceptance = parseMarker(
+  const expectedFixtureIds = observe("fixture_inventory",
+    () => immutableFixtureIds(repoRoot));
+  const acceptance = observe("acceptance_marker", () => parseMarker(
     protocol.markerMessages,
     "SETTLEORA_OCR_ACCEPTANCE=",
     (value) => sanitizeAcceptance(value, args.platform, expectedFixtureIds, repoRoot),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
-  );
-  const uiSmoke = parseMarker(
+  ));
+  const uiSmoke = observe("ui_smoke_marker", () => parseMarker(
     protocol.markerMessages,
     "SETTLEORA_OCR_UI_SMOKE=",
     (value) => sanitizeUiSmoke(value, args.platform),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
-  );
-  const diagnostics = parseDiagnostics(protocol.markerMessages, args.platform, expectedFixtureIds);
+  ));
+  const diagnostics = observe("diagnostic_markers",
+    () => parseDiagnostics(protocol.markerMessages, args.platform, expectedFixtureIds));
 
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
   const catalogModelFileCount = catalog.packs.flatMap((pack) => pack.files).length;
@@ -1624,6 +1675,7 @@ function parseArgs(values) {
 
 export function isCompleteEvidence(evidence) {
   return Boolean(
+    !Object.hasOwn(evidence, "collectionRejection") &&
     !Object.hasOwn(evidence, "collectionFailure") &&
       !Object.hasOwn(evidence, "collectionFailureReason") &&
       !Object.hasOwn(evidence, "stderrDiagnostic") &&
