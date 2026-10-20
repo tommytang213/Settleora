@@ -39,6 +39,7 @@ void expectCleanNotebook(ReceiptOcrPreview preview) {
   expect(preview.total, '5.00');
   expect(preview.adjustmentsComplete, isTrue);
   expect(preview.reviewHints, isEmpty);
+  expect(preview.warnings, isEmpty);
 }
 
 bool hasReview(ReceiptOcrPreview preview) =>
@@ -50,8 +51,17 @@ void expectExtraPricePreserved(ReceiptOcrPreview preview, String itemName) {
         item.lineTotal == '3.00' &&
         item.description.toLowerCase().contains(itemName.toLowerCase()),
   );
-  // Fully retained evidence does not have to generate a warning.
-  expect(retained || hasReview(preview), isTrue);
+  expect(retained, isTrue);
+  if (preview.blocks.isNotEmpty) {
+    expect(
+      preview.blocks.any((evidence) => evidence.text.contains(itemName)),
+      isTrue,
+    );
+    expect(
+      preview.blocks.any((evidence) => evidence.text.contains('3.00')),
+      isTrue,
+    );
+  }
   expect(
     preview.items.any(
       (item) => item.description == 'Notebook' && item.lineTotal == '5.00',

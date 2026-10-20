@@ -2112,8 +2112,15 @@ test("known compiler notes are classified by exact bytes and remain rejected", (
       // Even a mutated caught object cannot serialize an arbitrary value.
       caught.diagnostic = "private error content";
       const changed = buildFailureEvidence(evidenceArgs(log, platform), repoRoot, caught);
-      assert.equal(changed.stderrDiagnostic, other);
+      assert.equal(changed.stderrDiagnostic, expected);
       assert.equal(JSON.stringify(changed).includes("private error content"), false);
+      Object.defineProperty(caught, "diagnostic", {
+        get() { throw new Error("private diagnostic getter"); },
+      });
+      assert.equal(
+        buildFailureEvidence(evidenceArgs(log, platform), repoRoot, caught).stderrDiagnostic,
+        expected,
+      );
     });
   }
   withLog(protocolLog(), (log) => {
@@ -2467,6 +2474,13 @@ test("collection phase observation does not inspect a thrown Proxy", () => {
       let caught;
       try { buildEvidence(args, repoRoot); } catch (error) { caught = error; }
       assert.equal(caught, original);
+      const recovered = buildFailureEvidence(evidenceArgs(log), repoRoot, caught);
+      assert.deepEqual(recovered.collectionRejection, {
+        schemaVersion: 1, phase: "arguments", reason: "boundary_rejected",
+      });
+      assert.equal(recovered.collectionFailureReason, "unclassified");
+      assert.equal(recovered.stderrDiagnostic, "not_classified");
+      assert.equal(isCompleteEvidence(recovered), false);
     }
   });
 });

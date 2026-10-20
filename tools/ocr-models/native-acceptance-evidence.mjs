@@ -21,14 +21,14 @@ const knownAndroidJavacNotes = Buffer.from(
 );
 // Only this internal error type can classify a collection failure. Never
 // serialize arbitrary errors, messages, paths, or native/plugin output.
-const nonAllowlistedStderrRejections = new WeakSet();
+const nonAllowlistedStderrRejections = new WeakMap();
 class NonAllowlistedStderrError extends Error {
   constructor(stderrBytes, platform) {
     super("Acceptance runner emitted non-allowlisted stderr");
-    nonAllowlistedStderrRejections.add(this);
-    this.diagnostic = platform === "android" && stderrBytes.equals(knownAndroidJavacNotes)
+    const diagnostic = platform === "android" && stderrBytes.equals(knownAndroidJavacNotes)
       ? "known_javac_unchecked_notes_only"
       : "other_nonempty";
+    nonAllowlistedStderrRejections.set(this, diagnostic);
   }
 }
 // Only failures actually observed inside this collector receive a phase. The
@@ -133,6 +133,7 @@ function immutableFixtureIds(repoRoot) {
 export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {
   // Snapshot before any best-effort recovery; recovery does not establish cause.
   const collectionRejection = firstCollectionRejection(collectionError);
+  const stderrDiagnostic = nonAllowlistedStderrRejections.get(collectionError);
   const platform = new Set(["android", "ios"]).has(args.platform) ? args.platform : null;
   const statusToken = args["test-status"];
   const parsedStatus = typeof statusToken === "string" && /^(0|[1-9][0-9]*)$/.test(statusToken)
@@ -191,13 +192,10 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     ...(platform !== null ? { flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]) } : {}),
     collectionRejection,
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
-    collectionFailureReason: collectionError instanceof NonAllowlistedStderrError
+    collectionFailureReason: stderrDiagnostic !== undefined
       ? "non_allowlisted_stderr"
       : "unclassified",
-    stderrDiagnostic: collectionError instanceof NonAllowlistedStderrError
-      ? (collectionError.diagnostic === "known_javac_unchecked_notes_only"
-        ? "known_javac_unchecked_notes_only" : "other_nonempty")
-      : "not_classified",
+    stderrDiagnostic: stderrDiagnostic ?? "not_classified",
   };
 }
 
