@@ -517,6 +517,13 @@ class ReceiptOcrParser {
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
     }
+    // Typed unretained evidence remains ambiguous when a matching subtotal
+    // has no grand total available for the separate arithmetic review hints.
+    if (extractedItems.unretainedPricedItem) {
+      warnings.add(
+        'Some item price evidence remains unresolved. Review the original receipt before applying.',
+      );
+    }
     if (extractedItems.ambiguousFuelMeasurement) {
       warnings.add(
         'Fuel quantity or unit-price readings conflict or are incomplete. Review the fuel measurements.',

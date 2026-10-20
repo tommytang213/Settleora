@@ -141,6 +141,7 @@ ReceiptOcrPreview ownershipReceipt({
   String? marker,
   bool nearby = false,
   bool tail = false,
+  bool includeTotal = true,
 }) {
   var order = 0;
   ReceiptOcrBlockEvidence add(String text, int row, Quad points) =>
@@ -162,7 +163,8 @@ ReceiptOcrPreview ownershipReceipt({
       ),
     if (tail) add('each', 1, quad(560, 600, slope: slope)),
     add('Subtotal USD 2.00', 2, quad(20, 350, slope: 0, intercept: 260)),
-    add('Total USD 2.00', 3, quad(20, 350, slope: 0, intercept: 300)),
+    if (includeTotal)
+      add('Total USD 2.00', 3, quad(20, 350, slope: 0, intercept: 300)),
   ];
   final rows = <int, List<String>>{};
   for (final b in blocks) {
@@ -336,6 +338,82 @@ void main() {
       expect(item.lineTotal, '2.00');
     }
   });
+
+  // Unresolved currency evidence must remain visible without a grand total.
+  for (final slope in [0.0, 0.1]) {
+    for (final amount in ['2.00', 'USD 2.00']) {
+      test(
+        'subtotal-only outside EUR remains visible; slope=$slope; $amount',
+        () {
+          final p = ownershipReceipt(
+            slope: slope,
+            amount: amount,
+            marker: 'EUR',
+            includeTotal: false,
+          );
+          expect(p.currency, 'USD');
+          expect(p.subtotal, '2.00');
+          expect(p.total, isNull);
+          expect(p.items.length, 1);
+          expect(p.items.single.currency, 'USD');
+          expect(p.items.single.currencyUnresolved, isFalse);
+          expect(p.items.single.description, 'Grapes');
+          expect(p.items.single.quantity, '0.500');
+          expect(p.items.single.unitPrice, '4.00');
+          expect(p.items.single.lineTotal, '2.00');
+          expect(p.blocks.map((b) => b.text), contains('EUR'));
+          expect(p.adjustmentsComplete, isFalse);
+          expect(
+            p.incompleteAdjustmentReasons,
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          );
+          expect(
+            p.reviewHints,
+            isEmpty,
+            reason: 'Arithmetic semantics stay intact.',
+          );
+          expect(
+            p.warnings,
+            isNotEmpty,
+            reason: 'The ambiguity must remain visible.',
+          );
+        },
+      );
+      for (final marker in <String?>[null, 'USD']) {
+        test(
+          'subtotal-only clear currency stays quiet; slope=$slope; $amount; $marker',
+          () {
+            final p = ownershipReceipt(
+              slope: slope,
+              amount: amount,
+              marker: marker,
+              includeTotal: false,
+            );
+            expect(p.currency, 'USD');
+            expect(p.subtotal, '2.00');
+            expect(p.total, isNull);
+            expect(p.items.length, 1);
+            expect(p.items.single.currency, 'USD');
+            expect(p.items.single.currencyUnresolved, isFalse);
+            expect(p.items.single.quantity, '0.500');
+            expect(p.items.single.unitPrice, '4.00');
+            expect(p.items.single.lineTotal, '2.00');
+            expect(p.adjustmentsComplete, isTrue);
+            expect(
+              p.incompleteAdjustmentReasons,
+              isNot(
+                contains(
+                  ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem,
+                ),
+              ),
+            );
+            expect(p.reviewHints, isEmpty);
+            expect(p.warnings, isEmpty);
+          },
+        );
+      }
+    }
+  }
 
   // Additional ownership controls. The original 29 controls above are intact.
   for (final slope in [0.0, 0.1]) {
