@@ -3786,8 +3786,8 @@ class ReceiptOcrParser {
       }
       final ambiguousLayoutItemRow = ambiguousLayoutItemRows.remove(lineIndex);
       if (ambiguousLayoutItemRow) {
-        // Keep a complete text-derived draft with all printed evidence, but
-        // do not treat its competing monetary cells as resolved ownership.
+        // Keep the independently bounded item editable when available.
+        // Outside evidence remains visible and prevents a completeness claim.
         unretainedPricedItem = true;
       }
       if (rejectedLayoutItemRows.remove(lineIndex)) {
@@ -3959,7 +3959,16 @@ class ReceiptOcrParser {
         continue;
       }
 
-      var description = _cleanDescription(match.group(1)!);
+      // A bounded fallback is one selection: its description, amount and
+      // currency must stay together when outside cells make the row ambiguous.
+      final boundedCurrencyItem = ambiguousLayoutItemRow
+          ? layoutFallback
+          : null;
+      var description = _cleanDescription(
+        boundedCurrencyItem != null
+            ? boundedCurrencyItem.description
+            : match.group(1)!,
+      );
       if (items.isNotEmpty &&
           lineIndex > 0 &&
           lineDecisions[lineIndex - 1] ==
@@ -3985,11 +3994,6 @@ class ReceiptOcrParser {
       // A text match cannot discard conflicting currency evidence already
       // proven to belong to this row's bounded monetary cells.
       final ownedCurrencyConflict = layoutFallback?.currencyUnresolved == true;
-      // An outside marker keeps this row reviewable, but cannot override the
-      // denomination established by its bounded monetary cells when flattened.
-      final boundedCurrencyItem = ambiguousLayoutItemRow
-          ? layoutFallback
-          : null;
       final lineCurrency = ownedCurrencyConflict
           ? null
           : boundedCurrencyItem != null
@@ -4006,14 +4010,14 @@ class ReceiptOcrParser {
       final lineConfidence = lineIndex < layoutRows.length
           ? _averageBlockConfidence(layoutRows[lineIndex])
           : null;
-      final lineTotal = _normalizeAmount(
-        match.group(3)!,
-        currency: lineCurrency,
-      );
+      final lineTotal = boundedCurrencyItem != null
+          ? boundedCurrencyItem.lineTotal
+          : _normalizeAmount(match.group(3)!, currency: lineCurrency);
       if (!_hasSubstantiveItemDescription(description) ||
           lineTotal == null ||
           _isLikelyNonItemDescription(description, pricedRow: true) ||
-          !_hasTraceableItemAmountToken(line, match.group(3)!)) {
+          (boundedCurrencyItem == null &&
+              !_hasTraceableItemAmountToken(line, match.group(3)!))) {
         lineDecisions[lineIndex] = layoutFallback != null
             ? ReceiptOcrItemLineDecision.layoutFallbackSelected
             : ReceiptOcrItemLineDecision.invalidPricedRow;

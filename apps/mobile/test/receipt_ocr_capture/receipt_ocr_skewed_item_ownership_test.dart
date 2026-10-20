@@ -559,4 +559,95 @@ void main() {
       });
     }
   }
+  _registerBoundedAmountPairingControls();
+}
+
+ReceiptOcrPreview _excludedRateReceipt({
+  required double slope,
+  required bool weighted,
+  required bool includeTotal,
+}) {
+  var order = 0;
+  ReceiptOcrBlockEvidence block(
+    String text,
+    int row,
+    double left,
+    double right, {
+    double? intercept,
+  }) => ReceiptOcrBlockEvidence(
+    text: text,
+    order: order++,
+    row: row,
+    points: [
+      for (final p in quad(
+        left,
+        right,
+        slope: row == 1 ? slope : 0,
+        intercept: intercept ?? 98,
+      ))
+        ReceiptOcrPoint(x: p.$1, y: p.$2),
+    ],
+  );
+  final blocks = [
+    block('Market', 0, 20, 350, intercept: 10),
+    block(weighted ? 'Grapes 0.500 kg x 4.00' : 'Grapes', 1, 20, 200),
+    block('USD 2.00', 1, 300, 350),
+    block('EUR', 1, 500, 540),
+    block('4.000', 1, 800, 860),
+    block('Subtotal USD 2.00', 2, 20, 350, intercept: 260),
+    if (includeTotal) block('Total USD 2.00', 3, 20, 350, intercept: 300),
+  ];
+  final rows = <int, List<String>>{};
+  for (final b in blocks) {
+    (rows[b.row] ??= []).add(b.text);
+  }
+  return const ReceiptOcrParser().parse(
+    rows.values.map((r) => r.join(' ')).join('\n'),
+    fallbackCurrency: 'USD',
+    blocks: blocks,
+  );
+}
+
+void _registerBoundedAmountPairingControls() {
+  for (final slope in [0.0, 0.1]) {
+    for (final weighted in [false, true]) {
+      for (final includeTotal in [false, true]) {
+        test('bounded amount/currency pair stays atomic; slope=$slope; '
+            'weighted=$weighted; total=$includeTotal', () {
+          final p = _excludedRateReceipt(
+            slope: slope,
+            weighted: weighted,
+            includeTotal: includeTotal,
+          );
+          expect(p.items, hasLength(1));
+          final item = p.items.single;
+          expect(
+            item.lineTotal,
+            '2.00',
+            reason: 'Keep the price from the owned USD cell.',
+          );
+          expect(item.description, 'Grapes');
+          expect(item.currency, 'USD');
+          expect(item.currencyUnresolved, isFalse);
+          expect(item.quantity, weighted ? '0.500' : isNull);
+          expect(item.unitPrice, weighted ? '4.00' : isNull);
+          expect(p.currency, 'USD');
+          expect(p.subtotal, '2.00');
+          expect(p.total, includeTotal ? '2.00' : isNull);
+          expect(p.blocks.map((b) => b.text), containsAll(['EUR', '4.000']));
+          expect(p.adjustmentsComplete, isFalse);
+          expect(
+            p.incompleteAdjustmentReasons,
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          );
+          expect(p.warnings, isNotEmpty);
+          final lines = receiptOcrReviewLinesFromPreview(p);
+          expect(lines, hasLength(1));
+          expect(lines.single.text, 'Grapes');
+          expect(lines.single.lineTotalAmount, isNotNull);
+          if (weighted) expect(lines.single.unitPriceAmount, isNotNull);
+        });
+      }
+    }
+  }
 }
