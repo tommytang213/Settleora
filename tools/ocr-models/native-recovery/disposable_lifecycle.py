@@ -42,7 +42,18 @@ def _bounded_json(path):
             raise RuntimeError("run record changed during read")
     finally:
         os.close(fd)
-    return json.loads(data)
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise RuntimeError("run record has duplicate JSON field")
+            result[key] = value
+        return result
+
+    def reject_nonfinite(_value):
+        raise RuntimeError("run record has nonfinite JSON value")
+
+    return json.loads(data, object_pairs_hook=unique_fields, parse_constant=reject_nonfinite)
 
 
 def prepare(root, *, source_sha256, packet_sha256, image_sha256, command_sha256):
@@ -78,7 +89,13 @@ def _owned_root(root):
         if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o700:
             raise RuntimeError("run directory identity changed")
     data = _bounded_json(root / "manifest.json")
-    if data.get("schema") != "settleora-disposable-native-run-v1" or data.get("automaticRetries") != 0:
+    digests = ("sourceSHA256", "packetSHA256", "imageSHA256", "commandSHA256")
+    fields = {"schema", *digests, "maxDiagnosticBytes", "automaticRetries"}
+    if type(data) is not dict or set(data) != fields or \
+       data["schema"] != "settleora-disposable-native-run-v1" or \
+       any(type(data[key]) is not str or HEX.fullmatch(data[key]) is None for key in digests) or \
+       type(data["automaticRetries"]) is not int or data["automaticRetries"] != 0 or \
+       type(data["maxDiagnosticBytes"]) is not int or data["maxDiagnosticBytes"] != CAP_BYTES:
         raise RuntimeError("run manifest contract changed")
     return root
 

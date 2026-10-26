@@ -114,4 +114,81 @@ class LifecycleTests(unittest.TestCase):
                 self.assertFalse(result["nativeReady"])
                 self.assertTrue(result["requiresNewAdmission"])
 
+    def test_capture_and_finish_reject_malformed_manifest_without_new_evidence(self):
+        changes = [(key, value) for key in ("sourceSHA256", "packetSHA256", "imageSHA256", "commandSHA256")
+                   for value in ("", True, "A" * 64, "f" * 63)]
+        changes += [("automaticRetries", False), ("automaticRetries", 1), ("automaticRetries", "0"),
+                    ("maxDiagnosticBytes", False), ("maxDiagnosticBytes", float(life.CAP_BYTES)),
+                    ("maxDiagnosticBytes", life.CAP_BYTES - 1), ("schema", "unknown"),
+                    ("unexpected", "field"), ("missing-source", None), ("not-object", None)]
+        for key, value in changes:
+            with self.subTest(key=key, value=value), tempfile.TemporaryDirectory() as parent:
+                root = life.prepare(Path(parent)/"run", source_sha256=PIN,
+                    packet_sha256=PIN, image_sha256=PIN, command_sha256=PIN)
+                (root/"scratch/log").write_bytes(b"evidence")
+                life.capture(root, "census", "log")
+                retained = (root/"diagnostics/census.json").read_bytes()
+                path = root/"manifest.json"
+                record = json.loads(path.read_text())
+                if key == "missing-source":
+                    record.pop("sourceSHA256")
+                elif key == "not-object":
+                    record = []
+                else:
+                    record[key] = value
+                path.write_text(json.dumps(record))
+                with self.assertRaisesRegex(RuntimeError, "run manifest contract changed"):
+                    life.capture(root, "tool_result", "log")
+                with self.assertRaisesRegex(RuntimeError, "run manifest contract changed"):
+                    life.finish(root, test_exit_code=0, cleanup_verified=False, diagnostics=["census"])
+                self.assertFalse((root/"terminal.json").exists())
+                self.assertFalse((root/"diagnostics/tool_result.log").exists())
+                self.assertEqual((root/"diagnostics/census.log").read_bytes(), b"evidence")
+                self.assertEqual((root/"diagnostics/census.json").read_bytes(), retained)
+
+    def test_manifest_rejects_duplicate_fields_and_nonfinite_json_before_capture(self):
+        for fault in ("duplicate", "NaN", "Infinity", "-Infinity"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as parent:
+                root = life.prepare(Path(parent)/"run", source_sha256=PIN,
+                    packet_sha256=PIN, image_sha256=PIN, command_sha256=PIN)
+                (root/"scratch/log").write_bytes(b"evidence")
+                path = root/"manifest.json"
+                raw = path.read_text().strip()
+                if fault == "duplicate":
+                    raw = raw[:-1] + ',"automaticRetries":0}'
+                else:
+                    raw = raw.replace('"maxDiagnosticBytes":' + str(life.CAP_BYTES), '"maxDiagnosticBytes":' + fault)
+                path.write_text(raw)
+                with self.assertRaisesRegex(RuntimeError, "duplicate JSON field|nonfinite JSON value"):
+                    life.capture(root, "census", "log")
+                self.assertEqual(list((root/"diagnostics").iterdir()), [])
+
+    def test_diagnostic_json_uses_the_same_unambiguous_record_reader(self):
+        for fault in ("duplicate", "NaN"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as parent:
+                root = life.prepare(Path(parent)/"run", source_sha256=PIN,
+                    packet_sha256=PIN, image_sha256=PIN, command_sha256=PIN)
+                (root/"scratch/log").write_bytes(b"evidence")
+                life.capture(root, "census", "log")
+                path = root/"diagnostics/census.json"
+                raw = path.read_text().strip()
+                raw = raw[:-1] + ',"name":"census"}' if fault == "duplicate" else raw.replace('"sourceBytes":8', '"sourceBytes":NaN')
+                path.write_text(raw)
+                with self.assertRaisesRegex(RuntimeError, "duplicate JSON field|nonfinite JSON value"):
+                    life.finish(root, test_exit_code=0, cleanup_verified=False, diagnostics=["census"])
+                self.assertFalse((root/"terminal.json").exists())
+                self.assertEqual((root/"diagnostics/census.log").read_bytes(), b"evidence")
+
+    def test_valid_manifest_preserves_all_distinct_binding_digests(self):
+        with tempfile.TemporaryDirectory() as parent:
+            root = life.prepare(Path(parent)/"run", source_sha256="a" * 64,
+                packet_sha256="b" * 64, image_sha256="c" * 64, command_sha256="d" * 64)
+            manifest = (root/"manifest.json").read_bytes()
+            (root/"scratch/log").write_bytes(b"evidence")
+            life.capture(root, "census", "log")
+            result = life.finish(root, test_exit_code=0, cleanup_verified=False, diagnostics=["census"])
+            self.assertEqual((root/"manifest.json").read_bytes(), manifest)
+            self.assertFalse(result["nativeReady"])
+            self.assertTrue(result["requiresNewAdmission"])
+
 if __name__ == "__main__": unittest.main()

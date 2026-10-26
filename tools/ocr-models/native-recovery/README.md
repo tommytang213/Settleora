@@ -31,6 +31,13 @@ packet, image, and command digests. It retains allowlisted diagnostic prefixes
 (up to 4 MiB each) and a private completeness receipt. The terminal record is
 single-use and records zero automatic retries; a failed or incomplete cleanup
 requires a new admission. It launches no process and deletes no diagnostics.
+Before capture or finish, the helper validates the exact manifest fields, all
+four lowercase SHA-256 binding strings, integer-zero retry budget and exact
+integer diagnostic cap. Booleans cannot stand in for counts. The bounded JSON
+reader rejects duplicate fields and nonfinite values for both manifest and
+diagnostic records. Invalid input writes no new evidence or terminal record and
+leaves already retained diagnostics intact; these checks do not authenticate a
+receipt author or prove live cleanup.
 Before writing a terminal record, the helper checks the exact diagnostic receipt
 fields and strict integer/boolean types, retained length versus the fixed prefix
 cap, and truncation consistency as well as the retained-byte digest. Malformed
