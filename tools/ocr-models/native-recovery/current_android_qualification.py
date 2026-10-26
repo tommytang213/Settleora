@@ -161,7 +161,7 @@ def check_write_space(paths):
 def validate(p):
     keys = {'schema', 'head', 'repo', 'runRoot', 'sourceArchive', 'filePins', 'tools',
             'network', 'locks', 'jobID', 'jobsPath', 'bounds', 'review', 'sdkRoot',
-            'flutterRoot', 'pubCache', 'gradleReadOnlyCache', 'models', 'bootID', 'image', 'writeScope', 'pidNamespace', 'netNamespace', 'imageFiles'}
+            'flutterRoot', 'pubCache', 'gradleReadOnlyCache', 'models', 'bootID', 'image', 'writeScope', 'pidNamespace', 'netNamespace', 'imageFiles', 'pluginCache'}
     if type(p) is not dict or set(p) != keys or p['schema'] != 'settleora-current-android-qualification-v1':
         raise ValueError('exact fresh qualification packet required')
     if not re.fullmatch('[0-9a-f]{40}', p['head']) or not re.fullmatch('[0-9a-f]{64}', p['sourceArchive']['sha256']):
@@ -216,6 +216,11 @@ def validate(p):
         'flutter': Path(p['flutterRoot']) / 'bin/flutter'}
     if any(p['tools'][role]['path'] != str(path) for role, path in expected_tools.items()):
         raise ValueError('tool roots must agree with SDK/Flutter package bindings')
+    if set(p['pluginCache']) != {n for names in GENERATED_PLUGIN_NAMES.values() for n in names}:
+        raise ValueError('exact generated plugin cache bindings required')
+    for pin in p['pluginCache'].values():
+        if set(pin) != {'version', 'archiveSHA256', 'treeSHA256'} or not re.fullmatch('[0-9A-Za-z.+_-]+', pin['version']) or any(not re.fullmatch('[0-9a-f]{64}', pin[k]) for k in ('archiveSHA256', 'treeSHA256')):
+            raise ValueError('bounded pinned cache package identity required')
     if p['writeScope'] != write_scope(p):
         raise ValueError('normal SDK/cache effects must be explicitly admitted')
     return p
@@ -266,7 +271,118 @@ def extract_source(archive, destination, check=lambda: None):
             check()
 
 
-def verify_source_tree(repo, head, destination, check=lambda: None, strict_inventory=True):
+# Exact generated links observed after current offline pub resolution. Neither
+# additional platforms/packages nor arbitrary generated symlinks are admitted.
+GENERATED_PLUGIN_NAMES = {
+    'linux': ('file_picker', 'file_selector_linux', 'flutter_secure_storage_linux', 'image_picker_linux', 'jni', 'path_provider_linux'),
+    'windows': ('file_picker', 'file_selector_windows', 'flutter_secure_storage_windows', 'image_picker_windows', 'jni', 'path_provider_windows'),
+}
+
+
+def locked_hosted_package(lock, name):
+    blocks = re.findall(r'^  ' + re.escape(name) + r':\n((?:    .*\n|\n)+)', lock, re.M)
+    if len(blocks) != 1:
+        raise RuntimeError('unique locked hosted plugin required')
+    block = blocks[0]
+    def field(pattern):
+        matches = re.findall(pattern, block, re.M)
+        if len(matches) != 1:
+            raise RuntimeError('ambiguous locked plugin identity')
+        return matches[0]
+    version = field(r'^    version: "?([0-9A-Za-z.+_-]+)"?$')
+    digest = field(r'^      sha256: "?([0-9a-f]{64})"?$')
+    if field(r'^    source: (\w+)$') != 'hosted' or field(r'^      name: ([a-z0-9_]+)$') != name or \
+       field(r'^      url: "?([^"\n]+)"?$') != 'https://pub.dev':
+        raise RuntimeError('noncanonical hosted plugin identity')
+    return version, digest
+
+
+def cache_source_paths(root):
+    """Never traverse links or the known JNI CMake generated-output subtree."""
+    root = Path(root)
+    paths = []
+    def walk_error(error):
+        raise error
+    for current, directories, files in os.walk(root, followlinks=False, onerror=walk_error):
+        for name in list(directories) + files:
+            path = Path(current) / name
+            relative = str(path.relative_to(root))
+            if path.is_symlink():
+                raise RuntimeError('linked cache package member')
+            if root.name == 'jni-1.0.0' and relative == 'android/.cxx':
+                if name in directories:
+                    directories.remove(name)
+                continue
+            paths.append(path)
+            if len(paths) > 10000:
+                raise RuntimeError('bounded cache source inventory exceeded')
+    return sorted(paths)
+
+
+def cache_tree_digest(root, check=lambda: None):
+    root = Path(root)
+    filesystem_space(root)
+    if not root.is_dir():
+        raise RuntimeError('pinned cache package absent')
+    paths = cache_source_paths(root)
+    digest = hashlib.sha256()
+    digest.update((json.dumps(['.', root.stat().st_mode & 0o7777, 'directory'], separators=(',', ':')) + '\n').encode())
+    total = 0
+    for path in paths:
+        check()
+        st = path.lstat()
+        if stat.S_ISDIR(st.st_mode):
+            frame = [str(path.relative_to(root)), st.st_mode & 0o7777, 'directory']
+            digest.update((json.dumps(frame, separators=(',', ':')) + '\n').encode())
+            continue
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise RuntimeError('linked/special immutable cache source member')
+        total += st.st_size
+        if total > 128 * 1024**2:
+            raise RuntimeError('bounded cache source bytes exceeded')
+        frame = [str(path.relative_to(root)), st.st_mode & 0o7777, sha(path, check)]
+        digest.update((json.dumps(frame, separators=(',', ':')) + '\n').encode())
+    if paths != cache_source_paths(root):
+        raise RuntimeError('cache source inventory changed during observation')
+    return digest.hexdigest()
+
+
+def verify_cache_bundle(pub_cache, cache_pins, check=lambda: None):
+    for name, pin in cache_pins.items():
+        root = Path(pub_cache) / 'hosted/pub.dev' / (name + '-' + pin['version'])
+        if cache_tree_digest(root, check) != pin['treeSHA256']:
+            raise RuntimeError('pinned cache package bytes/mode/inventory drift')
+
+
+def verified_plugin_links(source, pub_cache, file_pins, cache_pins, check=lambda: None):
+    lock_path = Path(source) / 'apps/mobile/pubspec.lock'
+    lock = bounded_bytes(lock_path).decode()
+    result = {}
+    verify_cache_bundle(pub_cache, cache_pins, check)
+    for name in sorted({n for names in GENERATED_PLUGIN_NAMES.values() for n in names}):
+        version, digest = locked_hosted_package(lock, name)
+        pin = cache_pins.get(name, {})
+        if pin.get('version') != version or pin.get('archiveSHA256') != digest:
+            raise RuntimeError('locked plugin differs from pinned cache identity')
+        root = Path(pub_cache) / 'hosted/pub.dev' / (name + '-' + version)
+        filesystem_space(root)  # Reject linked/untrusted cache ancestors without changes.
+        if not root.is_dir():
+            raise RuntimeError('locked plugin cache package absent')
+        checksum = Path(pub_cache) / 'hosted-hashes/pub.dev' / (name + '-' + version + '.sha256')
+        filesystem_space(checksum)
+        if str(checksum) not in file_pins or sha(checksum, check) != file_pins[str(checksum)] or bounded_bytes(checksum).decode().strip() != digest:
+            raise RuntimeError('locked plugin archive checksum identity drift')
+        spec = bounded_bytes(root / 'pubspec.yaml').decode()
+        if re.findall(r'^name: *([a-z0-9_]+) *$', spec, re.M) != [name] or \
+           re.findall(r'^version: *[\'"]?([^\'" \n]+)[\'"]? *$', spec, re.M) != [version]:
+            raise RuntimeError('locked cache package name/version differs')
+        for platform, names in GENERATED_PLUGIN_NAMES.items():
+            if name in names:
+                result['apps/mobile/' + platform + '/flutter/ephemeral/.plugin_symlinks/' + name] = str(root)
+    return result
+
+
+def verify_source_tree(repo, head, destination, check=lambda: None, strict_inventory=True, generated_links=None):
     check()
     listing = subprocess.check_output(['git', '-C', repo, 'ls-tree', '-r', '-z', '--full-tree', head], timeout=5)
     check()
@@ -281,11 +397,20 @@ def verify_source_tree(repo, head, destination, check=lambda: None, strict_inven
             raise RuntimeError('only ordinary current tracked source files admitted')
         expected[path] = (mode, object_id)
     files = {}
+    observed_links = {}
     for path in Path(destination).rglob('*'):
         if path.is_symlink():
-            raise RuntimeError('linked isolated source member')
+            relative = str(path.relative_to(destination))
+            if (strict_inventory or generated_links is None or relative not in generated_links or
+                str(path.readlink()) != generated_links[relative] or relative in expected or
+                any(name.startswith(relative + '/') for name in expected)):
+                raise RuntimeError('unexpected/changed generated link or linked tracked source')
+            observed_links[relative] = str(path.readlink())
+            continue
         if path.is_file():
             files[str(path.relative_to(destination))] = path
+    if generated_links is not None and observed_links != generated_links:
+        raise RuntimeError('expected generated plugin link set differs')
     if (set(files) != set(expected) if strict_inventory else not set(expected) <= set(files)):
         raise RuntimeError('isolated source inventory differs from exact Git tree')
     for relative, (mode, object_id) in expected.items():
@@ -555,6 +680,7 @@ class Backend:
             os.close(kvm)
         self.verify_image_bundle()
         check_write_space(self.p['writeScope'])
+        self.verify_cache()
         available = int(next(x.split()[1] for x in Path('/proc/meminfo').read_text().splitlines() if x.startswith('MemAvailable:'))) * 1024
         if available < 12 * 1024**3:  # All write filesystems, including absent history, checked above.
             raise RuntimeError('native resources below required margin')
@@ -615,7 +741,7 @@ class Backend:
                      cwd=self.scratch / 'source/apps/mobile', timeout=120)
         if sha(self.scratch / 'source/apps/mobile/pubspec.lock', self.clock) != sha(Path(self.p['repo']) / 'apps/mobile/pubspec.lock', self.clock):
             raise RuntimeError('offline dependency selection changed')
-        verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock, strict_inventory=False)
+        verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock, strict_inventory=False, generated_links=self.plugin_links())
         self.command([self.p['tools']['avdmanager']['path'], 'create', 'avd', '-n', 'settleora_current',
                       '-k', 'system-images;android-35;google_apis;x86_64'], stdin=b'no\n', timeout=60)
 
@@ -776,11 +902,17 @@ class Backend:
             cwd=self.scratch / 'source/apps/mobile', require_server=True)
         code = self.wait('runner', self.p['bounds']['test'])
         self.observed_test_exit = code
-        verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock, strict_inventory=False)
+        verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock, strict_inventory=False, generated_links=self.plugin_links())
         return code
 
+    def verify_cache(self):
+        verified_plugin_links(self.p['repo'], self.p['pubCache'], self.p['filePins'], self.p['pluginCache'], self.clock)
+
+    def plugin_links(self):
+        return verified_plugin_links(self.scratch / 'source', self.p['pubCache'], self.p['filePins'], self.p['pluginCache'], self.clock)
+
     def verify_runtime_inputs(self):
-        verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock, strict_inventory=False)
+        verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock, strict_inventory=False, generated_links=self.plugin_links())
         for pin in self.p['models']:
             if sha(self.scratch / 'source' / pin['relativePath'], self.clock) != pin['sha256']:
                 raise RuntimeError('isolated runtime model/fixture changed before runner launch')
@@ -821,6 +953,7 @@ class Backend:
                 raise RuntimeError('kernel/ramdisk/vendor/system image component drift')
 
     def verify_preserved_inputs(self):
+        self.verify_cache()
         for path, wanted in self.p['filePins'].items():
             if sha(path, self.clock) != wanted:
                 raise RuntimeError('protected source/history bytes changed')

@@ -37,6 +37,7 @@ def fixture(root):
     for role, rel in {'adb': 'platform-tools/adb', 'emulator': 'emulator/emulator', 'avdmanager': 'cmdline-tools/latest/bin/avdmanager'}.items():
         p['tools'][role]['path'] = str(Path(p['sdkRoot']) / rel)
     p['tools']['flutter']['path'] = str(Path(p['flutterRoot']) / 'bin/flutter')
+    p['pluginCache'] = {n: dict(version='1.2.3', archiveSHA256='a'*64, treeSHA256='b'*64) for names in r.GENERATED_PLUGIN_NAMES.values() for n in names}
     p['imageFiles'] = {'system.img': p['image']['sha256']}
     p['writeScope'] = r.write_scope(p)
     return p
@@ -157,6 +158,8 @@ class CurrentRunnerTests(unittest.TestCase):
         b.scratch.mkdir()
         b.deadline = time.monotonic() + 60
         b.verify_tool = Mock()
+        b.plugin_links = Mock(return_value={})
+        b.verify_cache = Mock()
         return b
 
     def test_existing_run_is_never_modified_during_failed_setup_retention(self):
@@ -842,6 +845,121 @@ class CurrentRunnerTests(unittest.TestCase):
         observation = r.filesystem_space(target)
         self.assertEqual(observation['inode'], target.stat().st_ino)
         self.assertEqual(target.read_bytes(), b'pin')
+
+    def test_expected_generated_link_allowed_without_following_target(self):
+        source = self.root / 'generated-source'
+        source.mkdir()
+        target = self.root / 'pinned-cache'
+        target.mkdir()
+        (target / 'outside.dart').write_bytes(b'not part of tracked source inventory')
+        relative = 'apps/mobile/linux/flutter/ephemeral/.plugin_symlinks/file_picker'
+        link = source / relative
+        link.parent.mkdir(parents=True)
+        link.symlink_to(target, target_is_directory=True)
+        with patch.object(r.subprocess, 'check_output', return_value=b''):
+            r.verify_source_tree('/fixture', 'a'*40, source, strict_inventory=False, generated_links={relative:str(target)})
+            with self.assertRaises(RuntimeError):
+                r.verify_source_tree('/fixture', 'a'*40, source)
+            with self.assertRaises(RuntimeError):
+                r.verify_source_tree('/fixture', 'a'*40, source, strict_inventory=False, generated_links={relative:str(self.root/'wrong')})
+        (source / 'unexpected').symlink_to(target)
+        with patch.object(r.subprocess, 'check_output', return_value=b''), self.assertRaises(RuntimeError):
+            r.verify_source_tree('/fixture', 'a'*40, source, strict_inventory=False, generated_links={relative:str(target)})
+
+    def test_lock_parser_requires_pinned_canonical_package(self):
+        block = '  plugin_name:\n    dependency: transitive\n    description:\n      name: plugin_name\n      sha256: "' + 'a'*64 + '"\n      url: "https://pub.dev"\n    source: hosted\n    version: "1.2.3+4"\n'
+        self.assertEqual(r.locked_hosted_package(block, 'plugin_name'), ('1.2.3+4','a'*64))
+        for bad in [block+block, block.replace('https://pub.dev','https://other.invalid'), block.replace('source: hosted','source: path')]:
+            with self.assertRaises(RuntimeError):
+                r.locked_hosted_package(bad, 'plugin_name')
+
+    def test_generated_plugin_cache_identity_and_inventory_are_pinned(self):
+        source = self.root / 'source'
+        (source / 'apps/mobile').mkdir(parents=True)
+        cache = self.root / 'pub-cache'
+        package = cache / 'hosted/pub.dev/plugin_name-1.2.3'
+        package.mkdir(parents=True)
+        spec = package / 'pubspec.yaml'
+        spec.write_text('name: plugin_name\nversion: 1.2.3\n')
+        checksum = cache / 'hosted-hashes/pub.dev/plugin_name-1.2.3.sha256'
+        checksum.parent.mkdir(parents=True)
+        checksum.write_text('a'*64)
+        lock = '  plugin_name:\n    description:\n      name: plugin_name\n      sha256: '+ 'a'*64 +'\n      url: "https://pub.dev"\n    source: hosted\n    version: "1.2.3"\n'
+        (source / 'apps/mobile/pubspec.lock').write_text(lock)
+        pins = {str(p): r.sha(p) for p in (spec,checksum)}
+        cache_pins = {'plugin_name': dict(version='1.2.3', archiveSHA256='a'*64, treeSHA256=r.cache_tree_digest(package))}
+        with patch.object(r, 'GENERATED_PLUGIN_NAMES', {'linux': ('plugin_name',)}):
+            links = r.verified_plugin_links(source, cache, pins, cache_pins)
+            self.assertEqual(list(links.values()), [str(package)])
+            spec.write_text('name: plugin_name\nversion: 9.9.9\n')
+            with self.assertRaises(RuntimeError):
+                r.verified_plugin_links(source, cache, pins, cache_pins)
+            spec.write_text('name: plugin_name\nversion: 1.2.3\n')
+            (package / 'unexpected').write_bytes(b'not pinned')
+            with self.assertRaises(RuntimeError):
+                r.verified_plugin_links(source, cache, pins, cache_pins)
+
+    def test_only_known_jni_cmake_outputs_are_outside_source_digest(self):
+        root = self.root / 'jni-1.0.0'
+        output = root / 'android/.cxx'
+        output.mkdir(parents=True)
+        (root / 'pubspec.yaml').write_text('name: jni\nversion: 1.0.0\n')
+        before = r.cache_tree_digest(root)
+        (output / 'generated.o').write_bytes(b'generated mutable build output')
+        self.assertEqual(r.cache_tree_digest(root), before)
+        (root / 'unexpected.dart').write_bytes(b'new immutable source')
+        self.assertNotEqual(r.cache_tree_digest(root), before)
+        (output / 'generated.o').unlink()
+        output.rmdir()
+        output.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises(RuntimeError):
+            r.cache_tree_digest(root)
+
+    def test_cache_source_empty_directory_and_mode_are_pinned(self):
+        root = self.root / 'cache-package'
+        root.mkdir()
+        (root / 'pubspec.yaml').write_bytes(b'source')
+        before = r.cache_tree_digest(root)
+        directory = root / 'new-directory'
+        directory.mkdir()
+        added = r.cache_tree_digest(root)
+        self.assertNotEqual(added, before)
+        directory.chmod(0o700)
+        self.assertNotEqual(r.cache_tree_digest(root), added)
+
+    def test_backend_pre_sdk_cache_check_also_binds_lock_identity(self):
+        b = self.backend()
+        with patch.object(r, 'verified_plugin_links') as check:
+            r.Backend.verify_cache(b)
+        self.assertEqual(check.call_args.args[:4], (b.p['repo'],b.p['pubCache'],b.p['filePins'],b.p['pluginCache']))
+
+    def test_cache_walk_permission_error_is_not_silently_omitted(self):
+        root = self.root / 'cache'
+        private = root / 'private'
+        private.mkdir(parents=True)
+        (private / 'source.dart').write_bytes(b'must not be silently omitted')
+        private.chmod(0)
+        try:
+            with self.assertRaises(PermissionError):
+                r.cache_tree_digest(root)
+        finally:
+            private.chmod(0o700)
+
+    def test_cache_package_root_mode_is_pinned(self):
+        root = self.root / 'package'
+        root.mkdir(mode=0o755)
+        (root / 'pubspec.yaml').write_bytes(b'source')
+        before = r.cache_tree_digest(root)
+        root.chmod(0o700)
+        self.assertNotEqual(r.cache_tree_digest(root), before)
+
+    def test_cache_package_special_permission_bits_are_pinned(self):
+        root = self.root / 'package'
+        root.mkdir(mode=0o755)
+        (root / 'pubspec.yaml').write_bytes(b'source')
+        before = r.cache_tree_digest(root)
+        root.chmod(0o1755)
+        self.assertNotEqual(r.cache_tree_digest(root), before)
 
     def test_run_never_turns_failed_test_into_native_acceptance(self):
         result = r.run(self.p, 'fixture', self.token, Fake)
