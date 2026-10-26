@@ -111,15 +111,51 @@ def write_scope(p):
             str(sdk / 'packages/flutter_tools/gradle/build'), p['pubCache']]
 
 
+def filesystem_space(raw):
+    """Observe the intended filesystem through a verified existing ancestor fd.
+
+    No directories/files are created. Missing suffixes inherit the existing
+    ancestor filesystem; a later mount/path change remains a fresh-gate failure.
+    """
+    path = Path(raw)
+    if not path.is_absolute() or '..' in path.parts:
+        raise RuntimeError('absolute canonical write path required')
+    fd = os.open('/', os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+    ancestor = Path('/')
+    try:
+        for index, component in enumerate(path.parts[1:]):
+            try:
+                child = os.open(component, os.O_PATH | os.O_NOFOLLOW, dir_fd=fd)
+            except FileNotFoundError:
+                break
+            st = os.fstat(child)
+            is_directory = stat.S_ISDIR(st.st_mode)
+            trusted_sticky_root = is_directory and st.st_uid == 0 and bool(st.st_mode & stat.S_ISVTX)
+            if (not is_directory and not (index == len(path.parts) - 2 and stat.S_ISREG(st.st_mode))) or \
+               st.st_uid not in (0, os.geteuid()) or \
+               (st.st_mode & 0o002 and not trusted_sticky_root) or \
+               (st.st_mode & 0o020 and st.st_gid not in (0, os.getegid()) and not trusted_sticky_root):
+                os.close(child)
+                raise RuntimeError('untrusted/symlink write ancestor')
+            os.close(fd)
+            fd = child
+            ancestor /= component
+        before = os.fstat(fd)
+        space = shutil.disk_usage(fd)
+        current = os.stat(ancestor, follow_symlinks=False)
+        if (before.st_dev, before.st_ino) != (current.st_dev, current.st_ino):
+            raise RuntimeError('write ancestor/mount identity changed')
+        return dict(intendedPath=str(path), ancestor=str(ancestor), device=before.st_dev,
+                    inode=before.st_ino, freeBytes=space.free)
+    finally:
+        os.close(fd)
+
+
 def check_write_space(paths):
-    for raw in paths:
-        path = Path(raw)
-        while not path.exists():
-            if path == path.parent:
-                raise RuntimeError('write filesystem ancestor unavailable')
-            path = path.parent
-        if shutil.disk_usage(path).free < 50 * 1024**3:
-            raise RuntimeError('a declared write filesystem has less than50GiB margin')
+    observations = [filesystem_space(raw) for raw in paths]
+    if any(p['freeBytes'] < 50 * 1024**3 for p in observations):
+        raise RuntimeError('a declared write filesystem has less than50GiB margin')
+    return observations
 
 
 def validate(p):
@@ -520,7 +556,7 @@ class Backend:
         self.verify_image_bundle()
         check_write_space(self.p['writeScope'])
         available = int(next(x.split()[1] for x in Path('/proc/meminfo').read_text().splitlines() if x.startswith('MemAvailable:'))) * 1024
-        if available < 12 * 1024**3 or shutil.disk_usage(self.root.parent).free < 50 * 1024**3:
+        if available < 12 * 1024**3:  # All write filesystems, including absent history, checked above.
             raise RuntimeError('native resources below required margin')
         flutter = Path(self.p['flutterRoot'])
         if (flutter / 'bin/cache/flutter_tools.stamp').read_text().strip() != '058e0af2c2b57e369d905a03ac9748b0ebf543c6:' or not (flutter / 'bin/cache/flutter_tools.snapshot').is_file():

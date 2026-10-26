@@ -822,6 +822,27 @@ class CurrentRunnerTests(unittest.TestCase):
             b.execute()
         b.adb.assert_not_called()
 
+    def test_absent_native_history_uses_existing_ancestor_without_creation(self):
+        intended = self.root / 'missing-history' / 'new-run'
+        observation = r.filesystem_space(intended)
+        self.assertEqual(observation['ancestor'], str(self.root))
+        self.assertEqual(observation['device'], self.root.stat().st_dev)
+        self.assertGreater(observation['freeBytes'], 0)
+        self.assertFalse(intended.parent.exists())
+
+    def test_write_ancestor_symlink_is_rejected(self):
+        link = self.root / 'linked'
+        link.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, 'symlink'):
+            r.filesystem_space(link / 'missing')
+
+    def test_existing_write_file_uses_its_own_filesystem(self):
+        target = self.root / 'cache.stamp'
+        target.write_bytes(b'pin')
+        observation = r.filesystem_space(target)
+        self.assertEqual(observation['inode'], target.stat().st_ino)
+        self.assertEqual(target.read_bytes(), b'pin')
+
     def test_run_never_turns_failed_test_into_native_acceptance(self):
         result = r.run(self.p, 'fixture', self.token, Fake)
         self.assertEqual(result, {'testExitCode': 17, 'cleanupVerified': True, 'nativeReady': False, 'automaticRetries': 0})
