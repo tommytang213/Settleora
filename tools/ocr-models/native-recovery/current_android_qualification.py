@@ -5,6 +5,7 @@ This script supplies identity/integrity checks, never platform authority.
 """
 import argparse
 import ctypes
+from datetime import datetime
 import fcntl
 import hashlib
 import ipaddress
@@ -15,6 +16,7 @@ from pathlib import Path
 import re
 import select
 import signal
+import shlex
 import shutil
 import subprocess
 import stat
@@ -86,20 +88,231 @@ def state_parent():
     return Path(pwd.getpwuid(os.geteuid()).pw_dir) / '.local/state/settleora-native-qualification'
 
 
-def check_previous_runs(parent):
+def pinned_history_json(path, pins):
+    path = Path(path)
+    raw = bounded_bytes(path) if str(path) in pins else None
+    if raw is None or hashlib.sha256(raw).hexdigest() != pins[str(path)]:
+        raise RuntimeError('exact externally admitted history evidence required')
+    return decode(raw)
+
+
+def require_late_scope_absent(ledger, retired, check=lambda: None, supervisor_pid=None):
+    if Path('/proc/sys/kernel/random/boot_id').read_text().strip() != retired['bootID'] or \
+       os.stat('/proc/self/ns/pid').st_ino != retired['pidNamespace'] or \
+       os.stat('/proc/self/ns/net').st_ino != retired['netNamespace']:
+        raise RuntimeError('retired ownership observation namespace/boot changed')
+    if supervisor_pid is not None:
+        if type(supervisor_pid) is not int or supervisor_pid <= 0:
+            raise RuntimeError('known retired supervisor PID required')
+        try:
+            Path('/proc', str(supervisor_pid), 'stat').read_text()
+        except FileNotFoundError:
+            pass
+        else:
+            raise RuntimeError('retired supervisor PID still observed or reused')
+    known = {(r['pid'], r['ticks']) for r in ledger}
+    groups = {r['pgid'] for r in ledger}
+    sessions = {r['sid'] for r in ledger}
+    for entry in Path('/proc').iterdir():
+        check()
+        if not entry.name.isdigit():
+            continue
+        try:
+            raw = (entry / 'stat').read_text()
+        except FileNotFoundError:
+            continue
+        fields = raw[raw.rfind(')') + 2:].split()
+        if (int(entry.name), fields[19]) in known or int(fields[2]) in groups or int(fields[3]) in sessions:
+            raise RuntimeError('retired owned identity/session/group still observed')
+    check_free_emulator_ports((5037, 5554, 5555))
+    check()
+
+
+def complete_history_facts(terminal, final):
+    terminal_fields = {'schema', 'automaticRetries', 'cleanupVerified', 'diagnostics', 'nativeReady', 'requiresNewAdmission', 'testExitCode'}
+    final_fields = {'cleanupVerified', 'nativeReady', 'normalExecutorReturnStillRequiresExternalReadback', 'qualificationFailure', 'testExitCode'}
+    diagnostics = terminal.get('diagnostics')
+    return terminal_fields <= set(terminal) and final_fields <= set(final) and \
+        type(diagnostics) is list and 1 <= len(diagnostics) <= 8 and \
+        all(type(name) is str and name in {'emulator_stderr','emulator_stdout','anchor_stderr','flutter_stdout','flutter_stderr','tool_result'} for name in diagnostics) and \
+        len(set(diagnostics)) == len(diagnostics) and 'tool_result' in diagnostics and \
+        (final['qualificationFailure'] is None or type(final['qualificationFailure']) is str)
+
+
+def verify_history_diagnostics(root, terminal, final, pins):
+    for name in terminal['diagnostics']:
+        receipt = pinned_history_json(root / 'diagnostics' / (name + '.json'), pins)
+        log = root / 'diagnostics' / (name + '.log')
+        raw = bounded_bytes(log) if str(log) in pins else None
+        fields = {'schema','name','retainedBytes','sourceBytes','truncated','retainedSHA256'}
+        if raw is None or hashlib.sha256(raw).hexdigest() != pins[str(log)] or set(receipt) != fields or \
+           receipt['schema'] != 'settleora-private-diagnostic-v1' or receipt['name'] != name or \
+           type(receipt['retainedBytes']) is not int or type(receipt['sourceBytes']) is not int or receipt['sourceBytes'] < 0 or \
+           type(receipt['truncated']) is not bool or receipt['retainedBytes'] != min(receipt['sourceBytes'], CAP) or \
+           receipt['truncated'] != (receipt['sourceBytes'] > receipt['retainedBytes']) or len(raw) != receipt['retainedBytes'] or \
+           hashlib.sha256(raw).hexdigest() != receipt['retainedSHA256']:
+            raise RuntimeError('incomplete or invalid pinned historical diagnostic')
+        if name == 'tool_result':
+            if receipt['truncated']:
+                raise RuntimeError('historical tool result cannot be truncated')
+            result = decode(raw)
+            if result.get('testExitCode') != terminal['testExitCode'] or result.get('cleanupVerified') is not terminal['cleanupVerified'] or \
+               result.get('nativeReady') is not False or result.get('consumed') is not True or \
+               result.get('consumptionDurabilityConfirmed') is not True or result.get('qualificationFailure') != final['qualificationFailure']:
+                raise RuntimeError('historical tool result contradicts terminal/final facts')
+            for field in ('primaryFailure','cleanupFailure'):
+                if (field in result) != (field in final) or result.get(field) != final.get(field):
+                    raise RuntimeError('historical primary/cleanup causes contradict final facts')
+            tool_result = result
+
+    return tool_result
+
+
+def verify_history_bundle(root, terminal, final, result, pins):
+    manifest = pinned_history_json(root / 'manifest.json', pins)
+    digests = {'sourceSHA256','packetSHA256','imageSHA256','commandSHA256'}
+    if set(manifest) != {'schema','maxDiagnosticBytes','automaticRetries'} | digests or manifest['schema'] != 'settleora-disposable-native-run-v1' or manifest['maxDiagnosticBytes'] != CAP or manifest['automaticRetries'] != 0 or any(type(manifest[k]) is not str or not re.fullmatch('[0-9a-f]{64}',manifest[k]) for k in digests):
+        raise RuntimeError('incomplete historical run manifest')
+    consumed = pinned_history_json(root / 'CONSUMED.json', pins)
+    if consumed.get('packetSHA256') != manifest['packetSHA256'] or consumed.get('retries') != 0 or consumed.get('nativeReady') is not False:
+        raise RuntimeError('historical consumption facts disagree')
+    ownership = pinned_history_json(root / 'OWNED_DESCENDANTS.json', pins)
+    observed = ownership.get('observed')
+    if ownership.get('cleanupVerified') is not terminal['cleanupVerified'] or type(observed) is not list or len(observed) > 4096:
+        raise RuntimeError('historical ownership contradicts terminal facts')
+    children = result.get('children')
+    if type(children) is not dict or len(children) > 1027:
+        raise RuntimeError('bounded historical direct children required')
+    capture = pinned_history_json(root / 'CAPTURE_COMPLETENESS.json', pins)
+    expected_streams = {role + ':' + channel for role in children for channel in ('0','1')}
+    if capture.get('setupComplete') is not True or type(capture.get('streams')) is not dict or set(capture['streams']) != expected_streams:
+        raise RuntimeError('incomplete historical process capture')
+    scope = list(observed)
+    for role, child in children.items():
+        if role not in ROLES and not re.fullmatch(r'cmd_[1-9][0-9]{0,3}', role):
+            raise RuntimeError('unknown historical child role')
+        attempt = pinned_history_json(root / ('LAUNCH_ATTEMPTED_' + role + '.json'), pins)
+        launch = pinned_history_json(root / ('LAUNCH_OBSERVED_' + role + '.json'), pins)
+        if attempt.get('role') != role or attempt.get('retries') != 0 or type(attempt.get('argv')) is not list or not attempt['argv'] or any(type(arg) is not str for arg in attempt['argv']) or launch.get('role') != role or launch.get('pid') != child.get('pid') or launch.get('ticks') != child.get('ticks') or type(child.get('pid')) is not int or child['pid'] <= 0 or type(child.get('ticks')) is not str or not child['ticks'].isdigit():
+            raise RuntimeError('positive historical child launch identity required')
+        scope.append(dict(pid=child['pid'],ticks=child['ticks'],pgid=child['pid'],sid=child['pid'],ppid=0))
+        for channel in ('0','1'):
+            stream = capture['streams'][role + ':' + channel]
+            limit = 32*1024*1024 if role == 'runner' else CAP
+            if stream.get('complete') is not True or stream.get('error') is not None or stream.get('processOutputTruncated') is not False or stream.get('limit') != limit or type(stream.get('totalBytes')) is not int or stream['totalBytes'] < 0 or stream.get('retainedBytes') != stream['totalBytes'] or stream['totalBytes'] > limit:
+                raise RuntimeError('historical capture incomplete/truncated')
+    if terminal['cleanupVerified']:
+        cleanup = pinned_history_json(root / 'CLEANUP_OBSERVED.json', pins)
+        if cleanup.get('remaining') != [] or cleanup.get('nativeReady') is not False or (cleanup.get('directChildrenExited') is not True if children else cleanup.get('ownedChildrenCreated') != 0) or any(type(c.get('returnCode')) is not int for c in children.values()):
+            raise RuntimeError('historical clean ownership observation incomplete')
+    schema = final.get('schema')
+    if schema is None:
+        if result.get('schema') is not None or any(field in final or field in result for field in ('primaryFailure','cleanupFailure')) or (root / 'FAILURE_CAUSES.json').exists():
+            raise RuntimeError('unversioned historical cause contract')
+    elif schema == 'settleora-native-supervisor-final-v2':
+        if result.get('schema') != 'settleora-native-tool-result-v2' or not {'primaryFailure','cleanupFailure'} <= set(final):
+            raise RuntimeError('versioned historical failure facts incomplete')
+        causes = pinned_history_json(root / 'FAILURE_CAUSES.json', pins)
+        if final['qualificationFailure'] != (final['primaryFailure'] or final['cleanupFailure']) or any(final[field] is not None and (type(final[field]) is not str or not final[field].strip()) for field in ('primaryFailure','cleanupFailure')) or terminal['cleanupVerified'] is not (final['cleanupFailure'] is None):
+            raise RuntimeError('versioned historical cause precedence contradicts supervisor outcome')
+        if set(causes) != {'schema','primaryFailure','cleanupFailure'} or causes.get('schema') != 'settleora-native-failure-causes-v1' or any(causes.get(field) != final[field] or (final[field] is not None and type(final[field]) is not str) for field in ('primaryFailure','cleanupFailure')) or (terminal['cleanupVerified'] and final['cleanupFailure'] is not None):
+            raise RuntimeError('historical failure cause record contradicts finalization')
+    else:
+        raise RuntimeError('unknown historical supervisor contract')
+    return scope
+
+
+def validate_late_reconciliation(root, terminal, final, pins, check=lambda: None, scope=None):
+    if not complete_history_facts(terminal, final):
+        raise RuntimeError('incomplete original failed finalization facts')
+    receipt_path = root / 'LATE_OBSERVED_QUIESCENCE_V1.json'
+    receipt = pinned_history_json(receipt_path, pins)
+    if receipt.get('schema') != 'settleora-native-late-observed-quiescence-v1' or receipt.get('priorRoot') != str(root) or \
+       receipt.get('initialCleanupVerified') is not False or receipt.get('lateObservedQuiescence') is not True or \
+       receipt.get('normalExitVerified') is not False or receipt.get('nativeReady') is not False or \
+       receipt.get('cause') != 'unobserved' or receipt.get('supervisorExitCode') != 1 or \
+       terminal.get('cleanupVerified') is not False or final.get('cleanupVerified') is not False or \
+       terminal.get('testExitCode') != 98 or type(final.get('qualificationFailure')) is not str or not final['qualificationFailure'] or terminal.get('nativeReady') is not False or \
+       terminal.get('automaticRetries') != 0 or terminal.get('requiresNewAdmission') is not True or \
+       final.get('testExitCode') != 98 or final.get('nativeReady') is not False or \
+       final.get('normalExecutorReturnStillRequiresExternalReadback') is not True or \
+       (root / 'LAUNCH_ATTEMPTED_runner.json').exists():
+        raise RuntimeError('late quiescence cannot replace or relabel initial failure')
+    for name, key in [('terminal.json', 'terminalSHA256'), ('SUPERVISOR_FINALIZED.json', 'finalSHA256'),
+                      ('OWNED_DESCENDANTS.json', 'ledgerSHA256')]:
+        path = root / name
+        if sha(path) != receipt[key] or pins.get(str(path)) != receipt[key]:
+            raise RuntimeError('retired failure/ownership record drift')
+    retired = pinned_history_json(receipt['retiredPacketPath'], pins)
+    consumed = pinned_history_json(root / 'CONSUMED.json', pins)
+    if pins.get(receipt['retiredPacketPath']) != receipt['retiredPacketSHA256'] or retired['runRoot'] != str(root) or \
+       consumed.get('packetSHA256') != receipt['retiredPacketSHA256'] or consumed.get('retries') != 0 or consumed.get('nativeReady') is not False:
+        raise RuntimeError('retired consumed packet binding drift')
+    for field, digest in [('scanEvidencePath', 'scanEvidenceSHA256'), ('normalHistoryPath', 'normalHistorySHA256')]:
+        if pins.get(receipt[field]) != receipt[digest]:
+            raise RuntimeError('late observation/invocation evidence not admitted')
+    evidence = pinned_history_json(receipt['scanEvidencePath'], pins)
+    scans = evidence.get('scans', [])
+    if len(scans) != 2 or evidence.get('supervisorSession') != receipt['supervisorSession'] or evidence.get('actualExitCode') != 1 or \
+       any(scan.get('heldRecordedIdentitiesStillPresent') != [] or scan.get('activeRelevantSockets') != [] for scan in scans) or \
+       (datetime.fromisoformat(scans[1]['utc']) - datetime.fromisoformat(scans[0]['utc'])).total_seconds() < 1:
+        raise RuntimeError('two separated empty bounded observations required')
+    history = pinned_history_json(receipt['normalHistoryPath'], pins)
+    def output(call):
+        return '\n'.join(c.get('text', '') for c in call.get('output', {}).get('content', []) if c.get('type') == 'text')
+    expected_argv = ['/usr/bin/python3', '-I', '-B', str(Path(retired['repo']) / 'tools/ocr-models/native-recovery/current_android_qualification.py'),
+                     '--execute-admitted', '--packet', receipt['retiredPacketPath'], '--packet-sha256', receipt['retiredPacketSHA256']]
+    def registered_pid(call):
+        matches = re.findall(r'(?m)^Process started with PID ([0-9]+)(?=\s|\(|$)', output(call))
+        return int(matches[0]) if matches else None
+    def terminal_code(call):
+        matches = re.findall(r'(?m)^(?:✅ )?Process completed with exit code (-?[0-9]+)(?=\s|\(|$)', output(call))
+        return int(matches[-1]) if matches else None
+    starts = [c for c in history.get('calls', []) if c.get('toolName') == 'start_process' and
+              shlex.split(c.get('arguments', {}).get('command', '')) == expected_argv and
+              registered_pid(c) == receipt['supervisorSession']]
+    exits = [c for c in history.get('calls', []) if c.get('toolName') == 'read_process_output' and
+             c.get('arguments', {}).get('pid') == receipt['supervisorSession'] and terminal_code(c) == 1]
+    if not starts or not exits:
+        raise RuntimeError('normal invocation and actual terminal failure readback required')
+    # Atlas authenticates these actual API origins externally; file text/hash is
+    # never platform permission. Current scope is re-observed, not inferred idle.
+    ownership = pinned_history_json(root / 'OWNED_DESCENDANTS.json', pins)
+    if ownership.get('cleanupVerified') is not False:
+        raise RuntimeError('retired ownership record contradicts failed cleanup')
+    ledger = ownership['observed']
+    if not ledger or len(ledger) > 4096:
+        raise RuntimeError('bounded positive retired ownership ledger required')
+    require_late_scope_absent(scope if scope is not None else ledger, retired, check, supervisor_pid=receipt['supervisorSession'])
+
+
+def check_previous_runs(parent, pins=None, check=lambda: None):
     if not parent.exists():
         return
+    pins = pins or {}
     entries = list(parent.iterdir())
     if len(entries) > 128:
         raise RuntimeError('qualification history requires explicit reconciliation')
     for root in entries:
+        check()
         if root.is_symlink() or not root.is_dir():
             raise RuntimeError('unknown qualification history entry')
-        terminal = read_json(root / 'terminal.json')
-        final = read_json(root / 'SUPERVISOR_FINALIZED.json')
-        if terminal.get('schema') != 'settleora-native-run-terminal-v1' or \
-           terminal.get('cleanupVerified') is not True or final.get('cleanupVerified') is not True:
-            raise RuntimeError('previous incomplete cleanup blocks new native admission')
+        terminal = pinned_history_json(root / 'terminal.json', pins)
+        final = pinned_history_json(root / 'SUPERVISOR_FINALIZED.json', pins)
+        if terminal.get('schema') != 'settleora-native-run-terminal-v1':
+            raise RuntimeError('unknown historical terminal record')
+        if not complete_history_facts(terminal, final):
+            raise RuntimeError('incomplete historical terminal/final facts')
+        result = verify_history_diagnostics(root, terminal, final, pins)
+        scope = verify_history_bundle(root, terminal, final, result, pins)
+        late_marker = root / 'LATE_OBSERVED_QUIESCENCE_V1.json'
+        if str(late_marker) in pins or late_marker.exists() or late_marker.is_symlink() or terminal.get('cleanupVerified') is not True or final.get('cleanupVerified') is not True:
+            validate_late_reconciliation(root, terminal, final, pins, check, scope=scope)
+        elif not complete_history_facts(terminal, final) or terminal.get('nativeReady') is not False or terminal.get('automaticRetries') != 0 or \
+             terminal.get('requiresNewAdmission') is not True or type(terminal.get('testExitCode')) is not int or \
+             not 0 <= terminal['testExitCode'] <= 255 or final.get('testExitCode') != terminal['testExitCode'] or \
+             final.get('nativeReady') is not False or final.get('normalExecutorReturnStillRequiresExternalReadback') is not True:
+            raise RuntimeError('incomplete or contradictory clean historical finalization')
 
 
 def write_scope(p):
@@ -234,13 +447,13 @@ def check_signal_context(text):
         raise RuntimeError('launch SIGTERM blocked or ignored; do not change masks')
 
 
-def check_free_emulator_ports():
+def check_free_emulator_ports(ports=(5554, 5555)):
     for table in ('tcp', 'tcp6'):
         for line in Path('/proc/net', table).read_text().splitlines()[1:]:
             row = line.split()
             if row[3] == '06' and row[9] == '0':
                 continue
-            if any(int(x.rsplit(':', 1)[1], 16) in (5554, 5555) for x in row[1:3]):
+            if any(int(x.rsplit(':', 1)[1], 16) in ports for x in row[1:3]):
                 raise RuntimeError('emulator console/transport ports occupied before launch')
 
 
@@ -427,7 +640,7 @@ def verify_source_tree(repo, head, destination, check=lambda: None, strict_inven
         after = path.stat()
         identity = lambda st: (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_mode)
         if any(identity(st) != identity(before) for st in (opened, finished, after)) or h.hexdigest() != object_id or \
-           bool(before.st_mode & 0o111) != (mode == '100755'):
+           bool(before.st_mode & stat.S_IXUSR) != (mode == '100755'):
             raise RuntimeError('isolated source bytes/mode differ from exact Git tree')
 
 
@@ -480,6 +693,8 @@ class Backend:
         self.command_number = 0
         self.observed_test_exit = None
         self.failure_reason = None
+        self.primary_failure_reason = None
+        self.cleanup_failure_reason = None
         self.log_bound_failure = False
         self.subreaper = False
         self.owned_descendants = {}
@@ -631,7 +846,7 @@ class Backend:
             if (st.st_dev, st.st_ino, st.st_uid) != (pin['device'], pin['inode'], os.geteuid()):
                 raise RuntimeError('lock identity drift')
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        check_previous_runs(state_parent())
+        check_previous_runs(state_parent(), self.p['filePins'], self.clock)
 
     def consume_and_adopt(self):
         # Any uncertain consume persistence makes this fresh directory unusable.
@@ -650,7 +865,7 @@ class Backend:
             raise PermissionError('ordinary non-escalated account context required')
         self.policy()
         self.jobs()
-        check_previous_runs(state_parent())
+        check_previous_runs(state_parent(), self.p['filePins'], self.clock)
         self.native_census(initial=True)
         if Path('/proc/sys/kernel/random/boot_id').read_text().strip() != self.p['bootID']:
             raise RuntimeError('host boot changed')
@@ -698,7 +913,7 @@ class Backend:
         self.life = types.SimpleNamespace(**namespace)
         self.clock()
         self.root.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        check_previous_runs(state_parent())
+        check_previous_runs(state_parent(), self.p['filePins'], self.clock)
         self.life.prepare(self.root, source_sha256=hashlib.sha256(json.dumps(self.p['filePins'], sort_keys=True).encode()).hexdigest(),
             packet_sha256=self.digest, image_sha256=hashlib.sha256(json.dumps(self.p['imageFiles'], sort_keys=True).encode()).hexdigest(),
             command_sha256=hashlib.sha256(json.dumps(self.plan(), sort_keys=True).encode()).hexdigest())
@@ -881,16 +1096,7 @@ class Backend:
             except SDKCommandError:
                 pass  # Device-offline/not-found is a bounded boot-readiness poll only.
             time.sleep(1)
-        for args in (['shell', 'settings', 'put', 'global', 'airplane_mode_on', '1'],
-                     ['shell', 'cmd', 'connectivity', 'airplane-mode', 'enable'],
-                     ['shell', 'svc', 'wifi', 'disable'], ['shell', 'svc', 'data', 'disable']):
-            self.adb(args)
-        for args, wanted in ((['shell', 'settings', 'get', 'global', 'airplane_mode_on'], '1'),
-                             (['shell', 'cmd', 'connectivity', 'airplane-mode'], 'enabled'),
-                             (['shell', 'settings', 'get', 'global', 'wifi_on'], '0'),
-                             (['shell', 'settings', 'get', 'global', 'mobile_data'], '0')):
-            if self.adb(args).strip() != wanted:
-                raise RuntimeError('owned emulator isolation not established')
+        self.isolate_emulator()
         self.clock()  # Boot/isolation must finish within its existing phase.
         self.deadline = time.monotonic() + self.p['bounds']['test']
         self.verify_runtime_inputs()
@@ -904,6 +1110,33 @@ class Backend:
         self.observed_test_exit = code
         verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock, strict_inventory=False, generated_links=self.plugin_links())
         return code
+
+    def isolate_emulator(self):
+        # API35 svc data is an asynchronous Telephony request, not a promise
+        # that the unscoped persisted user setting has become zero.
+        for args in (['shell', 'settings', 'put', 'global', 'airplane_mode_on', '1'],
+                     ['shell', 'cmd', 'connectivity', 'airplane-mode', 'enable'],
+                     ['shell', 'svc', 'wifi', 'disable'], ['shell', 'svc', 'data', 'disable'],
+                     ['shell', 'settings', 'put', 'global', 'mobile_data', '0']):
+            self.adb(args)  # Each write at most once, only the owned emulator.
+        previous_deadline = self.deadline
+        self.deadline = min(previous_deadline, time.monotonic() + 10)
+        reads = [('airplane_mode_on', ['shell', 'settings', 'get', 'global', 'airplane_mode_on'], '1'),
+                 ('airplane_mode', ['shell', 'cmd', 'connectivity', 'airplane-mode'], 'enabled'),
+                 ('wifi_on', ['shell', 'settings', 'get', 'global', 'wifi_on'], '0'),
+                 ('mobile_data', ['shell', 'settings', 'get', 'global', 'mobile_data'], '0')]
+        try:
+            for attempt in range(1, 21):
+                self.clock()
+                observed = {name: self.adb(args).strip() for name, args, wanted in reads}
+                self.record('ISOLATION_OBSERVATION_' + str(attempt) + '.json', observed)
+                self.clock()
+                if all(observed[name] == wanted for name, args, wanted in reads):
+                    return
+                time.sleep(.25)
+            raise RuntimeError('owned emulator isolation not established: ' + json.dumps(observed, sort_keys=True))
+        finally:
+            self.deadline = previous_deadline
 
     def verify_cache(self):
         verified_plugin_links(self.p['repo'], self.p['pubCache'], self.p['filePins'], self.p['pluginCache'], self.clock)
@@ -962,6 +1195,27 @@ class Backend:
             if sha(pin['path'], self.clock) != pin['sha256']:
                 raise RuntimeError('immutable source/image/model input changed')
 
+    def observe_owned_quiescence(self, seconds=10):
+        # Observation/reaping only: never signal adopted helpers or retry roots.
+        end = min(self.deadline, time.monotonic() + seconds)
+        direct = {c['proc'].pid for c in self.children.values()}
+        for attempt in range(41):
+            self.clock()
+            rows = self.native_census()
+            for pid, row in list(rows.items()):
+                if self.subreaper and row['ppid'] == os.getpid() and pid not in direct:
+                    try:
+                        os.waitpid(pid, os.WNOHANG)
+                    except ChildProcessError:
+                        pass
+            rows = self.native_census()
+            remaining = [pid for pid, row in rows.items() if row['sid'] in direct or row['pgid'] in direct or
+                         (self.subreaper and row['ppid'] == os.getpid()) or (pid, row['ticks']) in self.owned_descendants]
+            if not remaining or time.monotonic() >= end:
+                return rows, remaining
+            time.sleep(min(.25, max(0, end - time.monotonic())))
+        return rows, remaining
+
     def cleanup(self):
         self.effects_closed = True
         self.deadline = time.monotonic() + self.p['bounds']['cleanup']
@@ -982,21 +1236,10 @@ class Backend:
                 self.stop(role)
             except BaseException as e:
                 failures.append(type(e).__name__ + ':' + role)
-        rows = self.native_census()
-        # Reap only adopted direct children, never steal Popen wait statuses.
-        direct = {c['proc'].pid for c in self.children.values()}
-        for pid, row in list(rows.items()):
-            if self.subreaper and row['ppid'] == os.getpid() and pid not in direct:
-                try:
-                    os.waitpid(pid, os.WNOHANG)
-                except ChildProcessError:
-                    pass
-        rows = self.native_census()
+        rows, remaining = self.observe_owned_quiescence()
         sessions = {c['proc'].pid for c in self.children.values()}
-        remaining = [pid for pid, row in rows.items() if row['sid'] in sessions or row['pgid'] in sessions or
-                     (self.subreaper and row['ppid'] == os.getpid()) or (pid, row['ticks']) in self.owned_descendants]
         if failures or remaining or any(c['proc'].poll() is None for c in self.children.values()):
-            raise RuntimeError('owned cleanup incomplete; no retry: ' + ','.join(failures))
+            raise RuntimeError('owned cleanup incomplete; no retry: ' + ','.join(failures) + '; remaining=' + json.dumps(remaining))
         self.verify_preserved_inputs()
         self.log_bounds()
         if self.log_bound_failure:
@@ -1012,6 +1255,7 @@ class Backend:
     def retain(self, exit_code, clean):
         if self.life is None or not self.created:
             return
+        self.record('FAILURE_CAUSES.json', dict(schema='settleora-native-failure-causes-v1', primaryFailure=self.primary_failure_reason, cleanupFailure=self.cleanup_failure_reason))
         self.record('OWNED_DESCENDANTS.json', dict(observed=[dict(pid=pid, **row) for (pid, ticks), row in self.owned_descendants.items()], cleanupVerified=clean))
         captures = {}
         for role, child in self.children.items():
@@ -1030,8 +1274,8 @@ class Backend:
             if (self.scratch / file).exists():
                 self.life.capture(self.root, name, file)
                 names.append(name)
-        (self.scratch / 'tool_result.json').write_text(json.dumps(dict(testExitCode=exit_code, cleanupVerified=clean,
-            nativeReady=False, consumed=self.consumed, consumptionDurabilityConfirmed=self.consumption_confirmed, qualificationFailure=self.failure_reason, children={k: dict(pid=v['proc'].pid, ticks=v['ticks'], returnCode=v['proc'].poll(),
+        (self.scratch / 'tool_result.json').write_text(json.dumps(dict(schema='settleora-native-tool-result-v2', testExitCode=exit_code, cleanupVerified=clean,
+            nativeReady=False, consumed=self.consumed, consumptionDurabilityConfirmed=self.consumption_confirmed, qualificationFailure=self.failure_reason, primaryFailure=self.primary_failure_reason, cleanupFailure=self.cleanup_failure_reason, children={k: dict(pid=v['proc'].pid, ticks=v['ticks'], returnCode=v['proc'].poll(),
             termAttempted=v['termAttempted']) for k, v in self.children.items()})))
         self.life.capture(self.root, 'tool_result', 'tool_result.json')
         names.append('tool_result')
@@ -1041,7 +1285,7 @@ class Backend:
             os.fsync(diagnostic_fd)
         finally:
             os.close(diagnostic_fd)
-        self.record('SUPERVISOR_FINALIZED.json', dict(testExitCode=exit_code, cleanupVerified=clean, nativeReady=False, qualificationFailure=self.failure_reason,
+        self.record('SUPERVISOR_FINALIZED.json', dict(schema='settleora-native-supervisor-final-v2', testExitCode=exit_code, cleanupVerified=clean, nativeReady=False, qualificationFailure=self.failure_reason, primaryFailure=self.primary_failure_reason, cleanupFailure=self.cleanup_failure_reason,
             normalExecutorReturnStillRequiresExternalReadback=True))
 
     def release(self):
@@ -1065,13 +1309,16 @@ def run(p, digest, invocation, backend_type=Backend):
             code = 98
     except BaseException as e:
         failure = e
-        b.failure_reason = type(e).__name__ + ': ' + str(e)
+        b.primary_failure_reason = type(e).__name__ + ': ' + str(e)
+        b.failure_reason = b.primary_failure_reason
     finally:
         try:
             b.cleanup()
             cleaned = True
         except BaseException as e:
-            failure = e
+            b.cleanup_failure_reason = type(e).__name__ + ': ' + str(e)
+            if failure is None:
+                failure = e
         if type(getattr(b, 'observed_test_exit', None)) is int and 0 <= b.observed_test_exit <= 255:
             code = b.observed_test_exit
         if failure is not None:

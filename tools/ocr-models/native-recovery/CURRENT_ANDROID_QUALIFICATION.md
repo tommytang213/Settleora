@@ -286,3 +286,57 @@ Revision19 fails cache-source traversal on filesystem observation errors; unread
 Revision20 includes the immutable package root directory mode in its source-tree digest, addressing retained Codex18 feedback.
 
 Revision21 pins complete permission modes including special bits (0o7777), addressing retained Codex20 feedback. This source identity includes paths, contents and permission modes; ownership remains the explicit trusted ordinary-account/root ancestor policy, not a claim to freeze all filesystem metadata.
+
+Revision22 reconciles consumed V3 without retry or revision of its false cleanup
+receipt. On the pinned Android15/API35 image, `svc data disable` delegates to
+`cmd phone data disable`; Telephony requests user-data change asynchronously for
+the default data subscription. Its shell result does not prove the checked
+unscoped `mobile_data` setting is zero. V3 observed `1` after the disable request;
+its exact internal subscription/timing cause was not captured. New owned-only
+isolation also sets that persisted preference to0 once, then waits read-only up
+to10s within the existing boot budget for all four original strict observations.
+No isolation predicate or device-side network-denial test is relaxed. No host,
+VPN, account/access or unrelated device operation is introduced.
+
+After the existing at-most-once root TERM operations, cleanup may observe/reap
+owned adopted children for up to10s within the existing90s cleanup allowance.
+This adds no signal, fallback or retry. Primary and cleanup failure reasons are
+recorded separately before diagnostic capture; a cleanup error cannot erase the
+initial failure. All remaining ownership/input/deadline gates still apply.
+
+The unconditional historical-failure clause above is superseded only for a
+complete pre-test failed epoch (testExitCode98, original false cleanup records,
+no runner attempt) with a separately appended `LATE_OBSERVED_QUIESCENCE_V1.json`.
+The new exact Atlas-admitted packet must pin this receipt, original failure and
+ownership records, retired consumed packet, actual normal invocation/exit
+history and two separated empty observations. The reader validates those bindings
+and freshly re-observes every recorded identity, related session/group and
+relevant ports in the original boot/namespaces. Missing evidence, live relevant
+work or any changed original record blocks. The append-only record means only
+late observed quiescence, cause unobserved, initialCleanupVerified:false,
+normalExitVerified:false, nativeReady:false; it never converts the old cleanup
+receipt to success. File text/hash is not platform authority: Atlas must
+independently authenticate normal API origins and admit the exact new packet,
+and ordinary executor approval remains mandatory. No live recovery is granted.
+
+API35 sources: AOSP android-15.0.0_r1 `cmds/svc/svc.sh`, TelephonyShellCommand,
+PhoneInterfaceManager.disableDataConnectivity, DataSettingsManager.setDataEnabled
+and GlobalSettingsHelper. The private diagnosis binds the exact pinned image
+properties and V3 command/readback evidence; no new emulator was launched to
+obtain this source analysis.
+
+Revision23 hashes each exact bounded history buffer before parsing; production history checks require pinned terminal/final records even for prior clean epochs, preventing a changed-path read from relabeling a failed epoch before later input checks. Consumed and ownership documents are parsed from their pinned buffers as well.
+
+Revision23 also rejects contradictory original terminal/final/ownership claims: pre-test98, nativeReady:false, zero retry/new-admission requirement and false initial cleanup must agree. No favorable metadata field can relabel the original failed epoch.
+
+Revision24 corrects the Git-mode statement: tracked mode means exact canonical Git regular-file class100644/100755, determined by the owner execute bit, not untracked Unix read/write permissions. Git's own object.h ce_permissions uses0100; the frozen Git archive actually uses0664 for non-executable files.0600/0700 therefore retain their Git class; group/other-only execute cannot satisfy100755. Full0o7777 permission identity remains the separate declared cache-source policy. No host permission or Git setting is changed. Prior clean history now also requires complete, mutually consistent pinned terminal/final facts (including matching actual test exit, false nativeReady and normal-return readback requirement); a cleanupVerified-only sidecar is insufficient. Legacy final sidecars have no standalone schema string, so their required field contract is validated explicitly instead of inventing a missing historical field.
+
+Revision25 parses the exact expected retired Python invocation argv without executing it, and requires numeric boundaries for PID/exit1 readbacks (exit10/11/17 cannot match). Both historical paths require diagnostics/tool-result and qualification-failure field presence/types in the original record contract, addressing retained Codex24 feedback; missing evidence is not successful finalization.
+Normal history parsing selects the first anchored registered PID and the last anchored completion footer, so program text cannot substitute an earlier favorable exit marker for the actual terminal metadata.
+
+Revision26 requires every retained historical diagnostic receipt/log to be pinned and byte/length/completeness consistent; the full tool-result record must agree with terminal/final facts and confirmed consumption. Pre-test failed history requires a nonempty recorded failure reason. A fresh independent kernel check also requires the retired supervisor PID itself absent (PID reuse blocks, never authorizes a signal), so a running process cannot pass by printing a completion-like marker. Normal-history text parsing checks format consistency only; actual API origin/terminal status remains an external Atlas audit requirement, not a proof obtained from program stdout. No fictitious attestation or credential is introduced.
+An existing late-observation marker always forces its pinned reconciliation path; omitting its pin or supplying favorable replacement clean flags cannot downgrade that failed-history boundary.
+
+Revision27 requires the complete pinned historical lifecycle bundle: consumption and manifest binding, ownership ledger, bounded capture completeness, positive direct-child launch identities and the clean observation when cleanup was recorded true. Fresh late observation includes all recorded direct-child identities and session/group scopes, not only descendants seen by the ledger. New supervisor/tool-result records use explicit v2 schemas and retain a separately pinned, matching failure-causes record; legacy V2/V3 records keep their actual original schema and bytes. Primary and cleanup causes must agree across diagnostic/final records. These validations cannot convert the original failed cleanup into success or authorize a retry.
+
+Revision28 checks version2 qualification-failure precedence against the primary cause, falling back only to the cleanup cause, and requires cleanup failure presence exactly when cleanup is false. Empty cause strings or an unexplained qualification failure cannot satisfy the new producer contract. Legacy failed V3 receipts remain unchanged.

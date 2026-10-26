@@ -160,6 +160,7 @@ class CurrentRunnerTests(unittest.TestCase):
         b.verify_tool = Mock()
         b.plugin_links = Mock(return_value={})
         b.verify_cache = Mock()
+        b.observe_owned_quiescence = lambda: r.Backend.observe_owned_quiescence(b, seconds=0)
         return b
 
     def test_existing_run_is_never_modified_during_failed_setup_retention(self):
@@ -283,7 +284,7 @@ class CurrentRunnerTests(unittest.TestCase):
         b.start = Mock(side_effect=start)
         b.require_server = Mock()
         b.log_bounds = Mock()
-        b.adb = Mock(side_effect=['1', '', '', '', '', '1', 'enabled', '0', '0'])
+        b.adb = Mock(side_effect=['1', '', '', '', '', '', '1', 'enabled', '0', '0'])
         b.wait = Mock(return_value=0)
         b.verify_runtime_inputs = Mock()
         with patch.object(r, 'verify_source_tree'):
@@ -403,7 +404,7 @@ class CurrentRunnerTests(unittest.TestCase):
         b.start = Mock(side_effect=start)
         b.require_server = Mock()
         b.log_bounds = Mock()
-        b.adb = Mock(side_effect=['1', '', '', '', '', '1', 'enabled', '0', '0'])
+        b.adb = Mock(side_effect=['1', '', '', '', '', '', '1', 'enabled', '0', '0'])
         b.wait = Mock(return_value=0)
         b.verify_runtime_inputs = Mock()
         with patch.object(r, 'verify_source_tree'):
@@ -442,7 +443,7 @@ class CurrentRunnerTests(unittest.TestCase):
         b.start = Mock(side_effect=start)
         b.require_server = Mock()
         b.log_bounds = Mock()
-        b.adb = Mock(side_effect=['1', '', '', '', '', '1', 'enabled', '0', '0'])
+        b.adb = Mock(side_effect=['1', '', '', '', '', '', '1', 'enabled', '0', '0'])
         b.wait = Mock(return_value=0)
         b.verify_runtime_inputs = Mock()
         with patch.object(r, 'verify_source_tree'):
@@ -502,14 +503,15 @@ class CurrentRunnerTests(unittest.TestCase):
         (old / 'SUPERVISOR_FINALIZED.json').write_text(json.dumps({'cleanupVerified': False}))
         with self.assertRaises(RuntimeError):
             r.check_previous_runs(parent)
-        (old / 'terminal.json').write_text(json.dumps({'schema': 'settleora-native-run-terminal-v1', 'cleanupVerified': True}))
-        (old / 'SUPERVISOR_FINALIZED.json').write_text(json.dumps({'cleanupVerified': True}))
-        r.check_previous_runs(parent)
+        (old / 'terminal.json').write_text(json.dumps({'schema': 'settleora-native-run-terminal-v1', 'cleanupVerified': True,'nativeReady':False,'automaticRetries':0,'requiresNewAdmission':True,'testExitCode':98,'diagnostics':['tool_result']}))
+        (old / 'SUPERVISOR_FINALIZED.json').write_text(json.dumps({'cleanupVerified': True,'nativeReady':False,'testExitCode':98,'normalExecutorReturnStillRequiresExternalReadback':True,'qualificationFailure':None}))
+        self.history_diagnostics(old,json.loads((old/'terminal.json').read_text()),json.loads((old/'SUPERVISOR_FINALIZED.json').read_text()))
+        r.check_previous_runs(parent,{str(q):r.sha(q)for q in old.rglob('*')if q.is_file()})
 
     def test_missing_finalization_history_cannot_be_ignored_or_choose_another_parent(self):
         old = r.state_parent() / 'partial'
         old.mkdir()
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises((FileNotFoundError,RuntimeError)):
             r.check_previous_runs(r.state_parent())
         self.p['runRoot'] = str(self.root / 'alternate-parent' / 'run')
         self.p['writeScope'] = r.write_scope(self.p)
@@ -654,7 +656,7 @@ class CurrentRunnerTests(unittest.TestCase):
             st = p.stat()
             locks.append({'path': str(p), 'device': st.st_dev, 'inode': st.st_ino})
         b.p['locks'] = locks
-        def history(parent):
+        def history(parent, *args):
             self.assertEqual(len(b.leases), 5)
             raise RuntimeError('a previous failed epoch appeared while acquiring leases')
         try:
@@ -698,7 +700,7 @@ class CurrentRunnerTests(unittest.TestCase):
         b.start = Mock(side_effect=start)
         b.require_server = Mock()
         b.log_bounds = Mock()
-        b.adb = Mock(side_effect=['1', '', '', '', '', '1', 'enabled', '0', '0'])
+        b.adb = Mock(side_effect=['1', '', '', '', '', '', '1', 'enabled', '0', '0'])
         b.wait = Mock(return_value=0)
         b.verify_runtime_inputs = Mock()
         with patch.object(r, 'verify_source_tree'):
@@ -796,9 +798,9 @@ class CurrentRunnerTests(unittest.TestCase):
         calls = []
         def adb(args):
             calls.append(args)
-            if len(calls) == 9:
+            if len(calls) == 10:
                 b.deadline = time.monotonic() - 1
-            return ['1', '', '', '', '', '1', 'enabled', '0', '0'][len(calls) - 1]
+            return ['1', '', '', '', '', '', '1', 'enabled', '0', '0'][len(calls) - 1]
         b.adb = Mock(side_effect=adb)
         with self.assertRaises(TimeoutError):
             b.execute()
@@ -960,6 +962,251 @@ class CurrentRunnerTests(unittest.TestCase):
         before = r.cache_tree_digest(root)
         root.chmod(0o1755)
         self.assertNotEqual(r.cache_tree_digest(root), before)
+
+    def test_isolation_writes_once_and_polls_strict_readbacks(self):
+        b = self.backend()
+        b.adb = Mock(side_effect=['']*5 + ['1','enabled','0','1'] + ['1','enabled','0','0'])
+        with patch.object(r.time, 'sleep'):
+            b.isolate_emulator()
+        writes = [c.args[0] for c in b.adb.call_args_list if c.args[0][:3] == ['shell','settings','put']]
+        self.assertEqual(writes.count(['shell','settings','put','global','mobile_data','0']),1)
+        self.assertEqual(json.loads((b.root/'ISOLATION_OBSERVATION_1.json').read_text())['mobile_data'],'1')
+        self.assertEqual(json.loads((b.root/'ISOLATION_OBSERVATION_2.json').read_text())['mobile_data'],'0')
+
+    def test_persistently_wrong_isolation_never_passes_or_repeats_writes(self):
+        b = self.backend()
+        b.adb = Mock(side_effect=['']*5 + ['1','enabled','0','1']*20)
+        with patch.object(r.time,'sleep'), self.assertRaisesRegex(RuntimeError,'isolation not established'):
+            b.isolate_emulator()
+        self.assertEqual(b.adb.call_count,85)
+
+    def test_primary_and_cleanup_failures_are_retained_separately(self):
+        class Both(Fake):
+            def setup(self):raise RuntimeError('primary isolation failure')
+            def cleanup(self):raise RuntimeError('secondary cleanup failure')
+        with self.assertRaisesRegex(RuntimeError,'primary isolation failure'):
+            r.run(self.p,'fixture',self.token,Both)
+        self.assertIn('primary isolation failure',Fake.last.primary_failure_reason)
+        self.assertIn('secondary cleanup failure',Fake.last.cleanup_failure_reason)
+
+    def test_failure_causes_are_written_before_diagnostic_capture(self):
+        b=self.backend();b.created=True;b.life=Mock();b.life.capture.side_effect=OSError('synthetic capture failure')
+        b.primary_failure_reason='primary';b.cleanup_failure_reason='cleanup'
+        with self.assertRaises(OSError):b.retain(98,False)
+        self.assertEqual(json.loads((b.root/'FAILURE_CAUSES.json').read_text()),{'schema':'settleora-native-failure-causes-v1','primaryFailure':'primary','cleanupFailure':'cleanup'})
+
+    def test_passive_settle_waits_for_adopted_helper_without_signals(self):
+        b=self.backend();b.subreaper=True
+        row={77:dict(ppid=os.getpid(),sid=77,pgid=77,ticks='123')}
+        b.native_census=Mock(side_effect=[row,row,{},{}])
+        with patch.object(r.os,'waitpid',return_value=(0,0)),patch.object(r.time,'sleep'),patch.object(r.signal,'pidfd_send_signal')as signals:
+            rows,remaining=r.Backend.observe_owned_quiescence(b,seconds=1)
+        self.assertEqual((rows,remaining),({},[]));signals.assert_not_called()
+
+    def history_diagnostics(self,root,terminal,final):
+        paths=[]
+        def write(name,value):
+            path=root/name;path.write_text(json.dumps(value));paths.append(path);return path
+        consumed_path=root/'CONSUMED.json'
+        consumed=json.loads(consumed_path.read_text()) if consumed_path.exists() else dict(packetSHA256='a'*64,retries=0,nativeReady=False)
+        if not consumed_path.exists():write('CONSUMED.json',consumed)
+        else:paths.append(consumed_path)
+        write('manifest.json',dict(schema='settleora-disposable-native-run-v1',maxDiagnosticBytes=r.CAP,automaticRetries=0,sourceSHA256='b'*64,packetSHA256=consumed['packetSHA256'],imageSHA256='c'*64,commandSHA256='d'*64))
+        ledger_path=root/'OWNED_DESCENDANTS.json'
+        ledger=json.loads(ledger_path.read_text()) if ledger_path.exists() else dict(cleanupVerified=terminal['cleanupVerified'],observed=[])
+        if not ledger_path.exists():write('OWNED_DESCENDANTS.json',ledger)
+        else:paths.append(ledger_path)
+        children={}
+        if ledger['observed']:
+            row=ledger['observed'][0];children['cmd_1']=dict(pid=row['pid'],ticks=row['ticks'],returnCode=0,termAttempted=False)
+        streams={}
+        for role,child in children.items():
+            write('LAUNCH_ATTEMPTED_'+role+'.json',dict(role=role,retries=0,argv=['/synthetic/sdk-tool']))
+            write('LAUNCH_OBSERVED_'+role+'.json',dict(role=role,pid=child['pid'],ticks=child['ticks']))
+            for channel in ('0','1'):streams[role+':'+channel]=dict(complete=True,error=None,processOutputTruncated=False,limit=r.CAP,totalBytes=0,retainedBytes=0)
+        write('CAPTURE_COMPLETENESS.json',dict(setupComplete=True,streams=streams))
+        if terminal['cleanupVerified']:
+            write('CLEANUP_OBSERVED.json',dict(remaining=[],nativeReady=False,**(dict(directChildrenExited=True)if children else dict(ownedChildrenCreated=0))))
+        directory=root/'diagnostics';directory.mkdir(exist_ok=True)
+        raw=json.dumps(dict(testExitCode=terminal['testExitCode'],cleanupVerified=terminal['cleanupVerified'],nativeReady=False,consumed=True,consumptionDurabilityConfirmed=True,qualificationFailure=final['qualificationFailure'],children=children)).encode()
+        log=directory/'tool_result.log';log.write_bytes(raw)
+        receipt=directory/'tool_result.json';receipt.write_text(json.dumps(dict(schema='settleora-private-diagnostic-v1',name='tool_result',retainedBytes=len(raw),sourceBytes=len(raw),truncated=False,retainedSHA256=hashlib.sha256(raw).hexdigest())))
+        return paths+[receipt,log]
+
+    def late_history_fixture(self):
+        root=r.state_parent()/'retired';root.mkdir()
+        def write(path,value):path.write_text(json.dumps(value)+'\n');return path
+        terminal=write(root/'terminal.json',dict(schema='settleora-native-run-terminal-v1',cleanupVerified=False,testExitCode=98,nativeReady=False,automaticRetries=0,requiresNewAdmission=True,diagnostics=['tool_result']))
+        final=write(root/'SUPERVISOR_FINALIZED.json',dict(cleanupVerified=False,nativeReady=False,testExitCode=98,normalExecutorReturnStillRequiresExternalReadback=True,qualificationFailure='RuntimeError: original failure'))
+        ledger=write(root/'OWNED_DESCENDANTS.json',dict(cleanupVerified=False,observed=[dict(pid=42,ticks='123',ppid=1,pgid=42,sid=42,comm='helper')]))
+        retired=write(self.root/'retired-packet.json',dict(runRoot=str(root),repo=str(self.root/'repository'),bootID='fixture',pidNamespace=1,netNamespace=2))
+        digest=r.sha(retired);consumed=write(root/'CONSUMED.json',dict(packetSHA256=digest,retries=0,nativeReady=False))
+        scans=write(self.root/'empty-scans.json',dict(supervisorSession=44,actualExitCode=1,scans=[dict(utc='2026-10-26T00:00:00+00:00',heldRecordedIdentitiesStillPresent=[],activeRelevantSockets=[]),dict(utc='2026-10-26T00:00:02+00:00',heldRecordedIdentitiesStillPresent=[],activeRelevantSockets=[])]))
+        history=write(self.root/'normal-history.json',dict(calls=[dict(toolName='start_process',arguments=dict(command='/usr/bin/python3 -I -B '+str(self.root/'repository/tools/ocr-models/native-recovery/current_android_qualification.py')+' --execute-admitted --packet '+str(retired)+' --packet-sha256 '+digest),output=dict(content=[dict(type='text',text='Process started with PID 44')])),dict(toolName='read_process_output',arguments=dict(pid=44),output=dict(content=[dict(type='text',text='Process completed with exit code 1')]))]))
+        receipt=dict(schema='settleora-native-late-observed-quiescence-v1',priorRoot=str(root),initialCleanupVerified=False,lateObservedQuiescence=True,normalExitVerified=False,nativeReady=False,cause='unobserved',supervisorSession=44,supervisorExitCode=1,retiredPacketPath=str(retired),retiredPacketSHA256=digest,terminalSHA256=r.sha(terminal),finalSHA256=r.sha(final),ledgerSHA256=r.sha(ledger),scanEvidencePath=str(scans),scanEvidenceSHA256=r.sha(scans),normalHistoryPath=str(history),normalHistorySHA256=r.sha(history))
+        path=write(root/'LATE_OBSERVED_QUIESCENCE_V1.json',receipt)
+        diagnostic_paths=self.history_diagnostics(root,json.loads(terminal.read_text()),json.loads(final.read_text()))
+        pins={str(p):r.sha(p)for p in [terminal,final,ledger,retired,consumed,scans,history,path]+diagnostic_paths}
+        return root,path,receipt,pins
+
+    def test_pinned_late_quiescence_preserves_initial_false_receipts(self):
+        root,path,receipt,pins=self.late_history_fixture();before=(root/'terminal.json').read_bytes()
+        with patch.object(r,'require_late_scope_absent')as fresh:
+            r.check_previous_runs(r.state_parent(),pins)
+        fresh.assert_called_once();self.assertEqual((root/'terminal.json').read_bytes(),before)
+        self.assertFalse(json.loads(before)['cleanupVerified'])
+        with self.assertRaises(RuntimeError):r.check_previous_runs(r.state_parent())
+
+    def test_late_reconciliation_never_accepts_normal_exit_or_native_ready_claim(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        for field in ('normalExitVerified','nativeReady','initialCleanupVerified'):
+            changed=dict(receipt);changed[field]=True;path.write_text(json.dumps(changed));pins[str(path)]=r.sha(path)
+            with self.assertRaises(RuntimeError):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_reconciliation_requires_fresh_empty_scope(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        with patch.object(r,'require_late_scope_absent',side_effect=RuntimeError('owned helper returned')),self.assertRaises(RuntimeError):
+            r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_scope_rejects_still_live_recorded_identity(self):
+        raw=Path('/proc/self/stat').read_text();fields=raw[raw.rfind(')')+2:].split()
+        ledger=[dict(pid=os.getpid(),ticks=fields[19],ppid=int(fields[1]),pgid=int(fields[2]),sid=int(fields[3]))]
+        retired=dict(bootID=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),pidNamespace=os.stat('/proc/self/ns/pid').st_ino,netNamespace=os.stat('/proc/self/ns/net').st_ino)
+        with self.assertRaisesRegex(RuntimeError,'still observed'):r.require_late_scope_absent(ledger,retired)
+
+    def test_late_reconciliation_rejects_nonempty_or_unseparated_scans(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        evidence_path=Path(receipt['scanEvidencePath']);evidence=json.loads(evidence_path.read_text())
+        for nonempty in (True,False):
+            changed=json.loads(json.dumps(evidence))
+            if nonempty:changed['scans'][1]['heldRecordedIdentitiesStillPresent']=[{'pid':42}]
+            else:changed['scans'][1]['utc']='2026-10-26T00:00:00.500+00:00'
+            evidence_path.write_text(json.dumps(changed));pins[str(evidence_path)]=r.sha(evidence_path)
+            receipt['scanEvidenceSHA256']=pins[str(evidence_path)];path.write_text(json.dumps(receipt));pins[str(path)]=r.sha(path)
+            with self.assertRaisesRegex(RuntimeError,'two separated'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_reconciliation_requires_actual_failed_invocation_readback(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        history_path=Path(receipt['normalHistoryPath']);history=json.loads(history_path.read_text())
+        history['calls'][1]['output']['content'][0]['text']='Process completed with exit code 0'
+        history_path.write_text(json.dumps(history));pins[str(history_path)]=r.sha(history_path)
+        receipt['normalHistorySHA256']=pins[str(history_path)];path.write_text(json.dumps(receipt));pins[str(path)]=r.sha(path)
+        with self.assertRaisesRegex(RuntimeError,'actual terminal failure'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_history_parser_verifies_exact_parsed_buffer_not_a_prior_path_hash(self):
+        path=self.root/'history.json';path.write_text('{"cleanupVerified":false}')
+        wanted=r.sha(path);path.write_text('{"cleanupVerified":true}')
+        with patch.object(r,'sha',return_value=wanted),self.assertRaises(RuntimeError):
+            r.pinned_history_json(path,{str(path):wanted})
+
+    def test_late_reconciliation_rejects_contradictory_final_or_ledger(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        final_path=root/'SUPERVISOR_FINALIZED.json';original=json.loads(final_path.read_text())
+        for field,value in [('testExitCode',17),('nativeReady',True)]:
+            changed=dict(original);changed[field]=value;final_path.write_text(json.dumps(changed));pins[str(final_path)]=r.sha(final_path)
+            receipt['finalSHA256']=pins[str(final_path)];path.write_text(json.dumps(receipt));pins[str(path)]=r.sha(path)
+            with self.assertRaises(RuntimeError):r.check_previous_runs(r.state_parent(),pins)
+        final_path.write_text(json.dumps(original));pins[str(final_path)]=r.sha(final_path);receipt['finalSHA256']=pins[str(final_path)]
+        owned=root/'OWNED_DESCENDANTS.json';document=json.loads(owned.read_text());document['cleanupVerified']=True;owned.write_text(json.dumps(document));pins[str(owned)]=r.sha(owned);receipt['ledgerSHA256']=pins[str(owned)]
+        path.write_text(json.dumps(receipt));pins[str(path)]=r.sha(path)
+        with patch.object(r,'require_late_scope_absent'),self.assertRaisesRegex(RuntimeError,'contradicts'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_reconciliation_rejects_retried_consumption_claim(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        consumed=root/'CONSUMED.json';document=json.loads(consumed.read_text());document['retries']=1
+        consumed.write_text(json.dumps(document));pins[str(consumed)]=r.sha(consumed)
+        with self.assertRaisesRegex(RuntimeError,'consumption facts|consumed packet binding'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_tracked_mode_matches_git_owner_execute_class_not_rw_permissions(self):
+        source=self.root/'git-source';source.mkdir();target=source/'file';target.write_bytes(b'code')
+        object_id=hashlib.sha1(b'blob 4\0code').hexdigest()
+        for mode,permissions in [('100644',0o600),('100755',0o700)]:
+            target.chmod(permissions);listing=(mode+' blob '+object_id+'\tfile\0').encode()
+            with patch.object(r.subprocess,'check_output',return_value=listing):r.verify_source_tree('/fixture','a'*40,source)
+        target.chmod(0o601)
+        with patch.object(r.subprocess,'check_output',return_value=('100755 blob '+object_id+'\tfile\0').encode()),self.assertRaises(RuntimeError):r.verify_source_tree('/fixture','a'*40,source)
+
+    def test_incomplete_pinned_clean_finalization_cannot_admit_history(self):
+        root=r.state_parent()/'clean';root.mkdir()
+        terminal=root/'terminal.json';terminal.write_text(json.dumps(dict(schema='settleora-native-run-terminal-v1',cleanupVerified=True,nativeReady=False,automaticRetries=0,requiresNewAdmission=True,testExitCode=0,diagnostics=['tool_result'])))
+        final=root/'SUPERVISOR_FINALIZED.json';final.write_text(json.dumps(dict(cleanupVerified=True)))
+        pins={str(q):r.sha(q)for q in (terminal,final)}
+        with self.assertRaisesRegex(RuntimeError,'incomplete'):r.check_previous_runs(r.state_parent(),pins)
+        final.write_text(json.dumps(dict(cleanupVerified=True,nativeReady=False,testExitCode=0,normalExecutorReturnStillRequiresExternalReadback=True,qualificationFailure=None)))
+        pins[str(final)]=r.sha(final)
+        diagnostic_paths=self.history_diagnostics(root,json.loads(terminal.read_text()),json.loads(final.read_text()));pins.update({str(q):r.sha(q)for q in diagnostic_paths});r.check_previous_runs(r.state_parent(),pins)
+
+    def test_pinned_failed_epoch_cannot_be_relabelled_clean(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        for name in ('terminal.json','SUPERVISOR_FINALIZED.json'):
+            q=root/name;value=json.loads(q.read_text());value['cleanupVerified']=True;q.write_text(json.dumps(value))
+        with self.assertRaisesRegex(RuntimeError,'exact externally admitted'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_reconciliation_exit_one_has_numeric_boundary(self):
+        root,path,receipt,pins=self.late_history_fixture();history_path=Path(receipt['normalHistoryPath']);original=json.loads(history_path.read_text())
+        for wrong in (10,11,17):
+            history=json.loads(json.dumps(original));history['calls'][1]['output']['content'][0]['text']='Process completed with exit code '+str(wrong)
+            history_path.write_text(json.dumps(history));pins[str(history_path)]=r.sha(history_path);receipt['normalHistorySHA256']=pins[str(history_path)];path.write_text(json.dumps(receipt));pins[str(path)]=r.sha(path)
+            with self.assertRaisesRegex(RuntimeError,'actual terminal failure'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_clean_history_requires_diagnostics_and_qualification_field(self):
+        root,path,receipt,pins=self.late_history_fixture();terminal=root/'terminal.json';final=root/'SUPERVISOR_FINALIZED.json'
+        t=json.loads(terminal.read_text());f=json.loads(final.read_text());t['cleanupVerified']=f['cleanupVerified']=True;t.pop('diagnostics');f.pop('qualificationFailure')
+        terminal.write_text(json.dumps(t));final.write_text(json.dumps(f));pins[str(terminal)]=r.sha(terminal);pins[str(final)]=r.sha(final)
+        with self.assertRaisesRegex(RuntimeError,'incomplete'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_reconciliation_uses_last_anchored_completion_footer(self):
+        root,path,receipt,pins=self.late_history_fixture();history_path=Path(receipt['normalHistoryPath']);history=json.loads(history_path.read_text())
+        history['calls'][1]['output']['content'][0]['text']='Process completed with exit code 1\n✅ Process completed with exit code 17 (runtime: 1s)'
+        history_path.write_text(json.dumps(history));pins[str(history_path)]=r.sha(history_path);receipt['normalHistorySHA256']=pins[str(history_path)];path.write_text(json.dumps(receipt));pins[str(path)]=r.sha(path)
+        with self.assertRaisesRegex(RuntimeError,'actual terminal failure'):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_scope_rejects_live_supervisor_even_when_children_absent(self):
+        retired=dict(bootID=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),pidNamespace=os.stat('/proc/self/ns/pid').st_ino,netNamespace=os.stat('/proc/self/ns/net').st_ino)
+        with self.assertRaisesRegex(RuntimeError,'supervisor PID still observed'):r.require_late_scope_absent([],retired,supervisor_pid=os.getpid())
+
+    def test_historical_diagnostic_pair_must_exist_and_match(self):
+        root,path,receipt,pins=self.late_history_fixture();log=root/'diagnostics/tool_result.log'
+        log.write_bytes(b'changed');pins[str(log)]=r.sha(log)
+        with self.assertRaisesRegex(RuntimeError,'diagnostic'):r.check_previous_runs(r.state_parent(),pins)
+        log.unlink()
+        with self.assertRaises((FileNotFoundError,RuntimeError)):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_pretest_failed_finalization_requires_failure_reason(self):
+        root,path,receipt,pins=self.late_history_fixture();final=root/'SUPERVISOR_FINALIZED.json';value=json.loads(final.read_text());value['qualificationFailure']=None;final.write_text(json.dumps(value));pins[str(final)]=r.sha(final);receipt['finalSHA256']=pins[str(final)];path.write_text(json.dumps(receipt));pins[str(path)]=r.sha(path)
+        diagnostic_paths=self.history_diagnostics(root,json.loads((root/'terminal.json').read_text()),value);pins.update({str(q):r.sha(q)for q in diagnostic_paths})
+        with self.assertRaises(RuntimeError):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_late_marker_cannot_be_omitted_to_relabel_old_failure_clean(self):
+        root,path,receipt,pins=self.late_history_fixture()
+        terminal=root/'terminal.json';final=root/'SUPERVISOR_FINALIZED.json';t=json.loads(terminal.read_text());f=json.loads(final.read_text());t['cleanupVerified']=f['cleanupVerified']=True
+        terminal.write_text(json.dumps(t));final.write_text(json.dumps(f));self.history_diagnostics(root,t,f)
+        pins.update({str(q):r.sha(q)for q in root.rglob('*')if q.is_file()});pins.pop(str(path))
+        with self.assertRaises(RuntimeError):r.check_previous_runs(r.state_parent(),pins)
+
+    def test_clean_history_requires_full_consumed_ownership_capture_bundle(self):
+        for missing in ('CONSUMED.json','OWNED_DESCENDANTS.json','CLEANUP_OBSERVED.json','CAPTURE_COMPLETENESS.json','manifest.json'):
+            with self.subTest(missing=missing):
+                root=r.state_parent()/('clean-'+missing);root.mkdir()
+                terminal=dict(schema='settleora-native-run-terminal-v1',cleanupVerified=True,testExitCode=1,nativeReady=False,automaticRetries=0,requiresNewAdmission=True,diagnostics=['tool_result'])
+                final=dict(cleanupVerified=True,nativeReady=False,testExitCode=1,qualificationFailure='test failed',normalExecutorReturnStillRequiresExternalReadback=True)
+                (root/'terminal.json').write_text(json.dumps(terminal));(root/'SUPERVISOR_FINALIZED.json').write_text(json.dumps(final));self.history_diagnostics(root,terminal,final)
+                pins={str(q):r.sha(q)for q in root.rglob('*')if q.is_file()};pins.pop(str(root/missing))
+                with self.assertRaises(RuntimeError):r.check_previous_runs(r.state_parent(),pins)
+                import shutil
+                shutil.rmtree(root)
+
+    def test_versioned_history_requires_matching_separate_failure_causes(self):
+        root,path,receipt,pins=self.late_history_fixture();terminal=json.loads((root/'terminal.json').read_text());final=json.loads((root/'SUPERVISOR_FINALIZED.json').read_text())
+        final.update(schema='settleora-native-supervisor-final-v2',primaryFailure='primary',cleanupFailure='cleanup',qualificationFailure='primary')
+        result=json.loads((root/'diagnostics/tool_result.log').read_text());result.update(schema='settleora-native-tool-result-v2',primaryFailure='primary',cleanupFailure='cleanup')
+        causes=root/'FAILURE_CAUSES.json';causes.write_text(json.dumps(dict(schema='settleora-native-failure-causes-v1',primaryFailure='wrong',cleanupFailure='cleanup')));pins[str(causes)]=r.sha(causes)
+        with self.assertRaisesRegex(RuntimeError,'failure cause'):r.verify_history_bundle(root,terminal,final,result,pins)
+        causes.write_text(json.dumps(dict(schema='settleora-native-failure-causes-v1',primaryFailure='primary',cleanupFailure='cleanup')));pins[str(causes)]=r.sha(causes)
+        self.assertTrue(r.verify_history_bundle(root,terminal,final,result,pins))
+        for primary,cleanup,qualification in [(None,None,'spurious'),('primary','cleanup','cleanup')]:
+            final.update(primaryFailure=primary,cleanupFailure=cleanup,qualificationFailure=qualification)
+            with self.assertRaisesRegex(RuntimeError,'cause precedence'):r.verify_history_bundle(root,terminal,final,result,pins)
 
     def test_run_never_turns_failed_test_into_native_acceptance(self):
         result = r.run(self.p, 'fixture', self.token, Fake)
