@@ -74,4 +74,44 @@ class LifecycleTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"linked run ancestor"):
                 life.capture(alias/"owned"/"run","census","log")
 
+    def test_terminal_rejects_invalid_completeness_without_creating_terminal(self):
+        changes = [("retainedBytes", True), ("retainedBytes", 8.0),
+                   ("sourceBytes", False), ("sourceBytes", -1), ("sourceBytes", "8"),
+                   ("sourceBytes", 0), ("sourceBytes", 9),
+                   ("truncated", "false"), ("truncated", True),
+                   ("retainedSHA256", True), ("unexpected", "field")]
+        for key, value in changes + [("missing-truncated", None)]:
+            with self.subTest(key=key, value=value), tempfile.TemporaryDirectory() as parent:
+                root = life.prepare(Path(parent)/"run", source_sha256=PIN,
+                    packet_sha256=PIN, image_sha256=PIN, command_sha256=PIN)
+                (root/"scratch/log").write_bytes(b"evidence")
+                life.capture(root, "census", "log")
+                receipt = root/"diagnostics/census.json"
+                record = json.loads(receipt.read_text())
+                if key == "missing-truncated":
+                    record.pop("truncated")
+                else:
+                    record[key] = value
+                receipt.write_text(json.dumps(record))
+                with self.assertRaisesRegex(RuntimeError, "completeness metadata invalid"):
+                    life.finish(root, test_exit_code=1, cleanup_verified=False, diagnostics=["census"])
+                self.assertFalse((root/"terminal.json").exists())
+                self.assertEqual((root/"diagnostics/census.log").read_bytes(), b"evidence")
+
+    def test_terminal_accepts_empty_and_valid_truncated_diagnostics_without_native_readiness(self):
+        for content in (b"", b"0123456789abcdef"):
+            with self.subTest(size=len(content)), tempfile.TemporaryDirectory() as parent, \
+                 patch.object(life, "CAP_BYTES", 8):
+                root = life.prepare(Path(parent)/"run", source_sha256=PIN,
+                    packet_sha256=PIN, image_sha256=PIN, command_sha256=PIN)
+                (root/"scratch/log").write_bytes(content)
+                life.capture(root, "census", "log")
+                result = life.finish(root, test_exit_code=0, cleanup_verified=False, diagnostics=["census"])
+                record = json.loads((root/"diagnostics/census.json").read_text())
+                self.assertEqual(record["sourceBytes"], len(content))
+                self.assertEqual(record["retainedBytes"], min(len(content), 8))
+                self.assertEqual(record["truncated"], len(content) > 8)
+                self.assertFalse(result["nativeReady"])
+                self.assertTrue(result["requiresNewAdmission"])
+
 if __name__ == "__main__": unittest.main()

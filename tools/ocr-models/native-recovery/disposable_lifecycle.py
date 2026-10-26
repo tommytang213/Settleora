@@ -161,10 +161,17 @@ def finish(root, *, test_exit_code, cleanup_verified, diagnostics):
                 raise RuntimeError("diagnostic evidence changed during read")
         finally:
             os.close(fd)
-        if record.get("schema") != "settleora-private-diagnostic-v1" or \
-           record.get("name") != name or len(data) != record.get("retainedBytes") or \
-           len(data) > CAP_BYTES or hashlib.sha256(data).hexdigest() != record.get("retainedSHA256"):
-            raise RuntimeError("diagnostic evidence changed")
+        fields = {"schema", "name", "retainedBytes", "sourceBytes", "truncated", "retainedSHA256"}
+        if type(record) is not dict or set(record) != fields or \
+           record["schema"] != "settleora-private-diagnostic-v1" or record["name"] != name or \
+           type(record["retainedBytes"]) is not int or type(record["sourceBytes"]) is not int or \
+           record["sourceBytes"] < 0 or type(record["truncated"]) is not bool or \
+           record["retainedBytes"] != min(record["sourceBytes"], CAP_BYTES) or \
+           record["truncated"] != (record["sourceBytes"] > record["retainedBytes"]) or \
+           len(data) != record["retainedBytes"] or len(data) > CAP_BYTES or \
+           type(record["retainedSHA256"]) is not str or HEX.fullmatch(record["retainedSHA256"]) is None or \
+           hashlib.sha256(data).hexdigest() != record["retainedSHA256"]:
+            raise RuntimeError("diagnostic evidence changed or completeness metadata invalid")
     result = {"schema": "settleora-native-run-terminal-v1",
               "testExitCode": test_exit_code, "cleanupVerified": cleanup_verified,
               "diagnostics": sorted(diagnostics), "nativeReady": False,

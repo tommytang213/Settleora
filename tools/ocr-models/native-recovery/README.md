@@ -31,6 +31,12 @@ packet, image, and command digests. It retains allowlisted diagnostic prefixes
 (up to 4 MiB each) and a private completeness receipt. The terminal record is
 single-use and records zero automatic retries; a failed or incomplete cleanup
 requires a new admission. It launches no process and deletes no diagnostics.
+Before writing a terminal record, the helper checks the exact diagnostic receipt
+fields and strict integer/boolean types, retained length versus the fixed prefix
+cap, and truncation consistency as well as the retained-byte digest. Malformed
+or inconsistent completeness metadata fails without creating a terminal record
+or deleting evidence. These are local structural/integrity checks, not external
+authentication of a receipt author or proof of native readiness.
 A future native runner must call it around its own independently reviewed
 launch/cleanup flow and bind the resulting files to an exact packet. No native
 readiness is inferred from a test exit code.
