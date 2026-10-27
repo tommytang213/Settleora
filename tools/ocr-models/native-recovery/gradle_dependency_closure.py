@@ -65,7 +65,7 @@ PROJECT_CLOSURE_INIT = REPOSITORY_GUARD_INIT + '''gradle.settingsEvaluated {
 }
 gradle.projectsEvaluated {
     def app = gradle.rootProject.findProject(':app')
-    if (app == null) { throw new GradleException('Required app project absent') }
+    if (app == null) { return }
     app.tasks.register('settleoraResolveDebugBuildClasspaths') {
         doLast {
             def androidProjects = gradle.rootProject.allprojects.findAll {
