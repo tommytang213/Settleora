@@ -33,6 +33,7 @@ class Observer:
 
 
 class NullCrashpad:
+    def exit_proves_absence(self,pid,basic=None,row=None):return False
     def before_effect(self,rows):return rows
     def after_effect(self,rows):return rows
     def effect_will_be_attempted(self):pass
@@ -54,7 +55,7 @@ class Fake:
         self.graph_calls = 0
     def clock(self): return self.now
     def pause(self, amount): self.now += amount
-    def graph(self, allowed_exits=frozenset()):
+    def graph(self, allowed_exits=frozenset(), refresh_exits=None, observed_exit=None):
         self.graph_calls += 1
         rows = copy.deepcopy(self.original)
         if self.scenario == 'initial_extra' or (self.sent and self.scenario == 'new_child'):
@@ -320,6 +321,42 @@ class SettlementCensusTests(unittest.TestCase):
         return {p:tuple(r[k] for k in ('pid','ticks','ppid','pgid','sid','uid'))
                 for p,r in rows.items()}
 
+    def test_retained_exit_during_census_is_never_tolerated(self):
+        before=self.snapshots()
+        with self.assertRaisesRegex(RuntimeError,'retained anchor'):
+            self.backend(before,before).graph(refresh_exits=lambda:{1})
+
+    def test_new_held_exit_during_census_is_refreshed(self):
+        before=self.snapshots();after={p:v for p,v in before.items()if p!=2}
+        b=self.backend(before,after);exits=set();proc=b.boot.proc
+        def read(pid):
+            if pid==2:exits.add(2);return None
+            return proc(pid)
+        b.boot.proc=read
+        self.assertEqual(set(b.graph(refresh_exits=lambda:exits)),{1,3,4})
+
+    def test_new_held_qemu_exit_proves_in_census_adoption(self):
+        before=self.snapshots();after=dict(before);after[3]=(3,before[3][1],1,*before[3][3:])
+        b=self.backend(before,after,{3:row(3,1,'/netsimd')});calls=[]
+        def exits():
+            calls.append(1)
+            return {2} if len(calls)>1 else set()
+        self.assertEqual(b.graph(refresh_exits=exits)[3]['ppid'],1)
+
+    def test_private_observer_exit_stays_out_of_original_exit_set(self):
+        before=self.snapshots();before[5]=(5,'50',1,1,1,1000);after={p:v for p,v in before.items()if p!=5}
+        b=self.backend(before,after,{5:row(5,1,'/observer')});original=set();seen=[]
+        def observer(pid,basic=None,row=None):
+            seen.append(pid);return pid==5 and basic==before[5]
+        self.assertEqual(set(b.graph(allowed_exits=original,observed_exit=observer)),{1,2,3,4})
+        self.assertEqual(original,set());self.assertIn(5,seen)
+        with self.assertRaises(RuntimeError):self.backend(before,after,{5:row(5,1,'/observer')}).graph()
+
+    def test_unrelated_pid_cannot_join_original_exit_proof(self):
+        before=self.snapshots()
+        with self.assertRaisesRegex(RuntimeError,'non-original'):
+            self.backend(before,before).graph(refresh_exits=lambda:{5})
+
     def test_proved_qemu_exit_between_reads_is_allowed(self):
         before=self.snapshots();after={p:v for p,v in before.items() if p!=2}
         b=self.backend(before,after)
@@ -543,7 +580,7 @@ class CrashpadCoreIntegrationTests(unittest.TestCase):
                     self.original[2]=copy.deepcopy(fixture.qemu)
                     self.expected={p:a.identity(r)for p,r in self.original.items()}
                     self.held=[]
-                def graph(self, allowed_exits=frozenset()):
+                def graph(self, allowed_exits=frozenset(), refresh_exits=None, observed_exit=None):
                     rows=super().graph(allowed_exits=allowed_exits)
                     if self.sent and scenario=='natural_exit':
                         fixture.rows.pop(5,None);fixture.poll.poll.return_value=[(999,select.POLLIN)]

@@ -77,7 +77,11 @@ def run_partial(packet, backend, hard_deadline):
             exited |= backend.exits(fds)
             if exited & retained:
                 raise RuntimeError('retained anchor or ADB exited unexpectedly')
-            rows = crashpad.after_effect(backend.graph(allowed_exits=exited))
+            rows = crashpad.after_effect(backend.graph(allowed_exits=exited,
+                refresh_exits=lambda: backend.exits(fds), observed_exit=crashpad.exit_proves_absence))
+            exited |= backend.exits(fds)
+            if exited & retained:
+                raise RuntimeError('retained anchor or ADB exited unexpectedly')
             additions = [r for pid, r in rows.items() if pid not in expected]
             observer.observe(additions, exited)
             for pid, old in expected.items():
@@ -290,14 +294,30 @@ class LinuxBackend:
             raise RuntimeError('bounded owned graph exceeded')
         return {p: rows[p][:6] for p in selected}
 
-    def graph(self, allowed_exits=frozenset()):
+    def graph(self, allowed_exits=frozenset(), refresh_exits=None, observed_exit=None):
         """Full identities; tolerate only proved exit/reparent transitions.
 
         A process first seen in the second census is never silently dropped,
         even if it has already disappeared by the next read. The caller must
         fail this one-use attempt and retain the census as diagnostic evidence.
         """
+        allowed_exits = set(allowed_exits)
+        def refresh():
+            if refresh_exits is not None:
+                fresh = set(refresh_exits())
+                if not fresh <= set(self.expected):
+                    raise RuntimeError('held exit proof contains a non-original process')
+                allowed_exits.update(fresh)
+            if allowed_exits & {self.packet['anchorPID'], self.packet.get('adbPID')}:
+                raise RuntimeError('retained anchor or ADB exited unexpectedly')
+        def proved_absent(pid, basic=None, row=None):
+            refresh()
+            if pid in allowed_exits:
+                return True
+            # The private observer never joins allowed_exits or the signal set.
+            return observed_exit is not None and observed_exit(pid, basic, row)
         before = self._basic_graph()
+        refresh()
         self.last_census = {'before': list(before.values())[:16], 'after': None, 'rows': []}
         basic_keys = ('pid', 'ticks', 'ppid', 'pgid', 'sid', 'uid')
         def adopted_netsimd(pid, parent, otherwise_matches):
@@ -315,11 +335,12 @@ class LinuxBackend:
         for pid in before:
             row = self.boot.proc(pid)
             if row is None:
+                refresh()
                 detail = self.boot._take_proc_read_failure(pid)
                 if detail is not None:
                     self.last_census['fullReadFailure'] = detail
                 state = self.boot.absent_pid_state(pid)
-                if state is None and pid in allowed_exits:
+                if state is None and proved_absent(pid, before[pid]):
                     continue
                 if state is None or state[6] not in DEAD:
                     raise RuntimeError('full process identity unavailable')
@@ -327,6 +348,7 @@ class LinuxBackend:
                 continue
             result[pid] = row
         after = self._basic_graph()
+        refresh()
         self.last_census['after'] = list(after.values())[:16]
         self.last_census['rows'] = [{'pid': x['pid'], 'ticks': x['ticks'], 'ppid': x['ppid'],
             'uid': x['uid'], 'pgid': x['pgid'], 'sid': x['sid'], 'state': x['state'],
@@ -335,13 +357,13 @@ class LinuxBackend:
             for x in result.values()][:16]
         for pid in (set(before) & set(after)) - set(result):
             state = self.boot.absent_pid_state(pid)
-            if pid not in allowed_exits or state is None or \
+            if not proved_absent(pid, after[pid]) or state is None or \
                state[:6] != after[pid] or state[6] not in DEAD:
                 raise RuntimeError('unreadable original remains in settlement census')
         if before != after:
             added = set(after) - set(before)
             removed = set(before) - set(after)
-            if added or not removed <= set(allowed_exits):
+            if added or any(not proved_absent(pid, before[pid], result.get(pid)) for pid in removed):
                 raise RuntimeError('unproved process census transition during read')
             for pid in set(before) & set(after):
                 old, new = before[pid], after[pid]
@@ -353,7 +375,10 @@ class LinuxBackend:
                 if old != new and not adopted_in_read:
                     raise RuntimeError('unproved process census transition during read')
             for pid in removed:
-                if pid in result:
+                if pid in result and pid not in self.expected:
+                    if not proved_absent(pid, before[pid], result[pid]):
+                        raise RuntimeError('unproved observer disappearance')
+                elif pid in result:
                     full = identity(result[pid])
                     wanted = self.expected[pid]
                     other_fields_match = all(full[key] == wanted[key] for key in STABLE if key != 'ppid')

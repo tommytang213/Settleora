@@ -65,6 +65,24 @@ class CrashpadTests(unittest.TestCase):
 
     def graph(self):return copy.deepcopy(self.rows)
 
+    def test_census_exit_evidence_is_private_and_read_only(self):
+        o=self.observer();o.before_effect(self.graph());o.effect_will_be_attempted()
+        observed=copy.deepcopy(self.rows[5]);self.rows.pop(5)
+        self.poll.poll.return_value=[(999,select.POLLIN)]
+        basic=tuple(observed[k]for k in ('pid','ticks','ppid','pgid','sid','uid'))
+        self.assertTrue(o.exit_proves_absence(5,basic,observed))
+        self.assertFalse(o.exit_proves_absence(999))
+        self.assertFalse(o.proof()['signalAuthority'])
+        self.assertTrue(o.proof()['heldExitObserved'])
+        self.assertEqual(set(o.after_effect(self.graph())),{1,2})
+
+    def test_census_exit_identity_failure_cannot_recover(self):
+        o=self.observer();o.before_effect(self.graph());o.effect_will_be_attempted()
+        self.poll.poll.return_value=[(999,select.POLLIN)]
+        observed=copy.deepcopy(self.rows[5]);observed['ticks']='reused'
+        with self.assertRaises(RuntimeError):o.exit_proves_absence(5,row=observed)
+        with self.assertRaises(RuntimeError):o.exit_proves_absence(5,row=self.rows[5])
+
     def test_complete_initial_proof_projects_exact_only_without_mutation(self):
         o=self.observer();rows=self.graph();rows[6]=self.row(6,1,str(self.image),6)
         projected=o.before_effect(rows)
@@ -138,6 +156,16 @@ class CrashpadTests(unittest.TestCase):
     def test_disappearance_without_held_exit_rejects(self):
         o=self.observer();o.effect_will_be_attempted();self.rows.pop(5)
         with self.assertRaises(RuntimeError):o.after_effect(self.graph())
+
+    def test_visible_dead_exe_or_argv_drift_is_rejected_with_held_exit(self):
+        original=copy.deepcopy(self.rows[5])
+        for key,value in [('exe','/changed'),('argv',[b'changed'])]:
+            self.rows[5]=copy.deepcopy(original);self.poll.poll.return_value=[]
+            o=self.observer();o.before_effect(self.graph());o.effect_will_be_attempted()
+            self.rows[5].update(state='Z');self.rows[5][key]=value
+            self.poll.poll.return_value=[(999,select.POLLIN)]
+            with self.subTest(key=key),self.assertRaisesRegex(RuntimeError,'full exit identity drift'):o.after_effect(self.graph())
+        self.rows[5]=original;self.poll.poll.return_value=[]
 
     def test_dead_reused_identity_rejects_even_if_later_absent(self):
         o=self.observer();o.effect_will_be_attempted();self.poll.poll.return_value=[(999,select.POLLIN)]

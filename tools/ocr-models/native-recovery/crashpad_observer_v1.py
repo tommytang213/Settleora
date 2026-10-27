@@ -142,6 +142,31 @@ class CrashpadObserver:
             raise RuntimeError('Crashpad proof cannot advance')
         self.effect_started = True
 
+    def exit_proves_absence(self, pid, basic=None, row=None):
+        """Read-only private held-exit evidence for a census transition only."""
+        try:
+            self._check_deadline()
+            if self.failed or not self.initial_proven or not self.effect_started:
+                raise RuntimeError('Crashpad observation phase invalid')
+            if pid != self.pin['pid']:
+                return False
+            for fd, flags in self.__poll.poll(0):
+                if fd != self.__fd or flags & ~(select.POLLIN | select.POLLHUP) or not flags & select.POLLIN:
+                    raise RuntimeError('Crashpad held exit event uncertain')
+                self.exited = True
+            if not self.exited:
+                return False
+            keys = ('pid', 'ticks', 'ppid', 'pgid', 'sid', 'uid')
+            if basic is not None and tuple(self.pin[k] for k in keys) != basic:
+                raise RuntimeError('Crashpad exit census identity drift')
+            if row is not None and (any(row[k] != self.pin[k] for k in SCALARS) or
+                    len(row['argv']) != self.pin['argvCount'] or argv_hash(row['argv']) != self.pin['argvSHA256']):
+                raise RuntimeError('Crashpad full exit census identity drift')
+            return True
+        except BaseException:
+            self.failed = True
+            raise
+
     def after_effect(self, rows):
         try:
             self._check_deadline()
@@ -158,6 +183,9 @@ class CrashpadObserver:
                 raise RuntimeError('Crashpad census PID reuse or ownership drift')
             if row is not None and any(row[k] != self.pin[k] for k in basic):
                 raise RuntimeError('Crashpad independent PID reuse or ownership drift')
+            for visible in (observed, row):
+                if visible is not None and (any(visible[k] != self.pin[k] for k in SCALARS) or len(visible['argv']) != self.pin['argvCount'] or argv_hash(visible['argv']) != self.pin['argvSHA256']):
+                    raise RuntimeError('Crashpad visible full exit identity drift')
             if observed is not None and observed['state'] in LIVE and \
                (self.exited or row is None or row['state'] not in LIVE):
                 raise RuntimeError('Crashpad live census has no matching current proof')

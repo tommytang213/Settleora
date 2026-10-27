@@ -17,6 +17,14 @@ NAMES = frozenset({"emulator_stdout", "emulator_stderr", "anchor_stderr",
 CAP_BYTES = 4 * 1024 * 1024
 
 
+def _sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _write_once(path, value):
     raw = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -24,6 +32,7 @@ def _write_once(path, value):
         out.write(raw)
         out.flush()
         os.fsync(out.fileno())
+    _sync_directory(Path(path).parent)
 
 
 def _bounded_json(path):
@@ -71,6 +80,7 @@ def prepare(root, *, source_sha256, packet_sha256, image_sha256, command_sha256)
     root.mkdir(mode=0o700, exist_ok=False)
     (root / "scratch").mkdir(mode=0o700)
     (root / "diagnostics").mkdir(mode=0o700)
+    _sync_directory(parent)
     _write_once(root / "manifest.json", {
         "schema": "settleora-disposable-native-run-v1",
         "sourceSHA256": source_sha256, "packetSHA256": packet_sha256,
@@ -143,6 +153,7 @@ def capture(root, name, relative_scratch_path):
         out.write(content)
         out.flush()
         os.fsync(out.fileno())
+    _sync_directory(destination.parent)
     _write_once(root / "diagnostics" / (name + ".json"), {
         "schema": "settleora-private-diagnostic-v1", "name": name,
         "retainedBytes": len(content), "sourceBytes": st.st_size,

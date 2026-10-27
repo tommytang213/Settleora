@@ -62,6 +62,30 @@ class Fake:
 
 
 class CurrentRunnerTests(unittest.TestCase):
+    def test_current_review_gate_requires_new_chain_and_exact_hosted_head(self):
+        import re
+        root=self.root/'review';root.mkdir()
+        names={'current_android_qualification.py','test_current_android_qualification.py','disposable_lifecycle.py','test_disposable_lifecycle.py','bounded-process-capture.mjs','CONTRACT.md','gradle_dependency_closure.py','test_gradle_dependency_closure.py','qemu_partial_cleanup_v5.py','test_qemu_partial_cleanup_v5.py','crashpad_observer_v1.py','test_crashpad_observer_v1.py','composite_build_scope_regression.py','test_composite_build_scope_regression.py','WORKFLOW_POLICY.md'}
+        manifest={n:'b'*64 for n in names};raw=(json.dumps(manifest)+'\n').encode();digest=hashlib.sha256(raw).hexdigest();review=dict(manifestPath=str(root/'MANIFEST.json'),manifestSHA256=digest)
+        data={str(root/'MANIFEST.json'):raw}
+        for name in names:data[str(root/name)]=b'synthetic source'
+        for provider in ('codex','coderabbit','githubCodex'):
+            verdict=dict(verdict='pass',findings=[],summary=digest)
+            if provider!='codex':verdict.update(provider=provider,sourceHead=self.p['head'],status='completed',unresolvedFindings=[],reviewURL='https://github.com/tommytang213/Settleora/pull/1338#issuecomment-123')
+            value=json.dumps(verdict).encode();path=str(root/(provider+'.json'));review[provider+'Path']=path;review[provider+'SHA256']=hashlib.sha256(value).hexdigest();data[path]=value
+        self.p['review']=review
+        def check():
+            with patch.object(r,'bounded_bytes',side_effect=lambda path:data[str(path)]),patch.object(r,'sha',return_value='b'*64):r.verify_reviews(self.p)
+        check()
+        for provider in ('coderabbit','githubCodex'):
+            path=review[provider+'Path'];original=data[path];original_sha=review[provider+'SHA256']
+            for key,value in [('sourceHead','c'*40),('status','running'),('provider','grok'),('unresolvedFindings',['open']),('reviewURL','https://example.com/review'),('reviewURL','https://github.com/tommytang213/Settleora/pull/1339#issuecomment-123'),('reviewURL','https://github.com/tommytang213/Settleora/pull/1338#arbitrary'),('findings',['defect'])]:
+                verdict=json.loads(original);verdict[key]=value;data[path]=json.dumps(verdict).encode();review[provider+'SHA256']=hashlib.sha256(data[path]).hexdigest()
+                with self.subTest(provider=provider,key=key),self.assertRaises(RuntimeError):check()
+            data[path]=original;review[provider+'SHA256']=original_sha
+        review['grokPath']='legacy'
+        with self.assertRaises(RuntimeError):check()
+
     def setUp(self):
         self.t = tempfile.TemporaryDirectory()
         self.addCleanup(self.t.cleanup)
@@ -939,6 +963,7 @@ class CurrentRunnerTests(unittest.TestCase):
             r.Backend.verify_cache(b)
         self.assertEqual(check.call_args.args[:4], (b.p['repo'],b.p['pubCache'],b.p['filePins'],b.p['pluginCache']))
 
+    @unittest.skipIf(os.geteuid() == 0, 'root bypasses directory permission denial')
     def test_cache_walk_permission_error_is_not_silently_omitted(self):
         root = self.root / 'cache'
         private = root / 'private'

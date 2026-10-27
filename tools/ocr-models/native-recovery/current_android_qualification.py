@@ -1437,6 +1437,48 @@ def run(p, digest, invocation, backend_type=Backend):
     return dict(testExitCode=code, cleanupVerified=cleaned, nativeReady=False, automaticRetries=0)
 
 
+def verify_reviews(p):
+    # Origin/authenticity is checked through normal GitHub/local-tool evidence by
+    # Atlas before admission. Hash-bound local summaries are not platform authority.
+    review = p['review']
+    manifest = bounded_bytes(review['manifestPath'])
+    if hashlib.sha256(manifest).hexdigest() != review['manifestSHA256']:
+        raise RuntimeError('review manifest drift')
+    expected_names = {'current_android_qualification.py','test_current_android_qualification.py',
+        'disposable_lifecycle.py','test_disposable_lifecycle.py','bounded-process-capture.mjs','CONTRACT.md',
+        'gradle_dependency_closure.py','test_gradle_dependency_closure.py','qemu_partial_cleanup_v5.py',
+        'test_qemu_partial_cleanup_v5.py','crashpad_observer_v1.py','test_crashpad_observer_v1.py',
+        'composite_build_scope_regression.py','test_composite_build_scope_regression.py','WORKFLOW_POLICY.md'}
+    if set(decode(manifest)) != expected_names:
+        raise RuntimeError('exact current fifteen-file review scope required')
+    for name, wanted in decode(manifest).items():
+        actual = Path(p['repo'])/'tools/ocr-models/native-recovery'/name
+        if name == 'CONTRACT.md': actual = actual.with_name('CURRENT_ANDROID_QUALIFICATION.md')
+        elif name == 'WORKFLOW_POLICY.md': actual = Path(p['repo'])/'docs/workflow/AUTONOMOUS_CODEX_RUNNER.md'
+        elif name == 'bounded-process-capture.mjs': actual = Path(p['repo'])/'tools/ocr-models/bounded-process-capture.mjs'
+        if sha(Path(review['manifestPath']).parent / name) != wanted or sha(actual) != wanted:
+            raise RuntimeError('reviewed file drift')
+    if sha(__file__) != decode(manifest)['current_android_qualification.py']:
+        raise RuntimeError('executing supervisor differs from reviewed source')
+    expected_keys = {'manifestPath','manifestSHA256'} | {provider+suffix for provider in ('codex','coderabbit','githubCodex') for suffix in ('Path','SHA256')}
+    if set(review) != expected_keys:
+        raise RuntimeError('current local Codex, CodeRabbit and GitHub Codex review receipts required')
+    for provider in ('codex','coderabbit','githubCodex'):
+        path = review[provider+'Path']
+        raw = bounded_bytes(path)
+        if hashlib.sha256(raw).hexdigest() != review[provider+'SHA256']:
+            raise RuntimeError('review receipt drift')
+        verdict = decode(raw)
+        if type(verdict)is not dict or verdict.get('verdict') != 'pass' or verdict.get('findings') != [] or review['manifestSHA256'] not in verdict.get('summary',''):
+            raise RuntimeError('exact clean independent reviews required')
+        if provider != 'codex':
+            # Each summary is retained with its actual normal GitHub API/tool
+            # origin for external admission review. Never synthesize a remote pass.
+            url = verdict.get('reviewURL')
+            if verdict.get('provider') != provider or verdict.get('sourceHead') != p['head'] or verdict.get('status') != 'completed' or verdict.get('unresolvedFindings') != [] or type(url)is not str or not re.fullmatch(r'https://github[.]com/tommytang213/Settleora/pull/1338#(?:pullrequestreview|issuecomment)-[1-9][0-9]*',url):
+                raise RuntimeError('completed exact-head hosted review evidence required')
+
+
 def main():
     ap = argparse.ArgumentParser()
     mode = ap.add_mutually_exclusive_group(required=True)
@@ -1449,35 +1491,7 @@ def main():
     if len(raw) > CAP or hashlib.sha256(raw).hexdigest() != a.packet_sha256:
         raise ValueError('exact admitted raw packet required')
     p = validate(decode(raw))
-    # Clean, exact-source review gates are independently authenticated by Atlas.
-    review = p['review']
-    manifest = bounded_bytes(review['manifestPath'])
-    if hashlib.sha256(manifest).hexdigest() != review['manifestSHA256']:
-        raise RuntimeError('review manifest drift')
-    expected_names = {'current_android_qualification.py', 'test_current_android_qualification.py',
-                      'disposable_lifecycle.py', 'bounded-process-capture.mjs', 'CONTRACT.md'}
-    if set(decode(manifest)) != expected_names:
-        raise RuntimeError('exact five-file review scope required')
-    if decode(manifest)['current_android_qualification.py'] != sha(__file__) or \
-       decode(manifest)['disposable_lifecycle.py'] != sha(Path(__file__).with_name('disposable_lifecycle.py')) or \
-       decode(manifest)['bounded-process-capture.mjs'] != sha(Path(p['repo']) / 'tools/ocr-models/bounded-process-capture.mjs'):
-        raise RuntimeError('reviewed production buffers differ')
-    for name, wanted in decode(manifest).items():
-        if sha(Path(review['manifestPath']).parent / name) != wanted:
-            raise RuntimeError('reviewed file drift')
-    for provider in ('codex', 'grok'):
-        path = review[provider + 'Path']
-        if sha(path) != review[provider + 'SHA256']:
-            raise RuntimeError('review receipt drift')
-        receipt = read_json(path)
-        verdict = receipt if provider == 'codex' else receipt.get('parsed', {}).get('verdict', {})
-        if verdict.get('verdict') != 'pass' or verdict.get('findings') != [] or \
-           review['manifestSHA256'] not in verdict.get('summary', ''):
-            raise RuntimeError('exact clean independent reviews required')
-        if provider == 'grok' and (receipt.get('reason') is not None or type(receipt.get('exitCode')) is not int or receipt.get('exitCode') != 0 or receipt.get('parsed', {}).get('ok') is not True or
-                receipt.get('coveredLines') != receipt.get('totalLines') or receipt.get('totalLines') !=
-                len(manifest.decode().splitlines()) + sum(len((Path(review['manifestPath']).parent / n).read_text().splitlines()) for n in expected_names)):
-            raise RuntimeError('Grok complete successful review required')
+    verify_reviews(p)
     if a.validate_only:
         print(json.dumps(dict(validated=True, effects=0)))
     else:

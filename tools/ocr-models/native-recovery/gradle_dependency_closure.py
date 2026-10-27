@@ -58,7 +58,7 @@ gradle.beforeProject { project ->
     project.buildscript.repositories.all(checkRepository)
 }
 '''
-PROJECT_CLOSURE_INIT = REPOSITORY_GUARD_INIT + '''gradle.settingsEvaluated {
+PROJECT_CLOSURE_INIT = REPOSITORY_GUARD_INIT + r'''gradle.settingsEvaluated {
     if (gradle.startParameter.offline || gradle.startParameter.dependencyVerificationMode != DependencyVerificationMode.STRICT) {
         throw new GradleException('Project staging requires online resolution with strict verification')
     }
@@ -105,10 +105,56 @@ gradle.projectsEvaluated {
             androidProjects.each { project ->
                 configurations.add(resolveConfiguration(project, 'debugCompileClasspath'))
             }
+            def kotlinProjects = androidProjects.findAll { it.plugins.hasPlugin('org.jetbrains.kotlin.android') }
+            if (!kotlinProjects.any { it.path == ':app' }) { throw new GradleException('Required Kotlin app absent') }
+            def tools = []
+            kotlinProjects.each { project ->
+                // Realize debug Kotlin inputs without executing any task.
+                project.tasks.named('compileDebugKotlin').get()
+                ['kotlinCompilerClasspath', 'kotlinBuildToolsApiClasspath', 'kotlinCompilerPluginClasspathDebug'].each { name ->
+                    tools.add(resolveConfiguration(project, name))
+                }
+            }
+            // Resolve the exact Linux AAPT2 named by the unchanged strict metadata.
+            // No Android task, assemble task or detached unverified version override.
+            def settingsText = new File(gradle.rootProject.projectDir, 'settings.gradle.kts').text
+            def agpVersions = (settingsText =~ /id\("com\.android\.application"\) version "([^"]+)"/).collect { it[1] }
+            if (agpVersions.size() != 1) { throw new GradleException('Exact tracked AGP version required') }
+            def factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+            factory.setFeature('http://apache.org/xml/features/disallow-doctype-decl', true)
+            factory.setFeature('http://xml.org/sax/features/external-general-entities', false)
+            factory.setFeature('http://xml.org/sax/features/external-parameter-entities', false)
+            factory.setXIncludeAware(false)
+            factory.setExpandEntityReferences(false)
+            def metadata = factory.newDocumentBuilder().parse(new File(gradle.rootProject.projectDir, 'gradle/verification-metadata.xml'))
+            def components = metadata.getElementsByTagName('component')
+            def aaptVersions = []
+            for (int i = 0; i < components.length; i++) {
+                def component = components.item(i)
+                if (component.getAttribute('group') == 'com.android.tools.build' && component.getAttribute('name') == 'aapt2') {
+                    def version = component.getAttribute('version')
+                    def artifacts = component.getElementsByTagName('artifact')
+                    for (int j = 0; j < artifacts.length; j++) {
+                        def artifact = artifacts.item(j)
+                        if (artifact.getAttribute('name') == 'aapt2-' + version + '-linux.jar' && artifact.getElementsByTagName('sha256').length > 0) {
+                            aaptVersions.add(version)
+                        }
+                    }
+                }
+            }
+            if (aaptVersions.size() != 1 || !aaptVersions[0].startsWith(agpVersions[0] + '-')) {
+                throw new GradleException('One strict Linux AAPT2 binding matching tracked AGP required')
+            }
+            if (app.configurations.findByName('settleoraAapt2') != null) { throw new GradleException('AAPT2 staging configuration already exists') }
+            def aaptConfiguration = app.configurations.create('settleoraAapt2')
+            aaptConfiguration.canBeResolved = true
+            aaptConfiguration.canBeConsumed = false
+            app.dependencies.add('settleoraAapt2', 'com.android.tools.build:aapt2:' + aaptVersions[0] + ':linux')
+            tools.add(resolveConfiguration(app, 'settleoraAapt2'))
             def output = new File(gradle.startParameter.projectProperties['settleoraClosureOutput'])
             if (output.exists()) { throw new GradleException('Debug closure receipt already exists') }
             output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(
-                [schema: 'settleora-debug-build-closure-v2', androidProjects: androidProjects.collect { it.path }, configurations: configurations]))
+                [schema: 'settleora-debug-build-closure-v3', androidProjects: androidProjects.collect { it.path }, configurations: configurations, kotlinProjects: kotlinProjects.collect { it.path }, toolConfigurations: tools]))
         }
     }
 }
@@ -246,28 +292,35 @@ def project_closure(path):
     with Path(path).open('rb') as stream:raw=stream.read(4*1024**2+1)
     if len(raw)>4*1024**2:raise RuntimeError('bounded debug closure receipt exceeded')
     data=decode_plan(raw)
-    if type(data) is not dict or set(data)!={'schema','androidProjects','configurations'} or data['schema']!='settleora-debug-build-closure-v2':
+    if type(data) is not dict or set(data)!={'schema','androidProjects','configurations','kotlinProjects','toolConfigurations'} or data['schema']!='settleora-debug-build-closure-v3':
         raise RuntimeError('complete project debug closure required')
     projects=data['androidProjects'];configurations=data['configurations']
     if type(projects) is not list or not 2<=len(projects)<=128 or any(type(x)is not str or not re.fullmatch(r':[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)*',x)for x in projects) or len(set(projects))!=len(projects) or not {':app',':integration_test'}<=set(projects):
         raise RuntimeError('complete Android project inventory required')
     expected={x+':debugCompileClasspath'for x in projects}|{':app:debugRuntimeClasspath'}
     if type(configurations)is not list or len(configurations)!=len(expected):raise RuntimeError('complete debug configuration inventory required')
+    kotlin=data['kotlinProjects'];tools=data['toolConfigurations']
+    if type(kotlin)is not list or not kotlin or any(type(x)is not str for x in kotlin) or len(set(kotlin))!=len(kotlin) or not set(kotlin)<=set(projects) or ':app'not in kotlin:
+        raise RuntimeError('complete Kotlin Android project inventory required')
+    tool_required={project+':'+name for project in kotlin for name in ('kotlinCompilerClasspath','kotlinBuildToolsApiClasspath','kotlinCompilerPluginClasspathDebug')}|{':app:settleoraAapt2'}
+    tool_allowed=tool_required
+    if type(tools)is not list or not len(tool_required)<=len(tools)<=len(tool_allowed):raise RuntimeError('complete bounded task-tool inventory required')
     observed=set();artifacts_total=selectors_total=0
-    for item in configurations:
-        if type(item)is not dict or set(item)!={'configuration','artifacts','selectors'} or type(item['configuration'])is not str or item['configuration']not in expected or item['configuration']in observed:
+    for item in configurations+tools:
+        if type(item)is not dict or set(item)!={'configuration','artifacts','selectors'} or type(item['configuration'])is not str or item['configuration']not in (expected if item in configurations else tool_allowed) or item['configuration']in observed:
             raise RuntimeError('complete unique debug configuration inventory required')
         observed.add(item['configuration']);artifacts=item['artifacts'];selectors=item['selectors']
         if type(artifacts)is not list or type(selectors)is not list:raise RuntimeError('complete debug graph lists required')
         artifacts_total+=len(artifacts);selectors_total+=len(selectors)
         if artifacts_total>MAX_FILES or selectors_total>MAX_ENTRIES:raise RuntimeError('bounded combined debug graph exceeded')
-        if item['configuration']in {':app:debugRuntimeClasspath',':app:debugCompileClasspath',':integration_test:debugCompileClasspath'} and (not artifacts or not selectors):raise RuntimeError('complete required debug graph required')
+        if item['configuration']in ({':app:debugRuntimeClasspath',':app:debugCompileClasspath',':integration_test:debugCompileClasspath'}|{x for x in tool_required if not x.endswith(':kotlinCompilerPluginClasspathDebug')}) and (not artifacts or not selectors):raise RuntimeError('complete required debug graph required')
         for row in artifacts:
             coordinate=row.get('coordinate')if type(row)is dict else None
             parts=coordinate.split(':')if type(coordinate)is str else []
             if type(row)is not dict or set(row)!={'coordinate','fileName','bytes','sha256'} or len(parts)!=3 or any(not part or any(ch.isspace()for ch in part)for part in parts) or type(row['fileName'])is not str or not row['fileName']or Path(row['fileName']).name!=row['fileName']or type(row['bytes'])is not int or not 0<row['bytes']<=MAX_BYTES or type(row['sha256'])is not str or not re.fullmatch('[0-9a-f]{64}',row['sha256']):
                 raise RuntimeError('invalid debug artifact receipt')
         if any(type(row)is not dict or set(row)!={'requested','selected'}or any(type(value)is not str or not value for value in row.values())for row in selectors):raise RuntimeError('invalid debug selector receipt')
+    if not tool_required<=observed:raise RuntimeError('required Kotlin compiler/build tools and AAPT2 absent')
     return data
 
 

@@ -10,11 +10,30 @@ spec=importlib.util.spec_from_file_location('closure',Path(__file__).with_name('
 def project_receipt():
     def graph(configuration,version):
         return dict(configuration=configuration,artifacts=[dict(coordinate='androidx.test:runner:'+version,fileName='runner.aar',bytes=10,sha256='a'*64)],selectors=[dict(requested='androidx.test:runner:1.2+',selected='androidx.test:runner:'+version)])
-    return dict(schema='settleora-debug-build-closure-v2',androidProjects=[':app',':integration_test',':empty_library'],configurations=[graph(':app:debugRuntimeClasspath','1.7.0'),graph(':app:debugCompileClasspath','1.7.0'),graph(':integration_test:debugCompileClasspath','1.3.0'),dict(configuration=':empty_library:debugCompileClasspath',artifacts=[],selectors=[])])
+    return dict(schema='settleora-debug-build-closure-v3',kotlinProjects=[':app'],toolConfigurations=[graph(':app:kotlinCompilerClasspath','2.2.20'),graph(':app:kotlinBuildToolsApiClasspath','2.2.20'),dict(configuration=':app:kotlinCompilerPluginClasspathDebug',artifacts=[],selectors=[]),graph(':app:settleoraAapt2','8.11.1-12782657')],androidProjects=[':app',':integration_test',':empty_library'],configurations=[graph(':app:debugRuntimeClasspath','1.7.0'),graph(':app:debugCompileClasspath','1.7.0'),graph(':integration_test:debugCompileClasspath','1.3.0'),dict(configuration=':empty_library:debugCompileClasspath',artifacts=[],selectors=[])])
 
 class ClosureTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(dir=Path(__file__).parent);self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+
+    def test_task_tool_inventory_rejects_missing_duplicate_release_and_empty_graphs(self):
+        import json
+        path=self.root/'receipt'
+        for change in ('missing','duplicate','release','empty','kotlin','legacy'):
+            data=project_receipt()
+            if change=='missing':data['toolConfigurations'].pop()
+            elif change=='duplicate':data['toolConfigurations'][1]=data['toolConfigurations'][0]
+            elif change=='release':data['toolConfigurations'][0]['configuration']=':app:kotlinCompilerPluginClasspathRelease'
+            elif change=='empty':data['toolConfigurations'][0]['artifacts']=[]
+            elif change=='kotlin':data['kotlinProjects']=[]
+            elif change=='legacy':data['schema']='settleora-debug-build-closure-v2'
+            path.write_text(json.dumps(data))
+            with self.subTest(change=change),self.assertRaises(RuntimeError):c.project_closure(path)
+
+    def test_task_tool_graphs_share_existing_aggregate_limits(self):
+        import json
+        path=self.root/'receipt';path.write_text(json.dumps(project_receipt()))
+        with patch.object(c,'MAX_FILES',5),self.assertRaisesRegex(RuntimeError,'combined'):c.project_closure(path)
 
     def test_cache_copy_excludes_locks_gc_and_never_reuses_destination(self):
         source=self.root/'modules-2';source.mkdir();(source/'payload.jar').write_bytes(b'payload');(source/'modules-2.lock').write_bytes(b'lock');(source/'gc.properties').write_bytes(b'gc')

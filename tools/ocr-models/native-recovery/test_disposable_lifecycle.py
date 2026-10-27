@@ -9,6 +9,40 @@ import disposable_lifecycle as life
 PIN = "a" * 64
 
 class LifecycleTests(unittest.TestCase):
+    def test_write_once_syncs_file_then_parent_directory(self):
+        with tempfile.TemporaryDirectory() as parent:
+            target=Path(parent)/"record.json"
+            observed=[]
+            real_fsync=os.fsync
+            def sync(fd):
+                import stat
+                observed.append("directory" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file")
+                real_fsync(fd)
+            with patch.object(life.os,"fsync",side_effect=sync):
+                life._write_once(target,{"value":1})
+            self.assertEqual(observed,["file","directory"])
+
+    def test_directory_sync_failure_is_not_reported_as_success(self):
+        with tempfile.TemporaryDirectory() as parent:
+            target=Path(parent)/"record.json"
+            with patch.object(life,"_sync_directory",side_effect=OSError("directory sync failed")):
+                with self.assertRaisesRegex(OSError,"directory sync failed"):
+                    life._write_once(target,{"value":1})
+            self.assertTrue(target.exists())  # Preserve uncertain record; never overwrite/retry it.
+            with self.assertRaises(FileExistsError):life._write_once(target,{"value":2})
+
+    def test_capture_syncs_log_before_its_receipt(self):
+        with tempfile.TemporaryDirectory() as parent:
+            root=life.prepare(Path(parent)/"run",source_sha256=PIN,packet_sha256=PIN,image_sha256=PIN,command_sha256=PIN)
+            (root/"scratch/log").write_bytes(b"evidence")
+            observed=[]
+            original=life._sync_directory
+            def sync(path):
+                observed.append(((root/"diagnostics/tool_result.log").exists(),(root/"diagnostics/tool_result.json").exists()))
+                original(path)
+            with patch.object(life,"_sync_directory",side_effect=sync):life.capture(root,"tool_result","log")
+            self.assertEqual(observed,[(True,False),(True,True)])
+
     def test_unique_private_run_binds_inputs_and_never_retries(self):
         with tempfile.TemporaryDirectory() as parent:
             root = life.prepare(Path(parent)/"run", source_sha256=PIN,
