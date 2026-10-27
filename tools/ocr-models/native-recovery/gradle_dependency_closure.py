@@ -65,13 +65,21 @@ PROJECT_CLOSURE_INIT = REPOSITORY_GUARD_INIT + '''gradle.settingsEvaluated {
 }
 gradle.projectsEvaluated {
     def app = gradle.rootProject.findProject(':app')
-    if (app != null) {
-        app.tasks.register('settleoraResolveDebugRuntimeClasspath') {
-            doLast {
-                def configuration = app.configurations.getByName('debugRuntimeClasspath')
+    if (app == null) { throw new GradleException('Required app project absent') }
+    app.tasks.register('settleoraResolveDebugBuildClasspaths') {
+        doLast {
+            def androidProjects = gradle.rootProject.allprojects.findAll {
+                it.plugins.hasPlugin('com.android.application') || it.plugins.hasPlugin('com.android.library')
+            }.sort { a, b -> a.path <=> b.path }
+            if (!androidProjects.any { it.path == ':app' } || !androidProjects.any { it.path == ':integration_test' }) {
+                throw new GradleException('Required Android debug projects absent')
+            }
+            def resolveConfiguration = { project, configurationName ->
+                def configuration = project.configurations.getByName(configurationName)
+                if (!configuration.canBeResolved) { throw new GradleException('Debug classpath is not resolvable') }
                 def graph = configuration.incoming.resolutionResult
                 if (graph.allDependencies.any { it instanceof UnresolvedDependencyResult }) {
-                    throw new GradleException('Unresolved project runtime dependency')
+                    throw new GradleException('Unresolved project debug classpath dependency')
                 }
                 def artifacts = configuration.incoming.artifactView {
                     componentFilter { it instanceof ModuleComponentIdentifier }
@@ -91,14 +99,20 @@ gradle.projectsEvaluated {
                 def selectors = graph.allDependencies.findAll { it instanceof ResolvedDependencyResult }.collect {
                     [requested: it.requested.displayName, selected: it.selected.id.displayName]
                 }.sort { a, b -> (a.requested + a.selected) <=> (b.requested + b.selected) }
-                def output = new File(gradle.startParameter.projectProperties['settleoraClosureOutput'])
-                if (output.exists()) { throw new GradleException('Runtime closure receipt already exists') }
-                output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(
-                    [configuration: ':app:debugRuntimeClasspath', artifacts: artifacts, selectors: selectors]))
+                [configuration: project.path + ':' + configurationName, artifacts: artifacts, selectors: selectors]
             }
+            def configurations = [resolveConfiguration(app, 'debugRuntimeClasspath')]
+            androidProjects.each { project ->
+                configurations.add(resolveConfiguration(project, 'debugCompileClasspath'))
+            }
+            def output = new File(gradle.startParameter.projectProperties['settleoraClosureOutput'])
+            if (output.exists()) { throw new GradleException('Debug closure receipt already exists') }
+            output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(
+                [schema: 'settleora-debug-build-closure-v2', androidProjects: androidProjects.collect { it.path }, configurations: configurations]))
         }
     }
 }
+
 '''
 MAX_FILES = 20000
 MAX_ENTRIES = 60000
@@ -230,14 +244,30 @@ def verify_local_properties(path, sdk, flutter):
 
 def project_closure(path):
     with Path(path).open('rb') as stream:raw=stream.read(4*1024**2+1)
-    if len(raw)>4*1024**2:raise RuntimeError('bounded runtime closure receipt exceeded')
+    if len(raw)>4*1024**2:raise RuntimeError('bounded debug closure receipt exceeded')
     data=decode_plan(raw)
-    if type(data) is not dict or set(data)!={'configuration','artifacts','selectors'} or data['configuration']!=':app:debugRuntimeClasspath' or type(data['artifacts']) is not list or not 0<len(data['artifacts'])<=MAX_FILES or type(data['selectors']) is not list or not 0<len(data['selectors'])<=MAX_ENTRIES:
-        raise RuntimeError('complete project runtime closure required')
-    for row in data['artifacts']:
-        if type(row) is not dict or set(row)!={'coordinate','fileName','bytes','sha256'} or type(row['coordinate']) is not str or len(row['coordinate'].split(':'))!=3 or type(row['fileName']) is not str or not row['fileName'] or Path(row['fileName']).name!=row['fileName'] or type(row['bytes']) is not int or not 0<row['bytes']<=MAX_BYTES or type(row['sha256']) is not str or not re.fullmatch('[0-9a-f]{64}',row['sha256']):
-            raise RuntimeError('invalid runtime artifact receipt')
-    if any(type(row) is not dict or set(row)!={'requested','selected'} or any(type(value) is not str or not value for value in row.values()) for row in data['selectors']):raise RuntimeError('invalid runtime selector receipt')
+    if type(data) is not dict or set(data)!={'schema','androidProjects','configurations'} or data['schema']!='settleora-debug-build-closure-v2':
+        raise RuntimeError('complete project debug closure required')
+    projects=data['androidProjects'];configurations=data['configurations']
+    if type(projects) is not list or not 2<=len(projects)<=128 or any(type(x)is not str or not re.fullmatch(r':[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)*',x)for x in projects) or len(set(projects))!=len(projects) or not {':app',':integration_test'}<=set(projects):
+        raise RuntimeError('complete Android project inventory required')
+    expected={x+':debugCompileClasspath'for x in projects}|{':app:debugRuntimeClasspath'}
+    if type(configurations)is not list or len(configurations)!=len(expected):raise RuntimeError('complete debug configuration inventory required')
+    observed=set();artifacts_total=selectors_total=0
+    for item in configurations:
+        if type(item)is not dict or set(item)!={'configuration','artifacts','selectors'} or type(item['configuration'])is not str or item['configuration']not in expected or item['configuration']in observed:
+            raise RuntimeError('complete unique debug configuration inventory required')
+        observed.add(item['configuration']);artifacts=item['artifacts'];selectors=item['selectors']
+        if type(artifacts)is not list or type(selectors)is not list:raise RuntimeError('complete debug graph lists required')
+        artifacts_total+=len(artifacts);selectors_total+=len(selectors)
+        if artifacts_total>MAX_FILES or selectors_total>MAX_ENTRIES:raise RuntimeError('bounded combined debug graph exceeded')
+        if item['configuration']in {':app:debugRuntimeClasspath',':app:debugCompileClasspath',':integration_test:debugCompileClasspath'} and (not artifacts or not selectors):raise RuntimeError('complete required debug graph required')
+        for row in artifacts:
+            coordinate=row.get('coordinate')if type(row)is dict else None
+            parts=coordinate.split(':')if type(coordinate)is str else []
+            if type(row)is not dict or set(row)!={'coordinate','fileName','bytes','sha256'} or len(parts)!=3 or any(not part or any(ch.isspace()for ch in part)for part in parts) or type(row['fileName'])is not str or not row['fileName']or Path(row['fileName']).name!=row['fileName']or type(row['bytes'])is not int or not 0<row['bytes']<=MAX_BYTES or type(row['sha256'])is not str or not re.fullmatch('[0-9a-f]{64}',row['sha256']):
+                raise RuntimeError('invalid debug artifact receipt')
+        if any(type(row)is not dict or set(row)!={'requested','selected'}or any(type(value)is not str or not value for value in row.values())for row in selectors):raise RuntimeError('invalid debug selector receipt')
     return data
 
 
@@ -384,7 +414,7 @@ def execute(plan, plan_path, digest):
         resolver = b.root/'resolver';resolver.mkdir(mode=0o700)
         init = resolver/'project-runtime.init.gradle';init.write_text(PROJECT_CLOSURE_INIT)
         closure_path = resolver/'project-runtime-closure.json'
-        b.record('RESOLVER_RECIPE.json',dict(initSHA256=hashlib.sha256(PROJECT_CLOSURE_INIT.encode()).hexdigest(),repositories=list(OFFICIAL_REPOSITORIES),configuration=':app:debugRuntimeClasspath',dependencyVerification='strict',sourceVersionsUnchanged=True))
+        b.record('RESOLVER_RECIPE.json',dict(initSHA256=hashlib.sha256(PROJECT_CLOSURE_INIT.encode()).hexdigest(),repositories=list(OFFICIAL_REPOSITORIES),configurationScope='app debugRuntimeClasspath plus every Android project debugCompileClasspath',dependencyVerification='strict',sourceVersionsUnchanged=True))
         b.env = dict(PATH=':'.join([p['flutterRoot']+'/bin',str(Path(p['tools']['java']['path']).parent),'/usr/bin','/bin']),HOME=str(b.scratch/'home'),TMPDIR=str(b.scratch/'tmp'),JAVA_HOME=str(Path(p['tools']['java']['path']).parent.parent),JAVA_TOOL_OPTIONS='-Duser.home='+str(b.scratch/'home'),ANDROID_USER_HOME=str(b.scratch/'android-user'),GRADLE_USER_HOME=str(warm),GRADLE_OPTS='-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dorg.gradle.project.android.builder.sdkDownload=false',CI='true',LANG='C.UTF-8',LC_ALL='C.UTF-8',ORG_GRADLE_PROJECT_settleoraReleaseEvidence='true',ANDROID_HOME=p['sdkRoot'],ANDROID_SDK_ROOT=p['sdkRoot'],PUB_CACHE=p['pubCache'],FLUTTER_SUPPRESS_ANALYTICS='true',FLUTTER_TOOL_ARGS='',BOT='true')
         properties_path=source/'apps/mobile/android/local.properties'
         with properties_path.open('x') as f:f.write('sdk.dir='+p['sdkRoot']+'\nflutter.sdk='+p['flutterRoot']+'\n')
@@ -392,7 +422,7 @@ def execute(plan, plan_path, digest):
         verify_local_properties(properties_path,p['sdkRoot'],p['flutterRoot'])
         links=m.verified_plugin_links(source,p['pubCache'],p['filePins'],p['pluginCache'],b.clock)
         m.verify_source_tree(p['repo'],p['head'],source,b.clock,strict_inventory=False,generated_links=links)
-        b.command([p['tools']['gradle']['path'],'--no-daemon','--max-workers=2','--console=plain','--info','--dependency-verification=strict','--init-script',str(init),'-PsettleoraClosureOutput='+str(closure_path),'-Ptarget=integration_test/receipt_ocr_real_provider_test.dart','-Ptarget-platform=android-arm,android-arm64,android-x64',':app:settleoraResolveDebugRuntimeClasspath'],cwd=source/'apps/mobile/android',timeout=900)
+        b.command([p['tools']['gradle']['path'],'--no-daemon','--max-workers=2','--console=plain','--info','--dependency-verification=strict','--init-script',str(init),'-PsettleoraClosureOutput='+str(closure_path),'-Ptarget=integration_test/receipt_ocr_real_provider_test.dart','-Ptarget-platform=android-arm,android-arm64,android-x64',':app:settleoraResolveDebugBuildClasspaths'],cwd=source/'apps/mobile/android',timeout=900)
         _, remaining = b.observe_owned_quiescence()
         if remaining:raise RuntimeError('seed children remain; do not freeze cache')
         closure = project_closure(closure_path)
@@ -422,7 +452,7 @@ def execute(plan, plan_path, digest):
             if m.sha(path,b.clock)!=wanted:raise RuntimeError('frozen cache or isolated input changed during offline probe')
         apk=source/'apps/mobile/build/app/outputs/flutter-apk/app-debug.apk'
         m.filesystem_space(apk)
-        outcome=dict(projectRuntimeClosure=closure,frozenCache=str(frozen),frozenFiles=len(frozen_pins),offlineAPK=dict(path=str(apk),sha256=m.sha(apk,b.clock),bytes=apk.stat().st_size),distribution=distribution,offlineCompileVerified=True)
+        outcome=dict(projectDebugClosure=closure,frozenCache=str(frozen),frozenFiles=len(frozen_pins),offlineAPK=dict(path=str(apk),sha256=m.sha(apk,b.clock),bytes=apk.stat().st_size),distribution=distribution,offlineCompileVerified=True)
     except BaseException as error:
         failure=error;outcome['failure']=type(error).__name__+': '+str(error)
     finally:

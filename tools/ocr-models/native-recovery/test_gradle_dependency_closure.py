@@ -7,6 +7,11 @@ from unittest.mock import patch
 
 spec=importlib.util.spec_from_file_location('closure',Path(__file__).with_name('gradle_dependency_closure.py'));c=importlib.util.module_from_spec(spec);spec.loader.exec_module(c)
 
+def project_receipt():
+    def graph(configuration,version):
+        return dict(configuration=configuration,artifacts=[dict(coordinate='androidx.test:runner:'+version,fileName='runner.aar',bytes=10,sha256='a'*64)],selectors=[dict(requested='androidx.test:runner:1.2+',selected='androidx.test:runner:'+version)])
+    return dict(schema='settleora-debug-build-closure-v2',androidProjects=[':app',':integration_test',':empty_library'],configurations=[graph(':app:debugRuntimeClasspath','1.7.0'),graph(':app:debugCompileClasspath','1.7.0'),graph(':integration_test:debugCompileClasspath','1.3.0'),dict(configuration=':empty_library:debugCompileClasspath',artifacts=[],selectors=[])])
+
 class ClosureTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(dir=Path(__file__).parent);self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
@@ -59,7 +64,8 @@ class ClosureTests(unittest.TestCase):
         with patch.object(supervisor.time,'monotonic',side_effect=[1020,1020,2520]),self.assertRaises(TimeoutError):backend.wait('cmd_3',1800)
 
     def test_project_recipe_resolves_actual_configuration_without_version_rewrites(self):
-        self.assertIn("getByName('debugRuntimeClasspath')",c.PROJECT_CLOSURE_INIT)
+        self.assertIn("resolveConfiguration(app, 'debugRuntimeClasspath')",c.PROJECT_CLOSURE_INIT)
+        self.assertIn("resolveConfiguration(project, 'debugCompileClasspath')",c.PROJECT_CLOSURE_INIT)
         self.assertIn('ModuleComponentIdentifier',c.PROJECT_CLOSURE_INIT)
         self.assertIn('UnresolvedDependencyResult',c.PROJECT_CLOSURE_INIT)
         self.assertIn('lenient = false',c.PROJECT_CLOSURE_INIT)
@@ -102,7 +108,7 @@ class StageAdapterTests(unittest.TestCase):
                         with properties.open('a')as f:f.write('fixture.pub=true\n')
                     if len(calls)==2:
                         output=Path(next(a.split('=',1)[1]for a in args if a.startswith('-PsettleoraClosureOutput=')))
-                        output.write_text(json.dumps(dict(configuration=':app:debugRuntimeClasspath',artifacts=[dict(coordinate='androidx.test:runner:1.7.0',fileName='runner.aar',bytes=1,sha256='c'*64)],selectors=[dict(requested='androidx.test:rules:1.2+',selected='androidx.test:rules:1.7.0')])))
+                        output.write_text(json.dumps(project_receipt()))
                         if 'fixture.pub=true' not in (Path(cwd)/'local.properties').read_text():raise AssertionError('pub-generated properties overwritten')
                         if (Path(cwd).parent.parent.parent/'assets/model').read_bytes()!=b'original':raise AssertionError('pinned input not copied')
                     if drift_at==len(calls):
@@ -149,7 +155,7 @@ class StageAdapterTests(unittest.TestCase):
                 else:c.execute(plan,root/'plan.json','c'*64)
                 spawn.assert_not_called()
             self.assertEqual(actions,['consume','cleanup','release']);self.assertEqual(len(calls),3);m.validate_network_policy.assert_called_once_with(p['network']);self.assertTrue(all(0<x.kwargs['timeout']<=5 for x in m.subprocess.check_output.call_args_list))
-            self.assertIn('--dependency-verification=strict',calls[1][0]);self.assertIn(':app:settleoraResolveDebugRuntimeClasspath',calls[1][0]);self.assertNotIn('ORG_GRADLE_PROJECT_settleoraReleaseOffline',calls[1][1]);self.assertEqual(calls[1][1]['ORG_GRADLE_PROJECT_settleoraReleaseEvidence'],'true')
+            self.assertIn('--dependency-verification=strict',calls[1][0]);self.assertIn(':app:settleoraResolveDebugBuildClasspaths',calls[1][0]);self.assertNotIn('ORG_GRADLE_PROJECT_settleoraReleaseOffline',calls[1][1]);self.assertEqual(calls[1][1]['ORG_GRADLE_PROJECT_settleoraReleaseEvidence'],'true')
             self.assertEqual(calls[0][0][1:],['pub','get','--offline']);self.assertEqual(calls[2][0][1:4],['build','apk','--debug']);self.assertEqual(calls[2][1]['ORG_GRADLE_PROJECT_settleoraReleaseOffline'],'true');self.assertIn('-Dorg.gradle.project.android.builder.sdkDownload=false',calls[2][1]['GRADLE_OPTS']);self.assertEqual(calls[2][1]['ANDROID_USER_HOME'],str(stage/'scratch/android-user'));self.assertEqual(calls[0][1]['JAVA_TOOL_OPTIONS'],'-Duser.home='+str(stage/'scratch/home'));self.assertEqual(calls[2][1]['JAVA_TOOL_OPTIONS'],calls[0][1]['JAVA_TOOL_OPTIONS'])
             terminal=json.loads((stage/'STAGE_TERMINAL.json').read_text());self.assertEqual(terminal['success'],not fail_compile);self.assertTrue(terminal['cleanupVerified']);self.assertEqual(terminal['OCRImageCasesExecuted'],0);self.assertFalse(terminal['nativeReady']);self.assertEqual(payload.read_bytes(),b'original')
 
@@ -250,15 +256,48 @@ class ProjectInputAndReceiptTests(unittest.TestCase):
             (source/'assets/model').unlink();(source/'assets/model').symlink_to(original)
             with self.assertRaisesRegex(RuntimeError,'linked'):c.copy_isolated_inputs(source,[pin],lambda:None,sha)
 
-    def test_actual_runtime_receipt_preserves_dynamic_selectors_and_aar_identity(self):
+    def test_distinct_plugin_compile_versions_survive_without_app_override(self):
         import json
         with tempfile.TemporaryDirectory()as tmp:
-            path=Path(tmp)/'closure';data=dict(configuration=':app:debugRuntimeClasspath',artifacts=[dict(coordinate='androidx.test:runner:1.7.0',fileName='runner.aar',bytes=10,sha256='a'*64)],selectors=[dict(requested='androidx.test:rules:1.2+',selected='androidx.test:rules:1.7.0')]);path.write_text(json.dumps(data));self.assertEqual(c.project_closure(path),data)
-            for field,value in [('configuration',':other'),('artifacts',[]),('selectors',[])]:
-                changed=dict(data);changed[field]=value;path.write_text(json.dumps(changed))
-                with self.subTest(field=field),self.assertRaisesRegex(RuntimeError,'complete'):c.project_closure(path)
-            path.write_text('{"configuration":"wrong","configuration":"also wrong"}')
+            path=Path(tmp)/'closure';data=project_receipt();path.write_text(json.dumps(data));self.assertEqual(c.project_closure(path),data)
+            graphs={x['configuration']:x for x in c.project_closure(path)['configurations']}
+            self.assertEqual(graphs[':app:debugRuntimeClasspath']['artifacts'][0]['coordinate'],'androidx.test:runner:1.7.0')
+            self.assertEqual(graphs[':integration_test:debugCompileClasspath']['artifacts'][0]['coordinate'],'androidx.test:runner:1.3.0')
+            self.assertEqual(graphs[':empty_library:debugCompileClasspath']['artifacts'],[])
+
+    def test_app_runtime_only_receipt_and_missing_plugin_compile_fail(self):
+        import json
+        with tempfile.TemporaryDirectory()as tmp:
+            path=Path(tmp)/'closure'
+            for change in ['legacy','missing','duplicate','release','project','empty','schema','booleanBytes']:
+                data=project_receipt()
+                if change=='legacy':data=data['configurations'][0]
+                elif change=='missing':data['configurations'].pop(2)
+                elif change=='duplicate':data['configurations'][2]=data['configurations'][0]
+                elif change=='release':data['configurations'][2]['configuration']=':integration_test:releaseCompileClasspath'
+                elif change=='project':data['androidProjects'].remove(':integration_test')
+                elif change=='empty':data['configurations'][2]['artifacts']=[]
+                elif change=='schema':data['schema']='unknown'
+                elif change=='booleanBytes':data['configurations'][2]['artifacts'][0]['bytes']=True
+                path.write_text(json.dumps(data))
+                with self.subTest(change=change),self.assertRaises(RuntimeError):c.project_closure(path)
+            path.write_text('{"schema":"wrong","schema":"also wrong"}')
             with self.assertRaises(ValueError):c.project_closure(path)
+
+    def test_artifact_coordinate_requires_three_nonempty_components(self):
+        import json
+        with tempfile.TemporaryDirectory()as tmp:
+            path=Path(tmp)/'closure'
+            for coordinate in ['::','group::1',':module:1','group:module:','group:module:1:extra',' group:module:1','group:module:1 2',None,1]:
+                data=project_receipt();data['configurations'][2]['artifacts'][0]['coordinate']=coordinate;path.write_text(json.dumps(data))
+                with self.subTest(coordinate=coordinate),self.assertRaisesRegex(RuntimeError,'artifact'):c.project_closure(path)
+
+    def test_debug_graph_limits_apply_to_combined_configurations(self):
+        import json
+        with tempfile.TemporaryDirectory()as tmp:
+            path=Path(tmp)/'closure';path.write_text(json.dumps(project_receipt()))
+            with patch.object(c,'MAX_FILES',2),self.assertRaisesRegex(RuntimeError,'combined'):c.project_closure(path)
+            with patch.object(c,'MAX_ENTRIES',2),self.assertRaisesRegex(RuntimeError,'combined'):c.project_closure(path)
 
 
 if __name__ == '__main__':
