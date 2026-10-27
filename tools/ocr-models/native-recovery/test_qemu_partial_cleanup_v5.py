@@ -53,10 +53,12 @@ class Fake:
         self.observations = []
         self.observer_closed = False
         self.graph_calls = 0
+        self.graph_hooks = []
     def clock(self): return self.now
     def pause(self, amount): self.now += amount
     def graph(self, allowed_exits=frozenset(), refresh_exits=None, observed_exit=None):
         self.graph_calls += 1
+        self.graph_hooks.append((refresh_exits, observed_exit))
         rows = copy.deepcopy(self.original)
         if self.scenario == 'initial_extra' or (self.sent and self.scenario == 'new_child'):
             rows[5] = row(5, 2, '/unknown')
@@ -72,7 +74,9 @@ class Fake:
     def hold(self, pid):
         if self.scenario == 'hold_failure' and pid == 3: raise OSError('synthetic hold')
         return pid + 100
-    def crashpad_observer(self,deadline):return NullCrashpad()
+    def crashpad_observer(self,deadline):
+        self.crashpad = NullCrashpad()
+        return self.crashpad
     def observer(self, parent, anchor, deadline):
         if self.scenario == 'no_observer': return None
         return Observer(self)
@@ -109,6 +113,9 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(result['qemuHeldExit'] and result['netsimdHeldExit'])
         self.assertEqual(set(b.closed), {101, 102, 103, 104})
         self.assertTrue(b.observer_closed)
+        refresh, observed = b.graph_hooks[-1]
+        self.assertTrue(callable(refresh));self.assertEqual(refresh(),{2,3})
+        self.assertEqual(observed,b.crashpad.exit_proves_absence)
 
     def test_transient_state_flip_is_not_identity_drift(self):
         b = Fake('state_flip'); self.assertEqual(a.run_partial(PACKET, b, 30)['status'],
@@ -581,14 +588,16 @@ class CrashpadCoreIntegrationTests(unittest.TestCase):
                     self.expected={p:a.identity(r)for p,r in self.original.items()}
                     self.held=[]
                 def graph(self, allowed_exits=frozenset(), refresh_exits=None, observed_exit=None):
-                    rows=super().graph(allowed_exits=allowed_exits)
+                    rows=super().graph(allowed_exits=allowed_exits,refresh_exits=refresh_exits,observed_exit=observed_exit)
                     if self.sent and scenario=='natural_exit':
                         fixture.rows.pop(5,None);fixture.poll.poll.return_value=[(999,select.POLLIN)]
                     if 5 in fixture.rows:rows[5]=copy.deepcopy(fixture.rows[5])
                     if scenario=='unrelated' or(self.sent and scenario=='future_unknown'):
                         rows[6]=row(6,1,str(fixture.image))
                     return rows
-                def crashpad_observer(self,deadline):return fixture.observer()
+                def crashpad_observer(self,deadline):
+                    self.crashpad=fixture.observer()
+                    return self.crashpad
                 def hold(self,pid):self.held.append(pid);return super().hold(pid)
             backend=WithCrashpad()
             if scenario=='wrong_uid':fixture.rows[5]['uid']=1001
@@ -603,7 +612,11 @@ class CrashpadCoreIntegrationTests(unittest.TestCase):
             self.assertTrue(all(pid==2 and fd==102 and sig==signal.SIGTERM
                                 for fd,pid,sig in backend.sent))
             if scenario in ['wrong_uid','unrelated']:self.assertFalse(backend.sent)
-            else:self.assertEqual(len(backend.sent),1)
+            else:
+                self.assertEqual(len(backend.sent),1)
+                refresh,observed=backend.graph_hooks[-1]
+                self.assertTrue(callable(refresh));self.assertEqual(refresh(),{2,3})
+                self.assertEqual(observed,backend.crashpad.exit_proves_absence)
         finally:
             fixture.cleanup();fixture.temp.cleanup()
     def test_exact_private_observer_not_in_original_signal_or_member_sets(self):self.exercise('retained')

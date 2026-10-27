@@ -74,8 +74,8 @@ class CurrentRunnerTests(unittest.TestCase):
             if provider!='codex':verdict.update(provider=provider,sourceHead=self.p['head'],status='completed',unresolvedFindings=[],reviewURL='https://github.com/tommytang213/Settleora/pull/1338#issuecomment-123')
             value=json.dumps(verdict).encode();path=str(root/(provider+'.json'));review[provider+'Path']=path;review[provider+'SHA256']=hashlib.sha256(value).hexdigest();data[path]=value
         self.p['review']=review
-        def check():
-            with patch.object(r,'bounded_bytes',side_effect=lambda path:data[str(path)]),patch.object(r,'sha',return_value='b'*64):r.verify_reviews(self.p)
+        def check(digest_for_path=None):
+            with patch.object(r,'bounded_bytes',side_effect=lambda path:data[str(path)]),patch.object(r,'sha',side_effect=digest_for_path or (lambda path:'b'*64)):r.verify_reviews(self.p)
         check()
         for provider in ('coderabbit','githubCodex'):
             path=review[provider+'Path'];original=data[path];original_sha=review[provider+'SHA256']
@@ -83,6 +83,31 @@ class CurrentRunnerTests(unittest.TestCase):
                 verdict=json.loads(original);verdict[key]=value;data[path]=json.dumps(verdict).encode();review[provider+'SHA256']=hashlib.sha256(data[path]).hexdigest()
                 with self.subTest(provider=provider,key=key),self.assertRaises(RuntimeError):check()
             data[path]=original;review[provider+'SHA256']=original_sha
+        local=review['codexPath'];original=data[local];original_sha=review['codexSHA256']
+        for key,value in [('findings',['defect']),('verdict','fail'),('summary','missing manifest')]:
+            verdict=json.loads(original);verdict[key]=value;data[local]=json.dumps(verdict).encode();review['codexSHA256']=hashlib.sha256(data[local]).hexdigest()
+            with self.subTest(provider='codex',key=key),self.assertRaisesRegex(RuntimeError,'clean independent reviews'):check()
+        data[local]=original;review['codexSHA256']=original_sha
+        for provider in ('coderabbit','githubCodex'):
+            path=review[provider+'Path'];original=data[path];original_sha=review[provider+'SHA256']
+            verdict=json.loads(original);verdict['summary']='missing manifest';data[path]=json.dumps(verdict).encode();review[provider+'SHA256']=hashlib.sha256(data[path]).hexdigest()
+            with self.subTest(provider=provider),self.assertRaisesRegex(RuntimeError,'clean independent reviews'):check()
+            data[path]=original;review[provider+'SHA256']=original_sha
+        manifest_path=review['manifestPath'];original_manifest=data[manifest_path]
+        for change in ('missing','extra'):
+            changed=dict(manifest)
+            if change=='missing':changed.pop('disposable_lifecycle.py')
+            else:changed['unexpected.py']='b'*64
+            data[manifest_path]=json.dumps(changed).encode();review['manifestSHA256']=hashlib.sha256(data[manifest_path]).hexdigest()
+            with self.subTest(scope=change),self.assertRaisesRegex(RuntimeError,'review scope'):check()
+        data[manifest_path]=original_manifest;review['manifestSHA256']='c'*64
+        with self.assertRaisesRegex(RuntimeError,'manifest drift'):check()
+        review['manifestSHA256']=digest
+        for target in (root/'current_android_qualification.py',Path(self.p['repo'])/'tools/ocr-models/native-recovery/current_android_qualification.py'):
+            with self.subTest(drift=str(target)),self.assertRaisesRegex(RuntimeError,'reviewed file drift'):
+                check(lambda path:'c'*64 if Path(path)==target else 'b'*64)
+        with self.assertRaisesRegex(RuntimeError,'executing supervisor'):
+            check(lambda path:'c'*64 if Path(path)==Path(r.__file__) else 'b'*64)
         review['grokPath']='legacy'
         with self.assertRaises(RuntimeError):check()
 
