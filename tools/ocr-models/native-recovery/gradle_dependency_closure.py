@@ -22,31 +22,46 @@ OFFICIAL_REPOSITORIES = (
     'https://plugins.gradle.org/m2/',
     'https://storage.googleapis.com/download.flutter.io/',
 )
-PROJECT_CLOSURE_INIT = '''import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+REPOSITORY_GUARD_INIT = '''import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+import org.gradle.api.internal.artifacts.repositories.ResolutionAwareRepository
+import org.gradle.api.internal.artifacts.repositories.descriptor.MavenRepositoryDescriptor
 import org.gradle.api.artifacts.verification.DependencyVerificationMode
 
 def allowed = ["https://dl.google.com/dl/android/maven2", "https://repo.maven.apache.org/maven2", "https://plugins.gradle.org/m2", "https://storage.googleapis.com/download.flutter.io"] as Set
+def approvedURL = { value -> value != null && allowed.any { root -> value.toString() == root || value.toString() == root + '/' } }
 def checkRepository = { repository ->
-    if (!(repository instanceof MavenArtifactRepository) || !allowed.contains(repository.url.toString().replaceAll('/+$', ''))) {
-        throw new GradleException('Unexpected project staging repository')
-    }
+    def runtimeType = repository.getClass().getName()
+    def knownType = repository instanceof MavenArtifactRepository || runtimeType == 'org.gradle.plugin.use.internal.PluginArtifactRepository'
+    def descriptor = repository instanceof ResolutionAwareRepository ? repository.getDescriptor() : null
+    def maven = descriptor instanceof MavenRepositoryDescriptor
+    def url = maven ? descriptor.url : null
+    def extra = maven ? descriptor.getProperties().get('ARTIFACT_URLS') : null
+    def accepted = knownType && maven && approvedURL(url) && !descriptor.authenticated &&
+        extra instanceof Collection && extra.every { approvedURL(it) }
+    // Never print an unapproved URI, repository name or credentials-bearing property.
+    println('SETTLEORA_REPOSITORY ' + groovy.json.JsonOutput.toJson([
+        runtimeType: runtimeType, descriptorType: descriptor == null ? null : descriptor.getClass().getName(),
+        url: approvedURL(url) ? url.toString() : '<redacted>', accepted: accepted]))
+    if (!accepted) { throw new GradleException('Unexpected project staging repository; see sanitized SETTLEORA_REPOSITORY diagnostic') }
 }
 gradle.beforeSettings { settings ->
     gradle.startParameter.dependencyVerificationMode = DependencyVerificationMode.STRICT
+    settings.buildscript.repositories.all(checkRepository)
     settings.pluginManagement.repositories.all(checkRepository)
     settings.dependencyResolutionManagement.repositories.all(checkRepository)
-}
-gradle.settingsEvaluated {
-    if (gradle.startParameter.offline || gradle.startParameter.dependencyVerificationMode != DependencyVerificationMode.STRICT) {
-        throw new GradleException('Project staging requires online resolution with strict verification')
-    }
 }
 gradle.beforeProject { project ->
     project.repositories.all(checkRepository)
     project.buildscript.repositories.all(checkRepository)
+}
+'''
+PROJECT_CLOSURE_INIT = REPOSITORY_GUARD_INIT + '''gradle.settingsEvaluated {
+    if (gradle.startParameter.offline || gradle.startParameter.dependencyVerificationMode != DependencyVerificationMode.STRICT) {
+        throw new GradleException('Project staging requires online resolution with strict verification')
+    }
 }
 gradle.projectsEvaluated {
     def app = gradle.rootProject.findProject(':app')
