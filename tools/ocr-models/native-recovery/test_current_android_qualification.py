@@ -11,6 +11,7 @@ import tempfile
 import time
 import types
 import unittest
+import zipfile
 from unittest.mock import Mock, patch
 
 s = importlib.util.spec_from_file_location('current_fixture', Path(__file__).with_name('current_android_qualification.py'))
@@ -585,7 +586,10 @@ class CurrentRunnerTests(unittest.TestCase):
         parent = self.root / 'gradle-home'
         parent.mkdir()
         path = r.install_gradle_offline_init(parent)
-        self.assertEqual(path.read_text().strip(), 'gradle.startParameter.offline = true')
+        self.assertEqual(path.read_text(), r.OFFLINE_GRADLE_INIT)
+        self.assertIn('dependencyVerificationMode = org.gradle.api.artifacts.verification.DependencyVerificationMode.STRICT',path.read_text())
+        self.assertLess(path.read_text().index('dependencyVerificationMode ='),path.read_text().index('settingsEvaluated'))
+        self.assertIn('offline strict verification was changed',path.read_text())
         with self.assertRaises(FileExistsError):
             r.install_gradle_offline_init(parent)
 
@@ -1208,10 +1212,74 @@ class CurrentRunnerTests(unittest.TestCase):
             final.update(primaryFailure=primary,cleanupFailure=cleanup,qualificationFailure=qualification)
             with self.assertRaisesRegex(RuntimeError,'cause precedence'):r.verify_history_bundle(root,terminal,final,result,pins)
 
+    def test_cleanup_cannot_extend_a_staging_hard_deadline(self):
+        b=self.backend();b.hard_deadline=time.monotonic()+1
+        b.cleanup()
+        self.assertEqual(b.deadline,b.hard_deadline)
+
+    def gradle_zip_fixture(self, member='gradle-8.14/bin/gradle',mode=0o100755):
+        cache=self.root/'gradle-seed';cache.mkdir();archive=cache/'gradle-8.14-all.zip'
+        with zipfile.ZipFile(archive,'w')as z:
+            info=zipfile.ZipInfo(member);info.external_attr=mode<<16;z.writestr(info,b'#!/bin/sh\n')
+        digest=r.sha(archive);props=self.root/'wrapper.properties';props.write_text('distributionUrl='+r.GRADLE_URL+'\ndistributionSha256Sum='+digest+'\n')
+        return cache,archive,digest,props
+
+    def test_fixed_gradle_archive_installs_without_network_and_rejects_reuse(self):
+        cache,archive,digest,props=self.gradle_zip_fixture();home=self.root/'gradle-home'
+        with patch.object(r,'GRADLE_SHA256',digest),patch.object(r.subprocess,'run')as launch:
+            proof=r.install_gradle_distribution(cache,home,props,{str(archive):digest})
+            destination=Path(proof['destination']);self.assertEqual((destination/'gradle-8.14/bin/gradle').read_bytes(),b'#!/bin/sh\n');self.assertTrue((destination/'gradle-8.14-all.zip.ok').is_file());self.assertTrue((destination/'gradle-8.14/bin/gradle').stat().st_mode&0o100)
+            with self.assertRaises(FileExistsError):r.install_gradle_distribution(cache,home,props,{str(archive):digest})
+            launch.assert_not_called()
+
+    def test_gradle_archive_requires_exact_pin_and_buffer(self):
+        cache,archive,digest,props=self.gradle_zip_fixture()
+        with patch.object(r,'GRADLE_SHA256',digest):
+            with self.assertRaisesRegex(RuntimeError,'pin required'):r.install_gradle_distribution(cache,self.root/'unused',props,{})
+            archive.write_bytes(b'changed')
+            with self.assertRaisesRegex(RuntimeError,'buffer differs'):r.install_gradle_distribution(cache,self.root/'unused',props,{str(archive):digest})
+        self.assertFalse((self.root/'unused').exists())
+
+    def test_gradle_archive_rejects_escape_link_and_changed_wrapper(self):
+        for name,mode in [('gradle-8.14/../escape',0o100644),('gradle-8.14/link',0o120777),('/gradle-8.14/absolute',0o100644)]:
+            with self.subTest(name=name):
+                import shutil
+                if(self.root/'gradle-seed').exists():shutil.rmtree(self.root/'gradle-seed')
+                cache,archive,digest,props=self.gradle_zip_fixture(name,mode)
+                with patch.object(r,'GRADLE_SHA256',digest),self.assertRaisesRegex(RuntimeError,'unexpected'):r.install_gradle_distribution(cache,self.root/'unused',props,{str(archive):digest})
+        props.write_text('distributionUrl=https://example.invalid/gradle.zip\ndistributionSha256Sum='+digest+'\n')
+        with patch.object(r,'GRADLE_SHA256',digest),self.assertRaisesRegex(RuntimeError,'wrapper identity'):r.install_gradle_distribution(cache,self.root/'unused',props,{str(archive):digest})
+        self.assertFalse((self.root/'unused').exists())
+
     def test_run_never_turns_failed_test_into_native_acceptance(self):
         result = r.run(self.p, 'fixture', self.token, Fake)
         self.assertEqual(result, {'testExitCode': 17, 'cleanupVerified': True, 'nativeReady': False, 'automaticRetries': 0})
 
+
+
+class NativeCaptureBudgetRegression(unittest.TestCase):
+    def test_stage_budget_hooks_preserve_native_limits(self):
+        backend=object.__new__(r.Backend)
+        self.assertEqual(backend.capture_limit('cmd_seed'),r.CAP)
+        self.assertEqual(backend.capture_limit('runner'),32*1024*1024)
+        self.assertEqual(backend.command_output_limit('cmd_seed'),r.CAP)
+
+class PubCacheStreamingRegression(unittest.TestCase):
+    def test_deadline_checked_before_materializing_directory(self):
+        from unittest.mock import MagicMock
+        seen=[]
+        def entries():
+            for i in range(4):
+                seen.append(i)
+                if i>2:raise AssertionError('eager directory materialization')
+                yield types.SimpleNamespace(name=str(i),stat=lambda **kw:types.SimpleNamespace(st_mode=0o100644))
+        stream=MagicMock();stream.__enter__.return_value=entries()
+        checks=[]
+        def check():
+            checks.append(1)
+            if len(checks)>2:raise TimeoutError('bounded scan deadline')
+        with patch.object(r.os,'scandir',return_value=stream),self.assertRaises(TimeoutError):r.cache_source_paths(Path('/fixture'),check)
+        self.assertLessEqual(len(seen),2)
 
 if __name__ == '__main__':
     unittest.main()

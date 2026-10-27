@@ -21,6 +21,8 @@ import shutil
 import subprocess
 import stat
 import tarfile
+import zipfile
+import io
 import threading
 import time
 import types
@@ -28,7 +30,15 @@ import types
 CAP = 4 * 1024 * 1024
 NATIVE = {'adb', 'dart', 'flutter', 'java', 'gradle', 'netsimd'}
 ROLES = ('runner', 'emulator', 'adb')
-OFFLINE_GRADLE_INIT = 'gradle.startParameter.offline = true\n'
+OFFLINE_GRADLE_INIT = (
+    'gradle.startParameter.offline = true\n'
+    'gradle.startParameter.dependencyVerificationMode = org.gradle.api.artifacts.verification.DependencyVerificationMode.STRICT\n'
+    'gradle.settingsEvaluated { settings ->\n'
+    '  if (!settings.gradle.startParameter.offline || settings.gradle.startParameter.dependencyVerificationMode != org.gradle.api.artifacts.verification.DependencyVerificationMode.STRICT) {\n'
+    '    throw new org.gradle.api.GradleException("offline strict verification was changed during settings")\n'
+    '  }\n'
+    '}\n'
+)
 _invocation = None
 
 
@@ -324,6 +334,62 @@ def write_scope(p):
             str(sdk / 'packages/flutter_tools/gradle/build'), p['pubCache']]
 
 
+
+GRADLE_URL = 'https://services.gradle.org/distributions/gradle-8.14-all.zip'
+GRADLE_SHA256 = 'efe9a3d147d948d7528a9887fa35abcf24ca1a43ad06439996490f77569b02d1'
+GRADLE_CACHE_KEY = 'c2qonpi39x1mddn7hk5gh9iqj'
+GRADLE_LAUNCHER_SHA256 = '8106fbcaf0f38f91204bb8baa29abd83cb4df6b09d8dd911caec44e70eb6cb7c'
+
+
+def install_gradle_distribution(cache, home, properties, pins, check=lambda: None):
+    """Install the fixed wrapper distribution from an exact verified buffer, offline."""
+    values = dict(line.split('=', 1) for line in bounded_bytes(properties).decode().splitlines() if '=' in line)
+    if values.get('distributionUrl', '').replace('\\:', ':') != GRADLE_URL or values.get('distributionSha256Sum') != GRADLE_SHA256:
+        raise RuntimeError('fixed Gradle wrapper identity differs')
+    source = Path(cache) / 'gradle-8.14-all.zip'
+    filesystem_space(source)
+    if pins.get(str(source)) != GRADLE_SHA256:
+        raise RuntimeError('exact Gradle distribution pin required')
+    check()
+    with source.open('rb') as stream:
+        raw = stream.read(512 * 1024**2 + 1)
+    if len(raw) > 512 * 1024**2 or hashlib.sha256(raw).hexdigest() != GRADLE_SHA256:
+        raise RuntimeError('Gradle distribution buffer differs')
+    check()
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        members = archive.infolist()
+        if len(members) > 40000 or sum(m.file_size for m in members) > 2 * 1024**3:
+            raise RuntimeError('bounded Gradle distribution inventory exceeded')
+        names = set()
+        for member in members:
+            path = member.filename.rstrip('/')
+            parts = path.split('/')
+            mode = member.external_attr >> 16
+            if path in names or not parts or parts[0] != 'gradle-8.14' or any(x in ('', '.', '..') for x in parts) or '\\' in path or (mode and stat.S_IFMT(mode) not in (0, stat.S_IFDIR, stat.S_IFREG)):
+                raise RuntimeError('unexpected Gradle distribution member')
+            names.add(path)
+        target = Path(home) / 'wrapper/dists/gradle-8.14-all' / GRADLE_CACHE_KEY
+        filesystem_space(target)
+        target.mkdir(parents=True, exist_ok=False)
+        for member in members:
+            check()
+            path = target / member.filename
+            if member.is_dir():
+                path.mkdir(parents=True, exist_ok=True)
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source_stream, path.open('xb') as out:
+                while chunk := source_stream.read(1024*1024):
+                    check()
+                    out.write(chunk)
+            path.chmod(0o600 | ((member.external_attr >> 16) & 0o111))
+        with (target / 'gradle-8.14-all.zip').open('xb') as out:
+            out.write(raw)
+        (target / 'gradle-8.14-all.zip.ok').open('xb').close()
+    check()
+    return dict(archiveSHA256=GRADLE_SHA256, members=len(members), destination=str(target))
+
+
 def filesystem_space(raw):
     """Observe the intended filesystem through a verified existing ancestor fd.
 
@@ -371,6 +437,21 @@ def check_write_space(paths):
     return observations
 
 
+def validate_network_policy(network):
+    if set(network) != {'Status', 'Server', 'Country', 'City', 'IP', 'Protocol', 'Kill Switch', 'Firewall'}:
+        raise ValueError('exact dedicated network/protection policy required')
+    if network['Country'] != 'United States' or network['Protocol'] != 'NordLynx' or \
+       not isinstance(ipaddress.ip_address(network['IP']), ipaddress.IPv4Address) or \
+       any(type(v) is not str or not 1 <= len(v) <= 100 for v in network.values()):
+        raise ValueError('complete dedicated IPv4/US/NordLynx policy required')
+    # Exact private Server/IP values are bound by the externally admitted raw
+    # packet, then compared in policy(). This generic code cannot grant a new
+    # endpoint policy and intentionally contains no private host address.
+    if network['City'] != 'Boston' or network['Status'] != 'Connected' or \
+       network['Kill Switch'] != 'enabled' or network['Firewall'] != 'enabled':
+        raise ValueError('approved Boston/protection policy required')
+
+
 def validate(p):
     keys = {'schema', 'head', 'repo', 'runRoot', 'sourceArchive', 'filePins', 'tools',
             'network', 'locks', 'jobID', 'jobsPath', 'bounds', 'review', 'sdkRoot',
@@ -389,18 +470,7 @@ def validate(p):
         raise ValueError('five distinct exact qualification locks required')
     if set(p['tools']) != {'adb', 'emulator', 'avdmanager', 'flutter', 'node', 'java'} or len(p['locks']) != 5:
         raise ValueError('six exact tools and five locks required')
-    if set(p['network']) != {'Status', 'Server', 'Country', 'City', 'IP', 'Protocol', 'Kill Switch', 'Firewall'}:
-        raise ValueError('exact dedicated network/protection policy required')
-    if p['network']['Country'] != 'United States' or p['network']['Protocol'] != 'NordLynx' or \
-       not isinstance(ipaddress.ip_address(p['network']['IP']), ipaddress.IPv4Address) or \
-       any(type(v) is not str or not 1 <= len(v) <= 100 for v in p['network'].values()):
-        raise ValueError('complete dedicated IPv4/US/NordLynx policy required')
-    # Exact private Server/IP values are bound by the externally admitted raw
-    # packet, then compared in policy(). This generic code cannot grant a new
-    # endpoint policy and intentionally contains no private host address.
-    if p['network']['City'] != 'Boston' or p['network']['Status'] != 'Connected' or \
-       p['network']['Kill Switch'] != 'enabled' or p['network']['Firewall'] != 'enabled':
-        raise ValueError('approved Boston/protection policy required')
+    validate_network_policy(p['network'])
     paths = [p[k] for k in ('repo', 'runRoot', 'sdkRoot', 'flutterRoot', 'pubCache', 'gradleReadOnlyCache', 'jobsPath')]
     paths += [p['sourceArchive']['path'], p['image']['path']] + list(p['filePins']) + [x['path'] for x in p['tools'].values()]
     if any(type(x) is not str or not Path(x).is_absolute() or '..' in Path(x).parts for x in paths):
@@ -510,25 +580,29 @@ def locked_hosted_package(lock, name):
     return version, digest
 
 
-def cache_source_paths(root):
-    """Never traverse links or the known JNI CMake generated-output subtree."""
+def cache_source_paths(root, check=lambda: None):
+    """Stream entries with deadlines; never traverse links or JNI generated output."""
     root = Path(root)
-    paths = []
-    def walk_error(error):
-        raise error
-    for current, directories, files in os.walk(root, followlinks=False, onerror=walk_error):
-        for name in list(directories) + files:
-            path = Path(current) / name
-            relative = str(path.relative_to(root))
-            if path.is_symlink():
-                raise RuntimeError('linked cache package member')
-            if root.name == 'jni-1.0.0' and relative == 'android/.cxx':
-                if name in directories:
-                    directories.remove(name)
-                continue
-            paths.append(path)
-            if len(paths) > 10000:
-                raise RuntimeError('bounded cache source inventory exceeded')
+    paths, pending = [], [root]
+    entries = 0
+    while pending:
+        check()
+        current = pending.pop()
+        with os.scandir(current) as stream:
+            for entry in stream:
+                check()
+                entries += 1
+                if entries > 10000:
+                    raise RuntimeError('bounded cache source inventory exceeded')
+                path = current / entry.name
+                metadata = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(metadata.st_mode):
+                    raise RuntimeError('linked cache package member')
+                if root.name == 'jni-1.0.0' and str(path.relative_to(root)) == 'android/.cxx':
+                    continue
+                paths.append(path)
+                if stat.S_ISDIR(metadata.st_mode):
+                    pending.append(path)
     return sorted(paths)
 
 
@@ -537,7 +611,7 @@ def cache_tree_digest(root, check=lambda: None):
     filesystem_space(root)
     if not root.is_dir():
         raise RuntimeError('pinned cache package absent')
-    paths = cache_source_paths(root)
+    paths = cache_source_paths(root, check)
     digest = hashlib.sha256()
     digest.update((json.dumps(['.', root.stat().st_mode & 0o7777, 'directory'], separators=(',', ':')) + '\n').encode())
     total = 0
@@ -555,7 +629,7 @@ def cache_tree_digest(root, check=lambda: None):
             raise RuntimeError('bounded cache source bytes exceeded')
         frame = [str(path.relative_to(root)), st.st_mode & 0o7777, sha(path, check)]
         digest.update((json.dumps(frame, separators=(',', ':')) + '\n').encode())
-    if paths != cache_source_paths(root):
+    if paths != cache_source_paths(root, check):
         raise RuntimeError('cache source inventory changed during observation')
     return digest.hexdigest()
 
@@ -722,16 +796,22 @@ class Backend:
             finally:
                 os.close(fd)
 
+    def capture_limit(self, role):
+        return 32 * 1024 * 1024 if role == 'runner' else CAP
+
+    def command_output_limit(self, role):
+        return CAP
+
     def log_bounds(self):
         for role, child in self.children.items():
             for capture in child.get('captures', []):
                 if capture.overflow or capture.error:
                     raise RuntimeError('owned process output capture overflow/failure')
-            limit = 32 * 1024 * 1024 if role == 'runner' else CAP
+            limit = self.capture_limit(role)
             for channel in ('stdout', 'stderr'):
                 p = self.scratch / (role + '_' + channel + '.log')
                 if p.exists() and p.stat().st_size > limit:
-                    raise RuntimeError('owned tool diagnostic exceeded4MiB; no log deletion')
+                    raise RuntimeError('owned tool diagnostic exceeded its fixed byte budget; no log deletion')
 
     def clock(self):
         if time.monotonic() >= self.deadline:
@@ -754,8 +834,8 @@ class Backend:
             os.close(child['pidfd'])
             child['pidfd'] = None
         paths = [self.scratch / (role + '_' + name + '.log') for name in ('stdout', 'stderr')]
-        if sum(p.stat().st_size for p in paths) > CAP:
-            raise RuntimeError('bounded SDK/client command output exceeded4MiB')
+        if sum(p.stat().st_size for p in paths) > self.command_output_limit(role):
+            raise RuntimeError('bounded SDK/client command output exceeded its fixed byte budget')
         if code != 0:
             raise SDKCommandError('bounded command failed: ' + Path(args[0]).name)
         return paths[0].read_text()
@@ -935,6 +1015,7 @@ class Backend:
             CI='true', BOT='true', LANG='C.UTF-8', LC_ALL='C.UTF-8')
         extract_source(self.p['sourceArchive']['path'], self.scratch / 'source', self.clock)
         verify_source_tree(self.p['repo'], self.p['head'], self.scratch / 'source', self.clock)
+        self.record('GRADLE_DISTRIBUTION_INSTALLED.json', install_gradle_distribution(self.p['gradleReadOnlyCache'], self.scratch / 'gradle', self.scratch / 'source/apps/mobile/android/gradle/wrapper/gradle-wrapper.properties', self.p['filePins'], self.clock))
         for pin in self.p['models']:
             target = self.scratch / 'source' / pin['relativePath']
             if sha(pin['path'], self.clock) != pin['sha256']:
@@ -1001,7 +1082,7 @@ class Backend:
         # Register immediately, including uncertain subsequent pin/metadata failure.
         child = dict(proc=proc, pidfd=None, ticks=None, identityConfirmed=False, termAttempted=False, streams=streams, captures=[], captureSetupComplete=False)
         self.children[role] = child
-        limit = 32 * 1024 * 1024 if role == 'runner' else CAP
+        limit = self.capture_limit(role)
         for source, target in zip((proc.stdout, proc.stderr), streams):
             child['captures'].append(PipeCapture(source, target, limit))
         child['captureSetupComplete'] = True
@@ -1218,7 +1299,7 @@ class Backend:
 
     def cleanup(self):
         self.effects_closed = True
-        self.deadline = time.monotonic() + self.p['bounds']['cleanup']
+        self.deadline = min(time.monotonic() + self.p['bounds']['cleanup'], getattr(self, 'hard_deadline', float('inf')))
         failures = []
         if self.created and not self.consumption_confirmed:
             raise RuntimeError('uncertain consumption durability; cleanup proof forbidden')
