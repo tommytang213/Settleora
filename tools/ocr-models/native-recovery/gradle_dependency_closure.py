@@ -16,29 +16,75 @@ import time
 import types
 import zipfile
 
-SEED_BUILD = '''plugins { id 'java' }
-repositories {
-    maven { url = uri('https://dl.google.com/dl/android/maven2/') }
-    maven { url = uri('https://repo.maven.apache.org/maven2/') }
+OFFICIAL_REPOSITORIES = (
+    'https://dl.google.com/dl/android/maven2/',
+    'https://repo.maven.apache.org/maven2/',
+    'https://plugins.gradle.org/m2/',
+    'https://storage.googleapis.com/download.flutter.io/',
+)
+PROJECT_CLOSURE_INIT = '''import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+import org.gradle.api.artifacts.verification.DependencyVerificationMode
+
+def allowed = ["https://dl.google.com/dl/android/maven2", "https://repo.maven.apache.org/maven2", "https://plugins.gradle.org/m2", "https://storage.googleapis.com/download.flutter.io"] as Set
+def checkRepository = { repository ->
+    if (!(repository instanceof MavenArtifactRepository) || !allowed.contains(repository.url.toString().replaceAll('/+$', ''))) {
+        throw new GradleException('Unexpected project staging repository')
+    }
 }
-dependencies { runtimeOnly 'com.android.tools.build:gradle:8.11.0' }
-tasks.register('resolveClosure') {
-    doLast {
-        def rows = configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts.collect { a ->
-            def digest = java.security.MessageDigest.getInstance('SHA-256')
-            a.file.withInputStream { input ->
-                byte[] buffer = new byte[1048576]
-                int n
-                while ((n = input.read(buffer)) != -1) { digest.update(buffer, 0, n) }
+gradle.beforeSettings { settings ->
+    gradle.startParameter.dependencyVerificationMode = DependencyVerificationMode.STRICT
+    settings.pluginManagement.repositories.all(checkRepository)
+    settings.dependencyResolutionManagement.repositories.all(checkRepository)
+}
+gradle.settingsEvaluated {
+    if (gradle.startParameter.offline || gradle.startParameter.dependencyVerificationMode != DependencyVerificationMode.STRICT) {
+        throw new GradleException('Project staging requires online resolution with strict verification')
+    }
+}
+gradle.beforeProject { project ->
+    project.repositories.all(checkRepository)
+    project.buildscript.repositories.all(checkRepository)
+}
+gradle.projectsEvaluated {
+    def app = gradle.rootProject.findProject(':app')
+    if (app != null) {
+        app.tasks.register('settleoraResolveDebugRuntimeClasspath') {
+            doLast {
+                def configuration = app.configurations.getByName('debugRuntimeClasspath')
+                def graph = configuration.incoming.resolutionResult
+                if (graph.allDependencies.any { it instanceof UnresolvedDependencyResult }) {
+                    throw new GradleException('Unresolved project runtime dependency')
+                }
+                def artifacts = configuration.incoming.artifactView {
+                    componentFilter { it instanceof ModuleComponentIdentifier }
+                    lenient = false
+                }.artifacts.artifacts.collect { artifact ->
+                    def id = artifact.id.componentIdentifier
+                    def digest = java.security.MessageDigest.getInstance('SHA-256')
+                    artifact.file.withInputStream { input ->
+                        byte[] buffer = new byte[1048576]
+                        int n
+                        while ((n = input.read(buffer)) != -1) { digest.update(buffer, 0, n) }
+                    }
+                    [coordinate: id.group + ':' + id.module + ':' + id.version,
+                     fileName: artifact.file.name, bytes: artifact.file.length(),
+                     sha256: digest.digest().encodeHex().toString()]
+                }.sort { a, b -> (a.coordinate + a.fileName) <=> (b.coordinate + b.fileName) }
+                def selectors = graph.allDependencies.findAll { it instanceof ResolvedDependencyResult }.collect {
+                    [requested: it.requested.displayName, selected: it.selected.id.displayName]
+                }.sort { a, b -> (a.requested + a.selected) <=> (b.requested + b.selected) }
+                def output = new File(gradle.startParameter.projectProperties['settleoraClosureOutput'])
+                if (output.exists()) { throw new GradleException('Runtime closure receipt already exists') }
+                output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(
+                    [configuration: ':app:debugRuntimeClasspath', artifacts: artifacts, selectors: selectors]))
             }
-            [coordinate: a.moduleVersion.id.toString(), fileName: a.file.name,
-             bytes: a.file.length(), sha256: digest.digest().encodeHex().toString()]
-        }.sort { a, b -> (a.coordinate + a.fileName) <=> (b.coordinate + b.fileName) }
-        file('resolved-closure.json').text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(rows))
+        }
     }
 }
 '''
-SEED_SETTINGS = "rootProject.name = 'settleora-agp-closure'\n"
 MAX_FILES = 20000
 MAX_ENTRIES = 60000
 MAX_BYTES = 8 * 1024**3
@@ -114,6 +160,72 @@ def copy_cache(source, destination, check):
 
 
 
+def copy_isolated_inputs(source, inputs, check, sha):
+    """Materialize already pinned ignored assets; preserve matching tracked files."""
+    copied = {}
+    if Path(source).is_symlink():raise RuntimeError('linked isolated source')
+    for pin in inputs:
+        check()
+        relative=Path(pin['relativePath'])
+        if relative.is_absolute() or '..' in relative.parts or not relative.parts:raise RuntimeError('invalid isolated input path')
+        target = Path(source) / relative
+        current = Path(source)
+        for name in Path(pin['relativePath']).parts[:-1]:
+            current = current / name
+            if current.is_symlink():raise RuntimeError('linked isolated input parent')
+            current.mkdir(exist_ok=True)
+        if target.is_symlink():raise RuntimeError('linked isolated input')
+        if not target.exists():
+            with Path(pin['path']).open('rb') as src, target.open('xb') as dst:
+                while chunk := src.read(1024*1024):
+                    check();dst.write(chunk)
+        if sha(target,check)!=pin['sha256']:raise RuntimeError('isolated compile input changed')
+        copied[str(target)] = pin['sha256']
+    return copied
+
+
+def private_bytes(path, limit):
+    """Read a bounded ordinary owned staging file without following links."""
+    try:fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    except OSError as error:raise RuntimeError('linked/unreadable private staging file')from error
+    with os.fdopen(fd,'rb')as stream:
+        before=os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_uid!=os.geteuid() or before.st_nlink!=1:raise RuntimeError('private staging file must be an ordinary owned file')
+        raw=stream.read(limit+1)
+        after=os.fstat(stream.fileno())
+        current=os.stat(path,follow_symlinks=False)
+        identity=lambda value:(value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns,value.st_mode)
+        if identity(before)!=identity(after) or identity(before)!=identity(current):raise RuntimeError('private staging file changed during observation')
+    if len(raw)>limit:raise RuntimeError('bounded private staging file exceeded')
+    return raw
+
+
+def verify_local_properties(path, sdk, flutter):
+    """Accept the canonical unescaped Linux format emitted by the pinned Flutter."""
+    raw=private_bytes(path,65536)
+    if len(raw)>65536 or b'\\' in raw:raise RuntimeError('noncanonical private local.properties')
+    values={}
+    for line in raw.decode().splitlines():
+        if not line or line.startswith(('#','!')):continue
+        key,separator,value=line.partition('=')
+        if not separator or not re.fullmatch('[A-Za-z0-9_.-]+',key) or key in values:raise RuntimeError('noncanonical private local.properties')
+        values[key]=value
+    if values.get('sdk.dir')!=sdk or values.get('flutter.sdk')!=flutter:raise RuntimeError('private SDK/Flutter properties drift')
+
+
+def project_closure(path):
+    with Path(path).open('rb') as stream:raw=stream.read(4*1024**2+1)
+    if len(raw)>4*1024**2:raise RuntimeError('bounded runtime closure receipt exceeded')
+    data=decode_plan(raw)
+    if type(data) is not dict or set(data)!={'configuration','artifacts','selectors'} or data['configuration']!=':app:debugRuntimeClasspath' or type(data['artifacts']) is not list or not 0<len(data['artifacts'])<=MAX_FILES or type(data['selectors']) is not list or not 0<len(data['selectors'])<=MAX_ENTRIES:
+        raise RuntimeError('complete project runtime closure required')
+    for row in data['artifacts']:
+        if type(row) is not dict or set(row)!={'coordinate','fileName','bytes','sha256'} or type(row['coordinate']) is not str or len(row['coordinate'].split(':'))!=3 or type(row['fileName']) is not str or not row['fileName'] or Path(row['fileName']).name!=row['fileName'] or type(row['bytes']) is not int or not 0<row['bytes']<=MAX_BYTES or type(row['sha256']) is not str or not re.fullmatch('[0-9a-f]{64}',row['sha256']):
+            raise RuntimeError('invalid runtime artifact receipt')
+    if any(type(row) is not dict or set(row)!={'requested','selected'} or any(type(value) is not str or not value for value in row.values()) for row in data['selectors']):raise RuntimeError('invalid runtime selector receipt')
+    return data
+
+
 def verify_keeper_locks(pins, keeper_pid, lines):
     if type(pins) is not list or len(pins) != 5 or type(keeper_pid) is not int or keeper_pid <= 0 or len({p['path'] for p in pins}) != 5 or len({(p['device'],p['inode']) for p in pins}) != 5:
         raise RuntimeError('five distinct source lock pins required')
@@ -124,6 +236,8 @@ def verify_keeper_locks(pins, keeper_pid, lines):
         needle=f'{os.major(pin["device"]):02x}:{os.minor(pin["device"]):02x}:{pin["inode"]}'
         if not any(len(row.split())>=6 and row.split()[1:6]==['FLOCK','ADVISORY','WRITE',str(keeper_pid),needle] for row in lines):
             raise RuntimeError('source keeper lock continuity lost')
+    owned=[row.split()for row in lines if len(row.split())>=6 and row.split()[4]==str(keeper_pid)]
+    if len(owned)!=5 or any(row[1:4]!=['FLOCK','ADVISORY','WRITE']for row in owned):raise RuntimeError('source keeper continuity requires exactly five held WRITE FLOCK rows')
 
 
 def load_supervisor(path, wanted):
@@ -198,7 +312,15 @@ def execute(plan, plan_path, digest):
             for pin in [self.p['sourceArchive']]+self.p['models']:
                 if m.sha(pin['path'],self.clock)!=pin['sha256']:raise RuntimeError('staging archive/model input changed')
 
+        def verify_offline_probe(self):
+            home=self.root/'probe';directory=home/'init.d'
+            if self.env.get('GRADLE_USER_HOME')!=str(home) or home.is_symlink() or directory.is_symlink() or not directory.is_dir() or {x.name for x in directory.iterdir()}!={'settleora-current-offline.gradle'}:
+                raise RuntimeError('private offline initialization directory changed')
+            if private_bytes(directory/'settleora-current-offline.gradle',65536)!=m.OFFLINE_GRADLE_INIT.encode():
+                raise RuntimeError('adjacent offline/strict initialization changed')
+
         def verify_tool(self, argv):
+            if self.env.get('ORG_GRADLE_PROJECT_settleoraReleaseOffline')=='true':self.verify_offline_probe()
             pin=next((value for value in self.p['tools'].values() if value['path']==argv[0]),None)
             if pin is None or m.sha(pin['path'],self.clock)!=pin['sha256']:
                 raise RuntimeError('adjacent staging executable identity changed')
@@ -243,18 +365,26 @@ def execute(plan, plan_path, digest):
         baseline = copy_cache(plan['baseCache'],warm/'caches/modules-2',b.clock)
         if any(p['filePins'].get(str(Path(plan['baseCache'])/rel))!=h for rel,h in baseline.items()):raise RuntimeError('copied dependency baseline differs from pinned inputs')
         b.record('BASE_CACHE_COPIED.json',baseline)
+        isolated = copy_isolated_inputs(source,p['models'],b.clock,m.sha)
         resolver = b.root/'resolver';resolver.mkdir(mode=0o700)
-        (resolver/'settings.gradle').write_text(SEED_SETTINGS)
-        (resolver/'build.gradle').write_text(SEED_BUILD)
-        (resolver/'gradle').mkdir()
-        shutil.copyfile(source/'apps/mobile/android/gradle/verification-metadata.xml',resolver/'gradle/verification-metadata.xml')
-        b.record('RESOLVER_RECIPE.json',dict(settingsSHA256=hashlib.sha256(SEED_SETTINGS.encode()).hexdigest(),buildSHA256=hashlib.sha256(SEED_BUILD.encode()).hexdigest(),repositories=['https://dl.google.com/dl/android/maven2/','https://repo.maven.apache.org/maven2/'],coordinate='com.android.tools.build:gradle:8.11.0',dependencyVerification='strict'))
-        b.env = dict(PATH=':'.join([p['flutterRoot']+'/bin',str(Path(p['tools']['java']['path']).parent),'/usr/bin','/bin']),HOME=str(b.scratch/'home'),TMPDIR=str(b.scratch/'tmp'),JAVA_HOME=str(Path(p['tools']['java']['path']).parent.parent),JAVA_TOOL_OPTIONS='-Duser.home='+str(b.scratch/'home'),ANDROID_USER_HOME=str(b.scratch/'android-user'),GRADLE_USER_HOME=str(warm),GRADLE_OPTS='-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dorg.gradle.project.android.builder.sdkDownload=false',CI='true',LANG='C.UTF-8',LC_ALL='C.UTF-8')
-        b.command([p['tools']['gradle']['path'],'--no-daemon','--max-workers=2','--console=plain','--info','--dependency-verification=strict','resolveClosure'],cwd=resolver,timeout=900)
+        init = resolver/'project-runtime.init.gradle';init.write_text(PROJECT_CLOSURE_INIT)
+        closure_path = resolver/'project-runtime-closure.json'
+        b.record('RESOLVER_RECIPE.json',dict(initSHA256=hashlib.sha256(PROJECT_CLOSURE_INIT.encode()).hexdigest(),repositories=list(OFFICIAL_REPOSITORIES),configuration=':app:debugRuntimeClasspath',dependencyVerification='strict',sourceVersionsUnchanged=True))
+        b.env = dict(PATH=':'.join([p['flutterRoot']+'/bin',str(Path(p['tools']['java']['path']).parent),'/usr/bin','/bin']),HOME=str(b.scratch/'home'),TMPDIR=str(b.scratch/'tmp'),JAVA_HOME=str(Path(p['tools']['java']['path']).parent.parent),JAVA_TOOL_OPTIONS='-Duser.home='+str(b.scratch/'home'),ANDROID_USER_HOME=str(b.scratch/'android-user'),GRADLE_USER_HOME=str(warm),GRADLE_OPTS='-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dorg.gradle.project.android.builder.sdkDownload=false',CI='true',LANG='C.UTF-8',LC_ALL='C.UTF-8',ORG_GRADLE_PROJECT_settleoraReleaseEvidence='true',ANDROID_HOME=p['sdkRoot'],ANDROID_SDK_ROOT=p['sdkRoot'],PUB_CACHE=p['pubCache'],FLUTTER_SUPPRESS_ANALYTICS='true',FLUTTER_TOOL_ARGS='',BOT='true')
+        properties_path=source/'apps/mobile/android/local.properties'
+        with properties_path.open('x') as f:f.write('sdk.dir='+p['sdkRoot']+'\nflutter.sdk='+p['flutterRoot']+'\n')
+        b.command([p['tools']['flutter']['path'],'pub','get','--offline'],cwd=source/'apps/mobile',timeout=120)
+        verify_local_properties(properties_path,p['sdkRoot'],p['flutterRoot'])
+        links=m.verified_plugin_links(source,p['pubCache'],p['filePins'],p['pluginCache'],b.clock)
+        m.verify_source_tree(p['repo'],p['head'],source,b.clock,strict_inventory=False,generated_links=links)
+        b.command([p['tools']['gradle']['path'],'--no-daemon','--max-workers=2','--console=plain','--info','--dependency-verification=strict','--init-script',str(init),'-PsettleoraClosureOutput='+str(closure_path),'-Ptarget=integration_test/receipt_ocr_real_provider_test.dart','-Ptarget-platform=android-arm,android-arm64,android-x64',':app:settleoraResolveDebugRuntimeClasspath'],cwd=source/'apps/mobile/android',timeout=900)
         _, remaining = b.observe_owned_quiescence()
         if remaining:raise RuntimeError('seed children remain; do not freeze cache')
-        closure = json.loads((resolver/'resolved-closure.json').read_text())
-        if not closure or not any(x['coordinate']=='com.android.tools.build:gradle:8.11.0' for x in closure):raise RuntimeError('requested closure absent')
+        closure = project_closure(closure_path)
+        verify_local_properties(properties_path,p['sdkRoot'],p['flutterRoot'])
+        m.verify_source_tree(p['repo'],p['head'],source,b.clock,strict_inventory=False,generated_links=links)
+        for path,wanted in isolated.items():
+            if m.sha(path,b.clock)!=wanted:raise RuntimeError('isolated compile input changed during staging')
         frozen = b.root/'frozen-cache';frozen.mkdir(mode=0o700)
         inventory = copy_cache(warm/'caches/modules-2',frozen/'modules-2',b.clock)
         with Path(plan['distributionZIP']).open('rb')as src,(frozen/'gradle-8.14-all.zip').open('xb')as dst:
@@ -268,17 +398,16 @@ def execute(plan, plan_path, digest):
         probe = b.root/'probe';probe.mkdir(mode=0o700)
         m.install_gradle_distribution(frozen,probe,properties,frozen_pins,b.clock)
         m.install_gradle_offline_init(probe)
-        b.env.update(GRADLE_USER_HOME=str(probe),GRADLE_RO_DEP_CACHE=str(frozen),ORG_GRADLE_PROJECT_settleoraReleaseEvidence='true',ORG_GRADLE_PROJECT_settleoraReleaseOffline='true',ANDROID_HOME=p['sdkRoot'],ANDROID_SDK_ROOT=p['sdkRoot'],PUB_CACHE=p['pubCache'],FLUTTER_SUPPRESS_ANALYTICS='true',FLUTTER_TOOL_ARGS='',BOT='true')
-        b.command([p['tools']['flutter']['path'],'pub','get','--offline'],cwd=source/'apps/mobile',timeout=120)
-        links=m.verified_plugin_links(source,p['pubCache'],p['filePins'],p['pluginCache'],b.clock)
-        m.verify_source_tree(p['repo'],p['head'],source,b.clock,strict_inventory=False,generated_links=links)
+        b.env.update(GRADLE_USER_HOME=str(probe),GRADLE_RO_DEP_CACHE=str(frozen),ORG_GRADLE_PROJECT_settleoraReleaseOffline='true')
+        verify_local_properties(properties_path,p['sdkRoot'],p['flutterRoot'])
         b.command([p['tools']['flutter']['path'],'build','apk','--debug','--no-pub','--target','integration_test/receipt_ocr_real_provider_test.dart'],cwd=source/'apps/mobile',timeout=1800)
+        verify_local_properties(properties_path,p['sdkRoot'],p['flutterRoot'])
         m.verify_source_tree(p['repo'],p['head'],source,b.clock,strict_inventory=False,generated_links=links)
-        for path,wanted in frozen_pins.items():
-            if m.sha(path,b.clock)!=wanted:raise RuntimeError('frozen cache changed during offline probe')
+        for path,wanted in {**isolated,**frozen_pins}.items():
+            if m.sha(path,b.clock)!=wanted:raise RuntimeError('frozen cache or isolated input changed during offline probe')
         apk=source/'apps/mobile/build/app/outputs/flutter-apk/app-debug.apk'
         m.filesystem_space(apk)
-        outcome=dict(seedClosure=closure,frozenCache=str(frozen),frozenFiles=len(frozen_pins),offlineAPK=dict(path=str(apk),sha256=m.sha(apk,b.clock),bytes=apk.stat().st_size),distribution=distribution,offlineCompileVerified=True)
+        outcome=dict(projectRuntimeClosure=closure,frozenCache=str(frozen),frozenFiles=len(frozen_pins),offlineAPK=dict(path=str(apk),sha256=m.sha(apk,b.clock),bytes=apk.stat().st_size),distribution=distribution,offlineCompileVerified=True)
     except BaseException as error:
         failure=error;outcome['failure']=type(error).__name__+': '+str(error)
     finally:
@@ -288,6 +417,14 @@ def execute(plan, plan_path, digest):
             outcome['cleanupFailure']=type(error).__name__+': '+str(error)
             failure=failure or error
         b.deadline=b.hard_deadline
+        if failure is None:
+            try:
+                verify_local_properties(properties_path,p['sdkRoot'],p['flutterRoot'])
+                for path,wanted in isolated.items():
+                    if m.sha(path,b.clock)!=wanted:raise RuntimeError('isolated input changed after cleanup')
+                if m.sha(outcome['offlineAPK']['path'],b.clock)!=outcome['offlineAPK']['sha256']:raise RuntimeError('APK changed after cleanup')
+            except BaseException as error:
+                outcome['postCleanupInputFailure']=type(error).__name__+': '+str(error);failure=error
         if frozen_pins:
             try:
                 actual=cache_files(b.root/'frozen-cache',b.clock,exclude_coordination=False)
@@ -302,6 +439,10 @@ def execute(plan, plan_path, digest):
             try:stream.close()
             except OSError:complete=False
         if not complete:failure=failure or RuntimeError('incomplete staging capture')
+        if failure is None:
+            try:b.jobs()
+            except BaseException as error:
+                outcome['finalAdmissionFailure']=type(error).__name__+': '+str(error);failure=error
         if time.monotonic()>=b.hard_deadline:failure=failure or TimeoutError('shared staging deadline expired before finalization')
         if failure is not None:outcome.setdefault('failure',type(failure).__name__+': '+str(failure))
         try:b.record('STAGE_TERMINAL.json',dict(outcome,success=failure is None,cleanupVerified=clean,capture=capture,children={role:dict(pid=c['proc'].pid,ticks=c['ticks'],returnCode=c['proc'].poll(),termAttempted=c['termAttempted'])for role,c in b.children.items()},nativeReady=False,OCRImageCasesExecuted=0,automaticRetries=0))
