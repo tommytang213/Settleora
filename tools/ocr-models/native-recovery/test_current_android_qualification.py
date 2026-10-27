@@ -1281,5 +1281,39 @@ class PubCacheStreamingRegression(unittest.TestCase):
         with patch.object(r.os,'scandir',return_value=stream),self.assertRaises(TimeoutError):r.cache_source_paths(Path('/fixture'),check)
         self.assertLessEqual(len(seen),2)
 
+class ReleasedMaintenanceRegression(unittest.TestCase):
+    def released(self):
+        return {'active':dict(id='test-run',hold=False,phase='released',mutation_started=True,released_at=30,terminal=dict(run_id='test-run',outcome='completed',exit_code=0,mutation_started=True,at=20),monitor=dict(updater_alive=False))}
+
+    def test_historical_completed_mutation_after_normal_release_is_open(self):
+        self.assertTrue(r.maintenance_admission_open(self.released()))
+        self.assertTrue(r.maintenance_admission_open({'active':dict(hold=False,mutation_started=False,phase='released',monitor=dict(updater_alive=False))}))
+
+    def test_active_held_failed_or_contradictory_update_stays_closed(self):
+        for key,value in [('hold',True),('phase','running'),('released_at',19),('released_at',float('nan')),('released_at',float('inf')),('mutation_started',None),('id','other')]:
+            status=self.released();status['active'][key]=value
+            with self.subTest(key=key,value=value):self.assertFalse(r.maintenance_admission_open(status))
+        for key,value in [('run_id','other'),('outcome','failed'),('exit_code',1),('exit_code',False),('mutation_started',False),('at',None),('at',True),('at',float('nan'))]:
+            status=self.released();status['active']['terminal'][key]=value
+            with self.subTest(terminal=key,value=value):self.assertFalse(r.maintenance_admission_open(status))
+        status=self.released();status['active']['monitor']['updater_alive']=True
+        self.assertFalse(r.maintenance_admission_open(status))
+        for status in ({},{'active':None},{'active':dict(hold=False,mutation_started=True)}):self.assertFalse(r.maintenance_admission_open(status))
+
+    def test_not_yet_mutated_active_update_is_closed(self):
+        for phase,alive in [('running',True),('running',False),('released',True)]:
+            status={'active':dict(hold=False,mutation_started=False,phase=phase,monitor=dict(updater_alive=alive))}
+            with self.subTest(phase=phase,alive=alive):self.assertFalse(r.maintenance_admission_open(status))
+
+    def test_real_jobs_adapter_accepts_release_but_retains_registered_job_exclusion(self):
+        backend=object.__new__(r.Backend);backend.p=dict(jobsPath='/fixture/jobs',jobID='owned')
+        jobs=dict(jobs={'owned':dict(state='active')},queued={})
+        with patch.object(r,'read_json',return_value=jobs),patch.object(r.subprocess,'check_output',return_value=json.dumps(self.released()).encode()) as command:
+            backend.jobs();command.assert_called_once()
+            jobs['jobs']['other']=dict(state='active')
+            with self.assertRaisesRegex(RuntimeError,'other registered'):backend.jobs()
+            self.assertEqual(command.call_count,1)
+
+
 if __name__ == '__main__':
     unittest.main()

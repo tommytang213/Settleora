@@ -10,6 +10,7 @@ import fcntl
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import pwd
 from pathlib import Path
@@ -435,6 +436,29 @@ def check_write_space(paths):
     if any(p['freeBytes'] < 50 * 1024**3 for p in observations):
         raise RuntimeError('a declared write filesystem has less than50GiB margin')
     return observations
+
+
+def maintenance_admission_open(status):
+    """Distinguish a completed, normally released mutation from an active update."""
+    active = status.get('active') if type(status) is dict else None
+    if type(active) is not dict or active.get('hold') is not False:
+        return False
+    monitor = active.get('monitor')
+    if active.get('phase') != 'released' or type(monitor) is not dict or monitor.get('updater_alive') is not False:
+        return False
+    if active.get('mutation_started') is False:
+        return True
+    if active.get('mutation_started') is not True:
+        return False
+    terminal = active.get('terminal')
+    if type(terminal) is not dict:
+        return False
+    if type(active.get('id')) is not str or not active['id'] or terminal.get('run_id') != active['id'] or \
+       terminal.get('outcome') != 'completed' or type(terminal.get('exit_code')) is not int or terminal['exit_code'] != 0 or \
+       terminal.get('mutation_started') is not True or monitor.get('updater_alive') is not False:
+        return False
+    ended, released = terminal.get('at'), active.get('released_at')
+    return all(type(value) in (int, float) and math.isfinite(value) for value in (ended, released)) and 0 < ended <= released
 
 
 def validate_network_policy(network):
@@ -867,7 +891,7 @@ class Backend:
             raise RuntimeError('other registered/queued work requires reconciliation')
         status = decode(subprocess.check_output(['/usr/bin/python3', '-I',
             '/usr/local/libexec/devbox-maintenance/managed-entry.py', 'status'], timeout=3))
-        if status['active']['hold'] or status['active']['mutation_started']:
+        if not maintenance_admission_open(status):
             raise RuntimeError('maintenance admission closed')
 
     def native_census(self, initial=False):

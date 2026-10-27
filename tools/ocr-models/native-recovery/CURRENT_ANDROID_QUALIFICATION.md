@@ -361,3 +361,7 @@ The fixed Gradle ZIP's explicit input pin is checked in preflight before creatin
 Staging plans reject duplicate JSON keys and all non-finite numbers before validation. Staging requires only Java, Flutter, and the fixed Gradle launcher; Java and Flutter hashes are checked before consumption, and launcher identity is bound to the verified fixed distribution. Staging command capture is bounded to 32 MiB per stream and 64 MiB combined, including verbose seed and compile output; overflow fails. Native acceptance command budgets remain unchanged.
 
 Pub-cache inventory scans also stream scandir entries with deadline checks before each entry and a 10000-entry bound, including directories; both observations used by the cache digest receive the same deadline callback. JNI generated output remains excluded, links remain rejected, and sorted source/mode digest framing is unchanged.
+
+Maintenance admission preserves the installed coordinator's normal released state after an update: historical mutation_started=true is accepted only with hold=false, phase=released, matching completed exit0 terminal run, terminal mutation evidence, finite ordered terminal/release timestamps, and monitor updater_alive=false. Held, running, failed, missing or contradictory evidence remains closed. This interprets the existing coordinator status; it does not release maintenance or modify its state.
+
+Both never-mutated and historically-mutated admission branches require phase=released and monitor updater_alive=false; an active updater is rejected even before package mutation starts.
