@@ -7,8 +7,10 @@ receipts remain historical evidence and must not be rewritten or transferred to
 another candidate. Older provider-specific procedures below describe pinned
 legacy implementations, not authority to launch those providers for new work.
 
+Bounded owner exception (2026-10-28T15:46:18Z): PR1338 and PR1339 may proceed with their completed exact-current-head CodeRabbit reviews instead of waiting for stalled GitHub Codex. Records: PR1338 issuecomment6473668682 and PR1339 issuecomment6473670438. Keep separate exact-source local Codex review, required tests/CI, unresolved-finding checks, native/execution admission and protected-branch/platform gates. Do not represent skipped review as a provider PASS, cancel unknown jobs, submit duplicate GitHub Codex requests or extend this exception to other PRs. The native PR1338 executor requires an exact hash-bound owner-exception record and external admission authentication; its normal three-provider path remains required outside this explicit exception. No formal GitHub approval is conferred.
+
 Local Codex reviews the frozen candidate after local validation. Publish to the
-existing task branch for the hosted CodeRabbit and GitHub Codex reviews; both
+existing task branch for the hosted CodeRabbit and GitHub Codex reviews; outside the bounded owner exception above, both
 hosted results must bind the exact current head before technical execution
 admission or merge. Preserve independent review, required tests, applicable CI,
 open-finding resolution, and separate native/product acceptance gates. A review

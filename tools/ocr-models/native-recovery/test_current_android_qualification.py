@@ -108,6 +108,48 @@ class CurrentRunnerTests(unittest.TestCase):
                 check(lambda path:'c'*64 if Path(path)==target else 'b'*64)
         with self.assertRaisesRegex(RuntimeError,'executing supervisor'):
             check(lambda path:'c'*64 if Path(path)==Path(r.__file__) else 'b'*64)
+        # An owner exception changes only the GitHub Codex requirement. It is
+        # neither a fabricated provider pass nor permission to skip other gates.
+        normal_review=dict(review)
+        review.pop('githubCodexPath');review.pop('githubCodexSHA256')
+        path=str(root/'owner-exception.json')
+        exception=dict(schema='settleora-owner-review-exception-v1',repository='tommytang213/Settleora',
+            pullRequest=1338,provider='githubCodex',disposition='skipped_by_owner',sourceHead=self.p['head'],
+            manifestSHA256=digest,ownerDecisionUTC='2026-10-28T15:46:18Z',
+            evidenceURL='https://github.com/tommytang213/Settleora/pull/1338#issuecomment-6473668682')
+        def set_exception(value):
+            data[path]=json.dumps(value).encode()
+            review['githubCodexExceptionPath']=path
+            review['githubCodexExceptionSHA256']=hashlib.sha256(data[path]).hexdigest()
+        set_exception(exception);check()
+        for key,value in [('schema','unknown'),('repository','other/repo'),('pullRequest',1339),
+            ('provider','coderabbit'),('disposition','pass'),('sourceHead','c'*40),
+            ('manifestSHA256','c'*64),('ownerDecisionUTC','2026-10-27T00:00:00Z'),
+            ('evidenceURL','https://github.com/tommytang213/Settleora/pull/1338#issuecomment-123'),
+            ('extra','not permitted')]:
+            changed=dict(exception);changed[key]=value;set_exception(changed)
+            with self.subTest(exception_key=key),self.assertRaisesRegex(RuntimeError,'owner exception evidence'):check()
+        for key in exception:
+            changed=dict(exception);changed.pop(key);set_exception(changed)
+            with self.subTest(missing_exception_key=key),self.assertRaisesRegex(RuntimeError,'owner exception evidence'):check()
+        set_exception(exception);review['githubCodexExceptionSHA256']='c'*64
+        with self.assertRaisesRegex(RuntimeError,'exception receipt drift'):check()
+        set_exception(exception)
+        review['githubCodexPath']=normal_review['githubCodexPath']
+        with self.assertRaisesRegex(RuntimeError,'review receipts'):check()
+        review.pop('githubCodexPath')
+        saved=review.pop('githubCodexExceptionSHA256')
+        with self.assertRaisesRegex(RuntimeError,'review receipts'):check()
+        review['githubCodexExceptionSHA256']=saved
+        for provider,key,value in [('coderabbit','status','running'),('coderabbit','sourceHead','c'*40),
+            ('coderabbit','unresolvedFindings',['open']),('codex','verdict','fail'),('codex','findings',['defect'])]:
+            receipt=review[provider+'Path'];old_raw=data[receipt];old_pin=review[provider+'SHA256']
+            changed=json.loads(old_raw);changed[key]=value;data[receipt]=json.dumps(changed).encode()
+            review[provider+'SHA256']=hashlib.sha256(data[receipt]).hexdigest()
+            with self.subTest(required_provider=provider,key=key),self.assertRaises(RuntimeError):check()
+            data[receipt]=old_raw;review[provider+'SHA256']=old_pin
+        check()
+        review.clear();review.update(normal_review);check()
         review['grokPath']='legacy'
         with self.assertRaises(RuntimeError):check()
 

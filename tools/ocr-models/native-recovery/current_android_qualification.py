@@ -1460,10 +1460,13 @@ def verify_reviews(p):
             raise RuntimeError('reviewed file drift')
     if sha(__file__) != decode(manifest)['current_android_qualification.py']:
         raise RuntimeError('executing supervisor differs from reviewed source')
-    expected_keys = {'manifestPath','manifestSHA256'} | {provider+suffix for provider in ('codex','coderabbit','githubCodex') for suffix in ('Path','SHA256')}
-    if set(review) != expected_keys:
-        raise RuntimeError('current local Codex, CodeRabbit and GitHub Codex review receipts required')
-    for provider in ('codex','coderabbit','githubCodex'):
+    common_keys = {'manifestPath','manifestSHA256'} | {provider+suffix for provider in ('codex','coderabbit') for suffix in ('Path','SHA256')}
+    normal_keys = common_keys | {'githubCodexPath','githubCodexSHA256'}
+    exception_keys = common_keys | {'githubCodexExceptionPath','githubCodexExceptionSHA256'}
+    if set(review) not in (normal_keys, exception_keys):
+        raise RuntimeError('current independent review receipts or exact owner exception required')
+    owner_exception = set(review) == exception_keys
+    for provider in (('codex','coderabbit') if owner_exception else ('codex','coderabbit','githubCodex')):
         path = review[provider+'Path']
         raw = bounded_bytes(path)
         if hashlib.sha256(raw).hexdigest() != review[provider+'SHA256']:
@@ -1477,6 +1480,22 @@ def verify_reviews(p):
             url = verdict.get('reviewURL')
             if verdict.get('provider') != provider or verdict.get('sourceHead') != p['head'] or verdict.get('status') != 'completed' or verdict.get('unresolvedFindings') != [] or type(url)is not str or not re.fullmatch(r'https://github[.]com/tommytang213/Settleora/pull/1338#(?:pullrequestreview|issuecomment)-[1-9][0-9]*',url):
                 raise RuntimeError('completed exact-head hosted review evidence required')
+    if owner_exception:
+        raw = bounded_bytes(review['githubCodexExceptionPath'])
+        if hashlib.sha256(raw).hexdigest() != review['githubCodexExceptionSHA256']:
+            raise RuntimeError('owner exception receipt drift')
+        # This is the one owner-authorized PR1338 exception, not a remote PASS.
+        # Atlas authenticates the decision through trusted conversation history
+        # before admitting the exact plan, as it authenticates review origins.
+        expected = dict(schema='settleora-owner-review-exception-v1',
+            repository='tommytang213/Settleora', pullRequest=1338,
+            provider='githubCodex', disposition='skipped_by_owner',
+            sourceHead=p['head'], manifestSHA256=review['manifestSHA256'],
+            ownerDecisionUTC='2026-10-28T15:46:18Z',
+            evidenceURL='https://github.com/tommytang213/Settleora/pull/1338#issuecomment-6473668682')
+        value = decode(raw)
+        if type(value) is not dict or value != expected:
+            raise RuntimeError('exact PR1338 owner exception evidence required')
 
 
 def main():
