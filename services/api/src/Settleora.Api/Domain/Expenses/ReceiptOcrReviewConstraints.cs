@@ -18,4 +18,6 @@ public static class ReceiptOcrReviewConstraints
     public const decimal QuantityMaxValue = 99_999_999_999_999.9999m;
     public const int MaxLineCount = 100;
     public const int MaxAdjustmentCount = 50;
+    public const int MaxHeaderEvidenceCount = 4;
+    public const int HeaderRoleMaxLength = 24;
 }

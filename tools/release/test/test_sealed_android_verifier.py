@@ -8,6 +8,7 @@ import pathlib
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -17,8 +18,41 @@ VERIFIER = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(VERIFIER)
 
+# Shared pure grammar controls; these are not cryptographically valid signers.
+V2_STRUCTURE_CASES = json.loads((
+    pathlib.Path(__file__).parents[2] / "ocr-models/test/fixtures/v2-structure.json"
+).read_text())["cases"]
+SYNTHETIC_V2_STRUCTURE = bytes.fromhex(V2_STRUCTURE_CASES[0]["hex"])
+
 
 class SealedAndroidVerifierTests(unittest.TestCase):
+    def test_v2_complete_structural_consumption(self):
+        for fixture in V2_STRUCTURE_CASES:
+            with self.subTest(fixture=fixture["name"]):
+                value = bytes.fromhex(fixture["hex"])
+                if fixture["valid"]:
+                    VERIFIER.validate_android_v2_signer_records(value)
+                    surrounded = b"!" + value + b"!"
+                    VERIFIER.validate_android_v2_signer_records(memoryview(surrounded)[1:-1])
+                else:
+                    with self.assertRaisesRegex(ValueError, "Android APK v2"):
+                        VERIFIER.validate_android_v2_signer_records(value)
+
+    def test_artifact_snapshot_accepts_the_bound_and_rejects_one_more_byte(self):
+        with tempfile.TemporaryFile() as source, patch.object(VERIFIER, "MAX_ARTIFACT_BYTES", 32):
+            source.write(b"x" * 32)
+            source.seek(0)
+            descriptor, size, digest = VERIFIER.sealed_snapshot(source.fileno())
+            try:
+                self.assertEqual(size, 32)
+                self.assertEqual(digest, hashlib.sha256(b"x" * 32).hexdigest())
+            finally:
+                os.close(descriptor)
+            source.write(b"y")
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "exceeds sealed verification limit"):
+                VERIFIER.sealed_snapshot(source.fileno())
+
     def test_aab_signature_control_digest_rejects_resigned_extra_metadata(self):
         payload = b"exact payload"
         payload_digest = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
@@ -465,7 +499,7 @@ class SealedAndroidVerifierTests(unittest.TestCase):
 
     def test_apk_signing_block_rejects_unknown_ids(self):
         def artifact(identifiers, values=None):
-            values = values or {}
+            values = {0x7109871a: SYNTHETIC_V2_STRUCTURE, **(values or {})}
             pairs = b"".join(
                 struct.pack("<QI", 4 + len(values.get(identifier, b"")), identifier) + values.get(identifier, b"")
                 for identifier in identifiers
@@ -478,7 +512,7 @@ class SealedAndroidVerifierTests(unittest.TestCase):
         with tempfile.TemporaryFile() as source:
             source.write(artifact(VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS))
             source.seek(0)
-            self.assertEqual(VERIFIER.apk_signing_block_ids(source.fileno()), ["42726577", "504b4453", "7109871a"])
+            self.assertEqual(VERIFIER.apk_signing_block_ids(source.fileno()), ["42726577", "7109871a"])
         with tempfile.TemporaryFile() as source:
             source.write(artifact((*VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS, 0xDEADBEEF)))
             source.seek(0)
@@ -501,7 +535,11 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             raw = archive.getvalue()
             eocd_offset = raw.rfind(b"PK\x05\x06")
             central_offset = struct.unpack_from("<I", raw, eocd_offset + 16)[0]
-            pairs = b"".join(struct.pack("<QI", 4, identifier) for identifier in VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS)
+            values = {0x7109871a: SYNTHETIC_V2_STRUCTURE}
+            pairs = b"".join(
+                struct.pack("<QI", 4 + len(values.get(identifier, b"")), identifier) + values.get(identifier, b"")
+                for identifier in VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS
+            )
             block_size = len(pairs) + 24
             block = struct.pack("<Q", block_size) + pairs + struct.pack("<Q", block_size) + VERIFIER.APK_SIGNING_BLOCK_MAGIC
             result = bytearray(raw[:central_offset] + block + raw[central_offset:])

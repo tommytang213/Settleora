@@ -229,6 +229,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
   late final TextEditingController _grandTotalController;
   late final List<_ReceiptOcrReviewLineEditors> _lineEditors;
   late final List<_ReceiptOcrReviewAdjustmentEditors> _adjustmentEditors;
+  late final List<_ReceiptOcrReviewHeaderEvidenceEditors>
+  _headerEvidenceEditors;
 
   @override
   void initState() {
@@ -264,6 +266,10 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
       ]..sort((left, right) => left.sortOrder.compareTo(right.sortOrder)))
         _ReceiptOcrReviewAdjustmentEditors.fromAdjustment(adjustment),
     ];
+    _headerEvidenceEditors = [
+      for (final entry in review.headerEvidence)
+        _ReceiptOcrReviewHeaderEvidenceEditors.fromEvidence(entry),
+    ];
   }
 
   @override
@@ -286,6 +292,9 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
       editors.dispose();
     }
     for (final editors in _adjustmentEditors) {
+      editors.dispose();
+    }
+    for (final editors in _headerEvidenceEditors) {
       editors.dispose();
     }
     super.dispose();
@@ -351,33 +360,29 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     final editedCurrency = _nullableText(
       _currencyController.text,
     )?.toUpperCase();
-    final originalCurrency = widget.review.currency?.trim().toUpperCase();
-    final preserveMoney = editedCurrency == originalCurrency;
-    return ReceiptOcrReviewSaveRequest(
+    final candidate = ReceiptOcrReviewSaveRequest(
       status: widget.review.status,
       source: widget.review.source,
       merchantText: _nullableText(_merchantController.text),
       receiptIssuedAtUtc: _parseDate(_receiptDateController.text),
       currency: editedCurrency,
-      subtotalAmount: preserveMoney
-          ? _nullableText(_subtotalController.text)
-          : null,
-      taxAmount: preserveMoney ? _nullableText(_taxController.text) : null,
-      serviceChargeAmount: preserveMoney
-          ? _nullableText(_serviceChargeController.text)
-          : null,
-      discountAmount: preserveMoney
-          ? _nullableText(_discountController.text)
-          : null,
-      grandTotalAmount: preserveMoney
-          ? _nullableText(_grandTotalController.text)
-          : null,
+      subtotalAmount: _nullableText(_subtotalController.text),
+      taxAmount: _nullableText(_taxController.text),
+      serviceChargeAmount: _nullableText(_serviceChargeController.text),
+      discountAmount: _nullableText(_discountController.text),
+      grandTotalAmount: _nullableText(_grandTotalController.text),
       lines: _lineEditors
-          .map((editors) => editors.toRequest(omitMoney: !preserveMoney))
+          .map((editors) => editors.toRequest())
           .toList(growable: false),
       adjustmentEvidence: _adjustmentEditors
           .map((editors) => editors.toRequest())
           .toList(growable: false),
+      headerEvidence: _headerEvidenceEditors
+          .map((editors) => editors.toRequest())
+          .toList(growable: false),
+    );
+    return candidate.withTaxReconciliationMode(
+      receiptOcrTaxModeForSavedEdit(widget.review, candidate),
     );
   }
 
@@ -400,6 +405,14 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
       pattern: _receiptOcrMoneyPattern,
       message: 'Use a non-negative decimal amount',
     );
+  }
+
+  String? _headerScalarValidator(String? value, String role) {
+    if (_nullableText(value) != null &&
+        _headerEvidenceEditors.any((entry) => entry.role == role)) {
+      return 'Remove printed ${role.replaceAll('_', ' ')} evidence before entering this amount';
+    }
+    return _moneyValidator(value);
   }
 
   bool _hasAnyAmountCandidate() {
@@ -474,6 +487,33 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                         .trim()
                         .toUpperCase();
                     if (previousCurrency != nextCurrency) {
+                      // Changing the receipt currency cannot relabel printed
+                      // money. Keep each header with its original currency as
+                      // editable evidence before clearing scalar suggestions.
+                      if (RegExp(r'^[A-Z]{3}$').hasMatch(previousCurrency)) {
+                        for (final entry in {
+                          'subtotal': _subtotalController,
+                          'tax': _taxController,
+                          'service_charge': _serviceChargeController,
+                          'discount': _discountController,
+                        }.entries) {
+                          final amount = _nullableText(entry.value.text);
+                          if (amount != null &&
+                              !_headerEvidenceEditors.any(
+                                (evidence) => evidence.role == entry.key,
+                              )) {
+                            _headerEvidenceEditors.add(
+                              _ReceiptOcrReviewHeaderEvidenceEditors.fromEvidence(
+                                ReceiptOcrReviewHeaderEvidence(
+                                  role: entry.key,
+                                  amount: amount,
+                                  currency: previousCurrency,
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      }
                       _subtotalController.clear();
                       _taxController.clear();
                       _serviceChargeController.clear();
@@ -501,7 +541,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Subtotal',
               semanticLabel: 'Subtotal amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) =>
+                  _headerScalarValidator(value, 'subtotal'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-tax'),
@@ -510,7 +551,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Tax',
               semanticLabel: 'Tax amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) => _headerScalarValidator(value, 'tax'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-service-charge'),
@@ -519,7 +560,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Service charge',
               semanticLabel: 'Service charge amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) =>
+                  _headerScalarValidator(value, 'service_charge'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-discount'),
@@ -528,7 +570,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Discount',
               semanticLabel: 'Discount amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) =>
+                  _headerScalarValidator(value, 'discount'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-grand-total'),
@@ -539,6 +582,75 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               enabled: !isBusy,
               amountValidator: _moneyValidator,
             ),
+            if (_headerEvidenceEditors.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Printed foreign-currency headers',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              for (final entry in [..._headerEvidenceEditors])
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(entry.role.replaceAll('_', ' ')),
+                            ),
+                            IconButton(
+                              key: Key(
+                                'receipt-review-edit-header-remove-${entry.role}',
+                              ),
+                              onPressed: isBusy
+                                  ? null
+                                  : () => setState(() {
+                                      _headerEvidenceEditors.remove(entry);
+                                      entry.dispose();
+                                    }),
+                              tooltip: 'Remove printed header evidence',
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
+                        _EditTextField(
+                          key: Key(
+                            'receipt-review-edit-header-amount-${entry.role}',
+                          ),
+                          controller: entry.amountController,
+                          label: 'Printed amount',
+                          enabled: !isBusy,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
+                              ? 'Amount is required'
+                              : _moneyValidator(value),
+                        ),
+                        _EditTextField(
+                          key: Key(
+                            'receipt-review-edit-header-currency-${entry.role}',
+                          ),
+                          controller: entry.currencyController,
+                          label: 'Printed currency',
+                          enabled: !isBusy,
+                          validator: (value) {
+                            final currency = value?.trim().toUpperCase();
+                            if (!settleoraIsSupportedCurrency(currency)) {
+                              return 'Use a supported currency';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
             const SizedBox(height: 12),
             Row(
               children: [
@@ -890,6 +1002,30 @@ class _EditTextField extends StatelessWidget {
   }
 }
 
+class _ReceiptOcrReviewHeaderEvidenceEditors {
+  _ReceiptOcrReviewHeaderEvidenceEditors.fromEvidence(
+    ReceiptOcrReviewHeaderEvidence evidence,
+  ) : role = evidence.role,
+      amountController = TextEditingController(text: evidence.amount),
+      currencyController = TextEditingController(text: evidence.currency);
+
+  final String role;
+  final TextEditingController amountController;
+  final TextEditingController currencyController;
+
+  ReceiptOcrReviewHeaderEvidenceSaveRequest toRequest() =>
+      ReceiptOcrReviewHeaderEvidenceSaveRequest(
+        role: role,
+        amount: amountController.text.trim(),
+        currency: currencyController.text.trim().toUpperCase(),
+      );
+
+  void dispose() {
+    amountController.dispose();
+    currencyController.dispose();
+  }
+}
+
 class _ReceiptOcrReviewLineEditors {
   _ReceiptOcrReviewLineEditors({
     required String text,
@@ -929,16 +1065,12 @@ class _ReceiptOcrReviewLineEditors {
         lineTotalAmountController.text.trim().isNotEmpty;
   }
 
-  ReceiptOcrReviewLineSaveRequest toRequest({bool omitMoney = false}) {
+  ReceiptOcrReviewLineSaveRequest toRequest() {
     return ReceiptOcrReviewLineSaveRequest(
       text: textController.text.trim(),
       quantity: _nullableText(quantityController.text),
-      unitPriceAmount: omitMoney
-          ? null
-          : _nullableText(unitPriceAmountController.text),
-      lineTotalAmount: omitMoney
-          ? null
-          : _nullableText(lineTotalAmountController.text),
+      unitPriceAmount: _nullableText(unitPriceAmountController.text),
+      lineTotalAmount: _nullableText(lineTotalAmountController.text),
     );
   }
 
@@ -1184,7 +1316,8 @@ bool _hasAnyReviewCandidate(ReceiptOcrReviewDetail review) {
       review.discountAmount != null ||
       review.grandTotalAmount != null ||
       review.lines.isNotEmpty ||
-      review.adjustmentEvidence.isNotEmpty;
+      review.adjustmentEvidence.isNotEmpty ||
+      review.headerEvidence.isNotEmpty;
 }
 
 class _ReceiptOcrReviewHeader extends StatelessWidget {
@@ -1472,8 +1605,14 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
       ('Discount', review.discountAmount),
       ('Grand total', review.grandTotalAmount),
     ].where((row) => row.$2 != null).toList(growable: false);
+    final foreignRows = review.headerEvidence
+        .map(
+          (entry) =>
+              (entry.role.replaceAll('_', ' '), entry.amount, entry.currency),
+        )
+        .toList(growable: false);
 
-    if (rows.isEmpty) {
+    if (rows.isEmpty && foreignRows.isEmpty) {
       return const SettleoraStatePanel(
         icon: Icons.payments_outlined,
         title: 'No header totals',
@@ -1502,6 +1641,12 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
                 label: row.$1,
                 amount: row.$2,
                 currency: review.currency,
+              ),
+            for (final row in foreignRows)
+              _KeyValueMoneyText(
+                label: 'Printed ${row.$1}',
+                amount: row.$2,
+                currency: row.$3,
               ),
           ],
         ),

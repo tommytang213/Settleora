@@ -1,0 +1,21 @@
+# Issue1309 bounded Cyrillic recognition recovery
+
+A fixed12-pixel white margin can recover clipped short Cyrillic labels, but applying it to every selected candidate displaced a correct Latin date and added five water-bill mismatches in a retained16-case diagnostic. That unconditional alternative is rejected and its evidence preserved.
+
+The additional pass follows every original common and specialist probe in both orientations. It runs only for original full batches containing an eligible line; it never reorders or shrinks the batch. The original canvas width grows by24, normalized content pixels remain unchanged, each content span receives12 white pixels on both sides, and remaining padding stays zero. Detector boxes and document geometry are unchanged.
+
+A line is eligible only when its current selection is absent or is a common candidate below0.90 confidence, and its common/selected text contains no Unicode decimal digit or currency symbol. This boundary controls only the extra recovery pass; all original specialist probes still run even for strong common text. Original specialist winners and strong common winners remain unchanged. Recovery admits only the same catalog-pinned Cyrillic pack, finite confidence within the existing0.1–1 acceptance range, nonempty script-compatible text, and no decimal digit or currency symbol. It appends the candidate; the existing final selector retains authority. No text is substituted, inferred, normalized beyond the established normalizer, or matched against merchant/fixture names.
+
+The private retained replay covers1234 oriented lines from16 cases, all original six candidates, both orientations and the current selector/normalizer/order/parser. It removes two Russian field mismatches with no new fixture mismatch; all32 document orientations and all warnings/review hints stay unchanged. Two losing rotated Arabic selections also change, so unchanged final orientations are explicitly checked. This is Android-derived desktop evidence, not iOS, full-corpus, calibrated-confidence or latency acceptance.
+
+Cyrillic margin candidates participate in orientation and script selection as
+described above. The unchanged orientations are a retained-cohort observation,
+not a guarantee that Cyrillic recovery can never affect orientation. The later
+Polish, calendar-date and rupee recovery stages freeze the result of this
+existing selection pipeline; those stages cannot change its orientation or
+use their own output as original corroboration. This distinction documents the
+existing runtime order and does not change the recovery policy.
+
+Android and iOS implement the same recovery policy while preserving each platform's existing batch grouping and preprocessing. Their original canvas policies differ; both-platform native acceptance remains required. At most one extra Cyrillic inference per original batch per orientation is added. The model inventory, dependencies, fixture truth, parser, provisional save/financial Apply authority, strict acceptance criteria, network/privacy policy and release configuration are unchanged by this native delta.
+
+Focused controls cover empty selection, weak/common and specialist winners, the0.90 boundary, decimal digits across scripts, currency symbols, invalid/nonfinite confidence, wrong packs, incompatible text and exact multirow/multichannel tensor content/padding preservation. Native proof and exact reviewer/check results must be attached to the candidate SHA; this document grants no merge or deployment approval.

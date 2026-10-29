@@ -1,0 +1,11 @@
+# Native OCR header-field evidence
+
+Each current native recognition-coverage row adds `headerFieldStates` for the ten fixed fields `merchant`, `date`, `currency`, `subtotal`, `tax`, `service`, `tip`, `shipping`, `discount`, and `total`. Values are fixed labels only: `matchingValue`, `matchingAbsence`, `missingValue`, `differentValue`, `unexpectedValue`, or `noPreview`. No recognized or expected text, date, currency, amount, coordinates or local path is emitted.
+
+The producer reuses the existing strict header comparison. Merchant whitespace normalization remains unchanged; money, date and currency retain exact comparison. An omitted expectation has the same null semantics as the legacy scorer. A non-null value against null expectation is `unexpectedValue`; source adjudication is still required before treating it as an extraction error. Two nulls are `matchingAbsence`, which must not count as a confidently populated field. Missing previews have `noPreview` for every field, and remain distinguishable from missing fields in an available draft.
+
+The collector permits only the complete fixed field map and vocabulary. Preview-presence evidence is required with this map, and every field must agree with whether a preview exists. Mixed old/new rows are rejected. Legacy artifacts without the map remain readable; their missing-versus-different distribution is unavailable. The protocol is additive and preserves legacy strict mismatches, warnings, provider and collector failures, and exit policy.
+
+Report matching non-null fields, matching absences, missing, different and unexpected values separately, with ordinary warnings and reconciliation hints as independent observations. These observations do not establish calibrated confidence, safe/unsafe classification, authoritative money correctness or usable-draft rate. In particular, warning absence cannot establish correctness, and a mismatch against stale source truth cannot establish fabrication. Item counts, descriptions, money pairs and recognition coverage retain their existing separate metrics.
+
+This change affects acceptance diagnostics and their source-bound catalog only. Fixture truth, image bytes, production parser, preview, save/Apply, native adapters, models, financial authority, APIs, schema, workflows and dependencies remain unchanged.

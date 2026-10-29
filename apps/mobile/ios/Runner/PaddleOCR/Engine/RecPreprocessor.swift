@@ -52,6 +52,31 @@ struct RecPreprocessResult {
 struct RecBatchPreprocessResult {
     let tensorData: [Float]
     let tensorShape: [Int]
+
+    // Add context to the original full batch; never shrink/rebatch narrow lines.
+    func withWhiteMargin(contentWidths: [Int], margin: Int) -> RecBatchPreprocessResult {
+        precondition(margin == 0 || margin == 12)
+        if margin == 0 { return self }
+        precondition(tensorShape.count == 4 && tensorShape.allSatisfy { $0 > 0 })
+        let n = tensorShape[0], channels = tensorShape[1], height = tensorShape[2], width = tensorShape[3]
+        precondition(contentWidths.count == n && contentWidths.allSatisfy { (1...width).contains($0) })
+        precondition(n * channels * height * width == tensorData.count)
+        let expandedWidth = width + margin * 2
+        var output = [Float](repeating: 0, count: n * channels * height * expandedWidth)
+        for batch in 0..<n {
+            for channel in 0..<channels {
+                for row in 0..<height {
+                    let source = ((batch * channels + channel) * height + row) * width
+                    let target = ((batch * channels + channel) * height + row) * expandedWidth
+                    let content = contentWidths[batch]
+                    for x in 0..<margin { output[target + x] = 1 }
+                    for x in 0..<content { output[target + margin + x] = tensorData[source + x] }
+                    for x in 0..<margin { output[target + margin + content + x] = 1 }
+                }
+            }
+        }
+        return RecBatchPreprocessResult(tensorData: output, tensorShape: [n, channels, height, expandedWidth])
+    }
 }
 
 // MARK: - RecPreprocessor
@@ -134,7 +159,7 @@ struct RecPreprocessor {
 
     /// Builds a batched tensor: each line is resized and padded to its canvas width, then all rows
     /// are padded on the right to the maximum canvas width in the batch (shape `[N, C, H, W]`).
-    func preprocessBatch(_ images: [CGImage]) throws -> RecBatchPreprocessResult {
+    func preprocessBatch(_ images: [CGImage], whiteMargin: Int = 0) throws -> RecBatchPreprocessResult {
         guard !images.isEmpty else {
             throw RecPreprocessorError.invalidImage
         }
@@ -142,6 +167,7 @@ struct RecPreprocessor {
         let align8 = Self.isRecognitionCanvasWidthAlignedTo8Enabled()
         var rowCHW: [[Float]] = []
         var canvasWidths: [Int] = []
+        var contentWidths: [Int] = []
 
         for image in images {
             let originalW = image.width
@@ -150,7 +176,7 @@ struct RecPreprocessor {
                 throw RecPreprocessorError.invalidImage
             }
             let pixelBytes = try extractHWCPixels(from: image, width: originalW, height: originalH, order: channelOrder)
-            let (chw, canvasW, _) = try lineResizeNormalizeCHW(
+            let (chw, canvasW, resizedW) = try lineResizeNormalizeCHW(
                 pixelBytes: pixelBytes,
                 originalW: originalW,
                 originalH: originalH,
@@ -158,6 +184,7 @@ struct RecPreprocessor {
             )
             rowCHW.append(chw)
             canvasWidths.append(canvasW)
+            contentWidths.append(resizedW)
         }
 
         guard let maxCanvasW = canvasWidths.max() else {
@@ -192,7 +219,7 @@ struct RecPreprocessor {
         return RecBatchPreprocessResult(
             tensorData: flat,
             tensorShape: [n, imgC, imgH, maxCanvasW]
-        )
+        ).withWhiteMargin(contentWidths: contentWidths, margin: whiteMargin)
     }
 
     /// When `PADDLEOCR_REC_ALIGN_WIDTH_TO_8` is set to a truthy value, the canvas width is rounded up to a multiple of 8.

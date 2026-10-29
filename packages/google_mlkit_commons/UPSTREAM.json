@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "package": "google_mlkit_commons",
+  "version": "0.11.1",
+  "archiveUrl": "https://pub.dev/api/archives/google_mlkit_commons-0.11.1.tar.gz",
+  "archiveSha256": "3e69fea4211727732cc385104e675ad1e40b29f12edd492ee52fa108423a6124",
+  "license": "MIT",
+  "upstreamFiles": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 1156,
+      "sha256": "1734d42011c86369eec09bc84f2bbda65684ec174da7f9a2d62339455d74be3b"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1093,
+      "sha256": "6700d9608ea7ce43670a704fb97f7a264319d77c8339dadd1c81e39f0c6af614"
+    },
+    {
+      "path": "README.md",
+      "bytes": 10734,
+      "sha256": "c83256ac0209785453a613c821fb32e4f741be8e086b5b5a7ee234d6836ee262"
+    },
+    {
+      "path": "analysis_options.yaml",
+      "bytes": 48,
+      "sha256": "10cf55a64b352c2f0a49cd597fc59c0d3c199c172c8c1d02740c3ecae599d150"
+    },
+    {
+      "path": "android/build.gradle",
+      "bytes": 697,
+      "sha256": "3eb069c9907436cb9f1e0ca65d4885fd9956b6ac37fd705ea08ec11e184640c4"
+    },
+    {
+      "path": "android/settings.gradle",
+      "bytes": 42,
+      "sha256": "5dbee22c85dc02f8de12e51d7eb67e7f4af5ada4d9343c4ce5b1fa24463febb5"
+    },
+    {
+      "path": "android/src/main/AndroidManifest.xml",
+      "bytes": 119,
+      "sha256": "cdcb96c9ab3cb34c35a14b86d293923879bbf7fc6bf5c6da9178836a359ea951"
+    },
+    {
+      "path": "android/src/main/java/com/google_mlkit_commons/GenericModelManager.java",
+      "bytes": 4477,
+      "sha256": "5dd5406c667bf886f5ecb2926d1c62a57c58ee66d25364c7ef6f346c8b726e71"
+    },
+    {
+      "path": "android/src/main/java/com/google_mlkit_commons/GoogleMlKitCommonsPlugin.java",
+      "bytes": 966,
+      "sha256": "52a1dc9b2299d201dbc006543540cbd5382a22664ff76c77cdc6975edbaf9d5d"
+    },
+    {
+      "path": "android/src/main/java/com/google_mlkit_commons/InputImageConverter.java",
+      "bytes": 6887,
+      "sha256": "0b67f1fbf0695209427c08d7e667fd144c5ff18b7c728c61d1bc669e376a0635"
+    },
+    {
+      "path": "example/README.md",
+      "bytes": 127,
+      "sha256": "8a804f997dbc710436174a50cff9fa3c37987bb2fe0b6889bdc5e30d05a3db7f"
+    },
+    {
+      "path": "ios/Classes/GenericModelManager.h",
+      "bytes": 215,
+      "sha256": "394d781f384c1b924a1f8c129e4e4b8d43e0acebc070e2c290835ba0b199a78c"
+    },
+    {
+      "path": "ios/Classes/GenericModelManager.m",
+      "bytes": 2384,
+      "sha256": "543f2ef70247d92935583bb3f43cb90759337a0d5e646d1778ebe8f7b7fb8c99"
+    },
+    {
+      "path": "ios/Classes/GoogleMlKitCommonsPlugin.h",
+      "bytes": 552,
+      "sha256": "3f22a29dce6bb4ca8e8f645b680cb9c22969b5068c6e3ff1dcf37d87c19b1cdf"
+    },
+    {
+      "path": "ios/Classes/GoogleMlKitCommonsPlugin.m",
+      "bytes": 688,
+      "sha256": "8104bdbc1f7ffed6ac962cbf14f38dc31a645c3e236d8ec9116f4d96ee4815a1"
+    },
+    {
+      "path": "ios/Classes/MLKVisionImage+FlutterPlugin.m",
+      "bytes": 5911,
+      "sha256": "a200e654b517032bd2ce80e56a7e7516e787a9033760c54d94b467252cdbf713"
+    },
+    {
+      "path": "ios/google_mlkit_commons.podspec",
+      "bytes": 917,
+      "sha256": "a3307ac74423d3b347565ae9f0c584eda956f502b27717b1b92f04479f1445aa"
+    },
+    {
+      "path": "lib/google_mlkit_commons.dart",
+      "bytes": 88,
+      "sha256": "7d2defb26c0e9effc722ba6bd359020f43a580bfee0693dec1f6a1aead0fb518"
+    },
+    {
+      "path": "lib/src/input_image.dart",
+      "bytes": 7042,
+      "sha256": "00f6c0d7475db9e332b809d385c401dbdc3e8a2c92eb4b7cb5e56e39502f906a"
+    },
+    {
+      "path": "lib/src/model_manager.dart",
+      "bytes": 1420,
+      "sha256": "2af92ca1d296f42c2a59536b1113733af41a827b9f7d75f5a10b197e846a0759"
+    },
+    {
+      "path": "lib/src/rect.dart",
+      "bytes": 347,
+      "sha256": "e8d625c121f766e5e6fbc537868193dd30733d676f0094d1b833509d3eb8b080"
+    },
+    {
+      "path": "pubspec.yaml",
+      "bytes": 702,
+      "sha256": "1a7524f3885e8272f71c1c1758cf2a609daeba9d119534bf0cb456347d3f4342"
+    }
+  ],
+  "patches": [
+    {
+      "path": "android/src/main/java/com/google_mlkit_commons/InputImageConverter.java",
+      "upstreamSha256": "0b67f1fbf0695209427c08d7e667fd144c5ff18b7c728c61d1bc669e376a0635",
+      "patchedSha256": "612d8209e6a5682b7f1b6388264043650f823b0c08f5f5e663b4a3053f1b18b3",
+      "description": "Use read-only wildcard metadata maps for both Object-to-Map casts and remove the now-unneeded unchecked suppression. Public API, erased runtime casts and value conversions are unchanged."
+    }
+  ]
+}

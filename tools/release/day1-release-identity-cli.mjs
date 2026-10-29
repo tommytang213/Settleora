@@ -23,6 +23,7 @@ import {
   validateManifest,
 } from './day1-release-identity.mjs';
 import { assertTrackedWorktreeMatchesHead, assertUniqueJsonMembers, createUserWebDistManifest, scanPublicArtifact } from '../ci/user-web-dist-manifest.mjs';
+import { prepareProductionFlutterPlugins } from '../ocr-models/prepare-production-flutter-plugins.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));
@@ -77,7 +78,7 @@ const gitObjectId = (type, contents) => createHash('sha1').update(`${type} ${con
 const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 if (replacementRefs) throw new Error('Git replacement refs are not allowed for provenance collection');
 const maxTrustedToolBytes = 256 * 1024 * 1024;
-const maxAndroidArtifactBytes = 256 * 1024 * 1024;
+const maxAndroidArtifactBytes = 320 * 1024 * 1024;
 const maxAndroidMappingBytes = 128 * 1024 * 1024;
 const maxAndroidMetadataBytes = 4 * 1024 * 1024;
 const maxAndroidDebugKeystoreBytes = 1024 * 1024;
@@ -1275,10 +1276,14 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
     || canonicalJson([...result.signatureControlEntries].sort()) !== canonicalJson(result.signatureControlEntries)) {
     throw new Error(`Android ${kind.toUpperCase()} signature-control inventory is invalid`);
   }
-  if (kind === 'apk' && canonicalJson(result.apkSigningBlockIds) !== canonicalJson(['42726577', '504b4453', '7109871a'])) {
+  if (kind === 'apk') assertReviewedApkSigningBlockIds(result.apkSigningBlockIds);
+  return result;
+}
+
+export function assertReviewedApkSigningBlockIds(ids) {
+  if (canonicalJson(ids) !== canonicalJson(['42726577', '7109871a'])) {
     throw new Error('Android APK signing-block ID inventory is invalid');
   }
-  return result;
 }
 
 function trustedApksignerJar(sdkRoot) {
@@ -1585,6 +1590,28 @@ while (written < payload.length) written += writeSync(${captureFd}, payload, wri
   });
 }
 
+export function prepareAndroidProductionBuildInputs(snapshotRoot) {
+  const mobileRoot = path.join(snapshotRoot, 'apps/mobile');
+  prepareProductionFlutterPlugins(path.join(mobileRoot, '.flutter-plugins-dependencies'), {
+    requireIntegrationTest: true,
+    packageConfigPath: path.join(mobileRoot, '.dart_tool/package_config.json'),
+    packageGraphPath: path.join(mobileRoot, '.dart_tool/package_graph.json'),
+  });
+  const sealedGeneratedInputPaths = [
+    'apps/mobile/.dart_tool/package_config.json',
+    'apps/mobile/.dart_tool/package_graph.json',
+    'apps/mobile/.dart_tool/version',
+    'apps/mobile/.flutter-plugins-dependencies',
+    'apps/mobile/android/app/src/main/java',
+  ];
+  for (const relativeInput of sealedGeneratedInputPaths) {
+    const absoluteInput = path.join(snapshotRoot, relativeInput);
+    if (!lstatSync(absoluteInput, { throwIfNoEntry: false })) throw new Error(`Android generated build input is missing: ${relativeInput}`);
+    makeTreeReadOnly(absoluteInput, `Android generated build input ${relativeInput}`);
+  }
+  return sealedGeneratedInputPaths;
+}
+
 function collectAndroidUnsafe(options, emit = true) {
   const flutter = trustedFlutter(options.flutter);
   const androidSdkRoot = path.resolve(options['android-sdk-root'] ?? '');
@@ -1679,18 +1706,7 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['pub', 'get'],
     ], mobileRoot, [...toolchainConfiguration, prefetchSourceGuard, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
-    const sealedGeneratedInputPaths = [
-      'apps/mobile/.dart_tool/package_config.json',
-      'apps/mobile/.dart_tool/package_graph.json',
-      'apps/mobile/.dart_tool/version',
-      'apps/mobile/.flutter-plugins-dependencies',
-      'apps/mobile/android/app/src/main/java',
-    ];
-    for (const relativeInput of sealedGeneratedInputPaths) {
-      const absoluteInput = path.join(snapshotRoot, relativeInput);
-      if (!lstatSync(absoluteInput, { throwIfNoEntry: false })) throw new Error(`Android generated build input is missing: ${relativeInput}`);
-      makeTreeReadOnly(absoluteInput, `Android generated build input ${relativeInput}`);
-    }
+    const sealedGeneratedInputPaths = prepareAndroidProductionBuildInputs(snapshotRoot);
     const dartToolRoot = path.join(mobileRoot, '.dart_tool');
     const dartToolExcludedPaths = ['flutter_build', 'hooks_runner'];
     const prefetchBuildGeneratedPaths = prefetchSourceGeneratedPaths.filter((entry) => !['apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));
@@ -2349,7 +2365,12 @@ function replaceClosureToken(source, token, replacement, label, expectedOccurren
   return source.replace(token, replacement);
 }
 
-function sealedCollectorClosure() {
+export function sealedCollectorClosure() {
+  let pluginSource = committedModuleSource('tools/ocr-models/prepare-production-flutter-plugins.mjs');
+  pluginSource = replaceClosureToken(pluginSource,
+    'if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {',
+    'if (false) {', 'plugin direct execution');
+  const pluginUrl = `data:text/javascript;base64,${Buffer.from(pluginSource).toString('base64')}`;
   let webSource = committedModuleSource('tools/ci/user-web-dist-manifest.mjs');
   webSource = replaceClosureToken(webSource,
     "const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');",
@@ -2359,6 +2380,7 @@ function sealedCollectorClosure() {
   manifestSource = replaceClosureToken(manifestSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'manifest web import');
   const manifestUrl = `data:text/javascript;base64,${Buffer.from(manifestSource).toString('base64')}`;
   let cliSource = committedModuleSource('tools/release/day1-release-identity-cli.mjs');
+  cliSource = replaceClosureToken(cliSource, "'../ocr-models/prepare-production-flutter-plugins.mjs'", JSON.stringify(pluginUrl), 'CLI plugin import', 2);
   cliSource = replaceClosureToken(cliSource, "'./day1-release-identity.mjs'", JSON.stringify(manifestUrl), 'CLI manifest import', 2);
   cliSource = replaceClosureToken(cliSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'CLI web import', 3);
   cliSource = replaceClosureToken(cliSource,

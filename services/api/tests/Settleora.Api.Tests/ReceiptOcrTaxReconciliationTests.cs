@@ -1,0 +1,248 @@
+using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Expenses.ReceiptOcrReviews;
+
+namespace Settleora.Api.Tests;
+
+public sealed class ReceiptOcrTaxReconciliationTests
+{
+    [Theory]
+    [InlineData(null, null, 24, true)]
+    [InlineData(0, null, 24, true)]
+    [InlineData(null, 0, 24, true)]
+    [InlineData(0, 0, 24, true)]
+    [InlineData(1, null, 25, false)]
+    [InlineData(null, 1, 23, false)]
+    [InlineData(1, 1, 24, false)]
+    public void SingleGrossItemAllowsZeroButNotUnallocatedNonzeroAdjustments(
+        int? serviceCharge, int? discount, int grandTotal, bool supported)
+    {
+        var review = CreateReview(ReceiptOcrReviewTaxReconciliationModes.AddToBase,
+            24m, 20m, grandTotal);
+        review.ServiceChargeAmount = serviceCharge;
+        review.DiscountAmount = discount;
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+
+        Assert.Equal(!supported,
+            preview.Warnings.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch));
+        if (supported)
+        {
+            Assert.True(preview.CanApply);
+            Assert.Empty(preview.BlockedReasons);
+            Assert.Equal("24", preview.Summary.ExpectedHeaderTotalAmount);
+        }
+    }
+
+    [Theory]
+    [InlineData("already_in_base", "24", "24", "24", true, "24")]
+    [InlineData("add_to_base", "20", "20", "24", false, "24")]
+    [InlineData("add_to_base", "24", "20", "24", true, "24")]
+    [InlineData(null, "20", "20", "24", false, "24")]
+    [InlineData("already_in_base", "24", "24", "28", false, "24")]
+    [InlineData("unresolved", "24", "24", "24", false, null)]
+    [InlineData("included_unresolved", "24", "24", "24", false, null)]
+    public void PreviewUsesOneModeAwareAmountForGrossNetAndLegacy(
+        string? mode, string lineTotal, string? subtotal, string total,
+        bool canApply, string? expectedHeader)
+    {
+        var review = CreateReview(mode, decimal.Parse(lineTotal),
+            subtotal is null ? null : decimal.Parse(subtotal), decimal.Parse(total));
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.Equal(canApply, preview.CanApply);
+        Assert.Equal(expectedHeader, preview.Summary.ExpectedHeaderTotalAmount);
+        if (lineTotal == "20" && total == "24")
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.BlockedReasons);
+        if (canApply)
+            Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+        if (mode is ReceiptOcrReviewTaxReconciliationModes.Unresolved
+            or ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved)
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved, preview.BlockedReasons);
+        if (mode is ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase && !canApply)
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.HeaderTotalMismatch, preview.BlockedReasons);
+    }
+
+    [Fact]
+    public void AdditiveModeDoesNotInferGrossLinesWhenTaxAllocationIsAmbiguous()
+    {
+        var review = CreateReview(ReceiptOcrReviewTaxReconciliationModes.AddToBase, 14m, 20m, 24m);
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(), Text = "Second item", SortOrder = 1,
+            Quantity = 1m, UnitPriceAmount = 10m, LineTotalAmount = 10m
+        });
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+    }
+
+    [Theory]
+    [InlineData("24", "24", true)]
+    [InlineData("20", "24", false)]
+    public void MissingSubtotalRequiresCompleteLineBase(string lineTotal, string total, bool canApply)
+    {
+        var review = CreateReview(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase,
+            decimal.Parse(lineTotal), null, decimal.Parse(total));
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.Equal(canApply, preview.CanApply);
+        Assert.Equal(lineTotal, preview.Summary.ExpectedHeaderTotalAmount);
+        review.Lines.Single().LineTotalAmount = null;
+        review.Lines.Single().Quantity = null;
+        review.Lines.Single().UnitPriceAmount = null;
+        var incomplete = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.False(incomplete.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid, incomplete.BlockedReasons);
+    }
+
+    [Theory]
+    [InlineData("already_in_base", null)]
+    [InlineData("already_in_base", "25")]
+    [InlineData("add_to_base", null)]
+    public void ExplicitModeRequiresBoundedPresentTax(string mode, string? tax)
+    {
+        var review = CreateReview(mode, 24m, 24m, 24m);
+        review.TaxAmount = tax is null ? null : decimal.Parse(tax);
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid, preview.BlockedReasons);
+    }
+
+    [Fact]
+    public void AdditiveModeWithoutSubtotalRejectsOverflowedCompleteLineSum()
+    {
+        var review = CreateReview(ReceiptOcrReviewTaxReconciliationModes.AddToBase,
+            ReceiptOcrReviewConstraints.MoneyAmountMaxValue, null,
+            ReceiptOcrReviewConstraints.MoneyAmountMaxValue);
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(), Text = "Second item", SortOrder = 1,
+            Quantity = 1m, UnitPriceAmount = 1m, LineTotalAmount = 1m
+        });
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid,
+            preview.BlockedReasons);
+        Assert.Null(preview.Summary.ExpectedHeaderTotalAmount);
+    }
+
+    [Theory]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AddToBase)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase)]
+    [InlineData(null)]
+    public void AllTaxModesBlockForeignAdjustmentInsteadOfSkippingHeaderCheck(string? mode)
+    {
+        var review = CreateReview(mode, 24m, 24m, 24m);
+        review.Adjustments.Add(new ReceiptOcrReviewAdjustment
+        {
+            Id = Guid.NewGuid(), SortOrder = 0, Kind = ReceiptOcrReviewAdjustmentKinds.Other,
+            OriginalLabel = "Foreign fee", Amount = 1m, Currency = "EUR",
+            Direction = ReceiptOcrReviewAdjustmentDirections.Charge
+        });
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid,
+            preview.BlockedReasons);
+        Assert.Null(preview.Summary.ExpectedHeaderTotalAmount);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(null, true)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AddToBase, false)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AddToBase, true)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase, false)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase, true)]
+    public void AggregateRangeBlocksLegacyAndExplicitModes(string? mode, bool hasSubtotal)
+    {
+        var review = CreateAggregateRangeReview(mode, hasSubtotal ? 1m : null, 0m);
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.BlockedReasons);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AggregateRangeBlocksLegacyReviewWithoutTax(bool hasSubtotal)
+    {
+        var review = CreateAggregateRangeReview(null, hasSubtotal ? 1m : null, null);
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.BlockedReasons);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(null, true)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AddToBase, false)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AddToBase, true)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase, false)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase, true)]
+    public void AggregateRangeAllowsReconciledSumAtOrBelowMaximum(string? mode, bool atMaximum)
+    {
+        var total = ReceiptOcrReviewConstraints.MoneyAmountMaxValue - (atMaximum ? 0m : 1m);
+        var review = CreateReview(mode, total - 1m, total, total);
+        review.TaxAmount = 0m;
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(), Text = "Second item", SortOrder = 1,
+            Quantity = 1m, UnitPriceAmount = 1m, LineTotalAmount = 1m
+        });
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+
+        Assert.True(preview.CanApply);
+        Assert.Empty(preview.BlockedReasons);
+        Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+    }
+
+    [Fact]
+    public void AggregateRangeDoesNotAddMismatchToEmptyLineSet()
+    {
+        var review = CreateReview(null, 1m, 1m, 1m);
+        review.TaxAmount = 0m;
+        review.Lines.Clear();
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.EmptyLineSet, preview.BlockedReasons);
+        Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+    }
+
+    private static ReceiptOcrReview CreateAggregateRangeReview(
+        string? mode, decimal? subtotal, decimal? tax)
+    {
+        const decimal lineTotal = 600_000_000_000_000m;
+        Assert.InRange(lineTotal, 0m, ReceiptOcrReviewConstraints.MoneyAmountMaxValue);
+        var review = CreateReview(mode, lineTotal, subtotal, 1m);
+        review.TaxAmount = tax;
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(), Text = "Second item", SortOrder = 1,
+            Quantity = 1m, UnitPriceAmount = lineTotal, LineTotalAmount = lineTotal
+        });
+        return review;
+    }
+
+    private static ReceiptOcrReview CreateReview(string? mode, decimal lineTotal, decimal? subtotal, decimal total)
+    {
+        var review = new ReceiptOcrReview
+        {
+            Id = Guid.NewGuid(), ExpenseBillId = Guid.NewGuid(), FileObjectId = Guid.NewGuid(),
+            Status = ReceiptOcrReviewStatuses.Reviewed,
+            Source = ReceiptOcrReviewSources.OnDevice, Currency = "GBP",
+            SubtotalAmount = subtotal, TaxAmount = 4m, GrandTotalAmount = total,
+            TaxReconciliationMode = mode
+        };
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(), Text = "Book", SortOrder = 0,
+            Quantity = 1m, UnitPriceAmount = lineTotal, LineTotalAmount = lineTotal
+        });
+        return review;
+    }
+}
