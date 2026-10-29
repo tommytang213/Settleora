@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tommytang213/Settleora/tools/release/day1-release-state.schema.json",
+  "title": "Offline Day 1 release-state declaration v1",
+  "$comment": "Structural declarations only, never authenticated evidence or production authorization. Run repository semantic validator for cross-field, unique-kind, RC identity and stale-evidence checks. This first slice has no persistence/recovery/live-root activation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "revision",
+    "state",
+    "source",
+    "rc",
+    "artifacts",
+    "evidence"
+  ],
+  "properties": {
+    "schema": {
+      "const": "settleora.day1-release-state.v1"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "state": {
+      "enum": [
+        "DEVELOPMENT",
+        "ELIGIBLE_FOR_RC",
+        "RC_CUT",
+        "QUALIFYING",
+        "READY_FOR_SIGNED_BUILD",
+        "RC_BUILT",
+        "UAT_DEPLOYED",
+        "UAT_REJECTED",
+        "UAT_APPROVED",
+        "READY_FOR_PROD_APPROVAL",
+        "PROD_APPROVED",
+        "PROMOTING",
+        "RELEASED",
+        "SUPERSEDED",
+        "BLOCKED"
+      ]
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "rc": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "ordinal",
+            "tag"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "maxLength": 48,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "tag": {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^v(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)-rc\\.[1-9]\\d*$"
+            }
+          }
+        }
+      ]
+    },
+    "artifacts": {
+      "$ref": "#/$defs/artifacts"
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit",
+        "tree"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "api-image": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "user-web": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "android-apk": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "android-aab": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "ios-build": {
+          "type": "string",
+          "pattern": "^provider-build:[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source",
+        "rcTag",
+        "artifacts",
+        "reference"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "source_acceptance",
+            "qualification",
+            "r03_identity",
+            "uat",
+            "human_production_approval",
+            "provider_reconciliation"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "rcTag": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^v(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)-rc\\.[1-9]\\d*$"
+            }
+          ]
+        },
+        "artifacts": {
+          "$ref": "#/$defs/artifacts"
+        },
+        "reference": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "identityDigest"
+          ],
+          "properties": {
+            "schema": {
+              "const": "settleora.day1-release-identity.v1"
+            },
+            "identityDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "r03_identity"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "identity"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "identity"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
