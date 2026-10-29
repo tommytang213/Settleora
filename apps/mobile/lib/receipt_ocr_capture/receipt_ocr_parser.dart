@@ -9588,7 +9588,13 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
       sawPayment = true;
       continue;
     }
-    if (sawPayment && _isDateOrTimeOnlyLine(lines[index].toLowerCase())) {
+    // Reuse whole-row metadata ownership from item extraction. A labeled
+    // clock/date after a proven payment is not another monetary cell. Prefixes
+    // with extra prices, prose or invalid values still fail these validators.
+    if (sawPayment &&
+        (_isDateOrTimeOnlyLine(lines[index].toLowerCase()) ||
+            _isCompleteClockMetadataLine(lines[index]) ||
+            _isCompleteOriginalCalendarMetadataRow(lines[index]))) {
       continue;
     }
     if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {

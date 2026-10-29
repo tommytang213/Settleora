@@ -1,5 +1,14 @@
 # Issue Progress Ledger
 
+### #1346 — OCR positive row-ownership characterization and conditional correction
+
+- Manual, separately scoped product task; not M15 or an auto-runner lane expansion. Atlas technical gate owner; draft/unmerged execution boundary.
+- Product base: PR #1327 `d564e4156f95614f435c1a55b11e7d537b201a3d`; relevant parser/preview/fixture-contract/corpus blobs match V6 source `98a0e50c317f06b394f2a4d59a1a4f6c75932fd6`.
+- Deterministic characterization isolated a footer-check mismatch: whole labeled clock/calendar rows accepted by extraction were rejected after payment by the footer's bare-date/time-only check. Before repair: 39 pass/12 fail; narrow shared-validator repair: 58 focused cases pass, including monetary/product/currency/duplicate/neighbor negatives. Full non-visual mobile validation passes 8,039 tests; analysis is clean, strict model/catalog verification passes, and the OCR Node suite passes 316 tests with two expected platform skips. Fresh independent/local review and exact-head hosted CI/reviews remain pending.
+- Parser inventory/trusted digest are refreshed together only for changed source; acceptance remains `pending_native_provider_acceptance`. No fixture truth, model/provider/native harness, money authority or API change. V6 remains a consumed failed 78/101 run; no native retry or new native acceptance is claimed.
+- Keep #1247/#1309 and other failure clusters open. A fresh full101 packet/admission is required after source gates; no merge, release/image publishing or deployment in this task. Preserve separately unmerged #1315/#973 ledger checkpoints during eventual reconciliation.
+
+
 ### Issue #722 — Lifecycle implementation split and focused handoff (2026-09-17 HKT)
 
 - Logical task `20260917-2247` used retained source branch
