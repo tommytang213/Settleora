@@ -1,5 +1,23 @@
 # Issue Progress Ledger
 
+### Issue #1316 — Offline release-state first slice (2026-10-29 UTC)
+
+- Issue remains open. A separately admitted six-path manual task from
+  `f0f54b081b37e48b1099a0379c3d444b08b0ea94` prepares a structural schema,
+  pure evidence/proposal inspection and read-only fixture CLI, reusing R03
+  canonical identity conventions without replacing #1214.
+- This is partial offline tooling, not authoritative live release state.
+  Caller declarations never establish human production approval or authorize
+  operations. Missing/stale evidence remains blocked. Persistence, recovery,
+  trusted evidence ingestion and actual release acceptance remain incomplete.
+- #1315/PR #1340 remains an unmerged canonical-documentation dependency for
+  later adoption. No RC/tag, artifact build/publication, provider/store action,
+  deployment, promotion, live-root activation, merge or issue closure occurs.
+- Focused and existing release-identity compatibility tests plus docs/scaffold
+  checks passed. Required fresh independent review and exact-head gates remain
+  prerequisites to adoption; no PR, hosted review or CI result is claimed.
+  Exact receipts remain in the external task report.
+
 ### Issue #722 — Lifecycle implementation split and focused handoff (2026-09-17 HKT)
 
 - Logical task `20260917-2247` used retained source branch
