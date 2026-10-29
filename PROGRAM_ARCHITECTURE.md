@@ -101,6 +101,16 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 - In server-mode, OCR-derived data created on-device remains provisional until validated and accepted by the API.
 - OCR architecture details are defined in [docs/architecture/OCR_ARCHITECTURE.md](docs/architecture/OCR_ARCHITECTURE.md).
 
+## Release Authority
+
+The September 24, 2026 owner decision in [#1315](https://github.com/tommytang213/Settleora/issues/1315) defines the Day 1 release model: build one immutable release candidate per platform, validate that exact artifact/provider build in UAT, and promote the same identity without rebuilding after explicit **human** production approval.
+
+- [Branching and release strategy](docs/architecture/BRANCHING_AND_RELEASE_STRATEGY.md) is the canonical source/RC/state/retry contract; [CI/CD requirements](docs/architecture/CI_CD_AND_PUBLISHING_REQUIREMENTS.md) defines qualification and platform handoffs under that contract.
+- `main` is the newest accepted development line, not proof of production readiness. Environments consume immutable artifacts rather than permanent environment source branches.
+- [Codemagic setup](docs/workflow/CODEMAGIC_TESTFLIGHT_SETUP.md) distinguishes current manual upload/evidence configuration from the required future same-build iOS RC path.
+- [Day 1 readiness](docs/deployment/DAY1_RELEASE_READINESS_AUDIT.md) records implementation owners and outstanding product, provider, device and operator evidence. Documenting the model implements none of those effects or acceptance gates.
+- Release control does not transfer API/domain authority for database writes, money, authorization, storage, sync, status transitions or audit to clients, CI or release providers.
+
 ## High-Risk Architecture Tracking
 
 - Production-dangerous limitations are tracked in [docs/planning/ARCHITECTURE_RISK_REGISTER.md](docs/planning/ARCHITECTURE_RISK_REGISTER.md).
