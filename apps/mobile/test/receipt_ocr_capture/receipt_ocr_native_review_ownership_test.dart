@@ -57,6 +57,7 @@ void main() {
         '18:43',
         'Date: 2026-09-17 18:43',
         'Time Out: 18:43',
+        'Date: 2026-09-17 Due Date: 2026-09-18',
       ]) {
         test(
           'owned payment/clock precedes centered footer: $footer/$clock/$payment',
@@ -105,6 +106,9 @@ void main() {
     'Date: 2026-09-17 18:43 USD 2.00',
     'Date: 2026-02-30 18:43',
     'Date: 2026-09-17 Gift',
+    'Date: 2026-09-17 Due Date: 2026-09-18 USD 2.00',
+    'Date: 2026-09-17 Due Date: 2026-09-18 Gift',
+    'Date: 2026-09-17 Due Date: 2026-02-30',
   ]) {
     test('clock prefix cannot hide unowned evidence: $clock', () {
       final preview = _paymentPreview(clock: clock);
