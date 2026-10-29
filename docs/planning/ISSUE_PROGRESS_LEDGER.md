@@ -1,5 +1,12 @@
 # Issue Progress Ledger
 
+### Issue #1315 — Immutable RC / same-artifact release architecture (2026-10-29 UTC)
+
+- Verified OPEN/unassigned at main `f0f54b081b37e48b1099a0379c3d444b08b0ea94`; no matching PR or local issue owner identified before this separate six-path documentation task. Project status/progress/remaining MD are unverified and unchanged.
+- Reconciles the September 24 owner decision in the canonical release/CI docs, program cross-link, current-versus-required Codemagic contract and dated Day 1 readiness overlay. #1316 state, #1317 RC cut, #1318 qualification, #1319 server/web, #1320 iOS, #1321 Android and #1322 recovery remain open implementation owners; #975 consumes final evidence.
+- Historical R03/R04 receipts and incomplete product/provider/device/operator evidence remain intact. Only advanced epochs/multi-line routing/forward-port remain Day 2 #946. No implementation, acceptance, release, tag, branch cut or provider action is claimed.
+- Keep #1315 open until required docs validation, fresh independent/local Codex and exact-head hosted review/CI convergence. This task stops before merge because current main-push GHCR publication is outside its authority. PR/merge SHA: not yet available. Separate task evidence: `settleora-1315-release-docs-20261029/` in the current executor; no private host/cache inventory belongs in PR evidence. M15, runner contracts/lanes and all protected-action gates are unchanged.
+
 ### Issue #722 — Lifecycle implementation split and focused handoff (2026-09-17 HKT)
 
 - Logical task `20260917-2247` used retained source branch

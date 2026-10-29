@@ -2,9 +2,19 @@
 
 This document describes Settleora's repository-side Codemagic foundation for manually initiated Flutter evidence and the guarded internal TestFlight upload workflow. GitHub Actions owns automatic pull-request validation; Codemagic is preparation for explicit internal testing and release work only, not a production App Store release setup.
 
+## Canonical RC contract and current configuration gap (2026-10-29)
+
+The approved [immutable-RC release contract](../architecture/BRANCHING_AND_RELEASE_STRATEGY.md) and [CI/CD requirements](../architecture/CI_CD_AND_PUBLISHING_REQUIREMENTS.md) govern release identity. [#1320](https://github.com/tommytang213/Settleora/issues/1320) owns implementing the same-build iOS flow; the configuration below is **current manual upload/evidence setup, not completed RC promotion tooling**.
+
+Current `codemagic.yaml` passes `--build-number="$BUILD_NUMBER"` to the IPA build. This provider counter does not meet the required release-state identity contract. #1316/#1317 must supply the fixed version/build number and immutable RC tag/SHA; #1318 must qualify that RC before an explicitly approved signed run. Do not edit YAML/signing or claim that gap resolved from this documentation change.
+
+The required future path builds/signs once, inspects the resulting IPA/package and provenance, and records the accepted App Store Connect build. TestFlight UAT and later human-approved App Store promotion select that **same provider build**, with no Flutter/Xcode rebuild for environment or metadata changes. A source/build-input fix requires the next RC/build identity and fresh qualification/UAT. #1322 must reconcile accepted or ambiguous provider outcomes before retry; upload success alone is neither UAT nor release acceptance. Mobile recovery does not assume installed-binary downgrade.
+
+All following workflow instructions describe current configuration and manual evidence only; they do not authorize a run, upload, tester change, signing change or production/store release. GitHub Actions remains routine PR CI and exact-source RC qualification; Codemagic remains manual mobile release only. [Day 1 readiness](../deployment/DAY1_RELEASE_READINESS_AUDIT.md) tracks the separate repository and external evidence gates.
+
 ## Repository Layout
 
-Codemagic looks for `codemagic.yaml` at the repository root. Settleora's Flutter app is under `apps/mobile`, so both Codemagic workflows use:
+Codemagic looks for `codemagic.yaml` at the repository root. Settleora's Flutter app is under `apps/mobile`, so the Codemagic workflows use:
 
 ```yaml
 working_directory: apps/mobile
@@ -276,10 +286,11 @@ Codex must not, without a future explicit human approval task:
 
 Keep Day 1, Day 2, and Day 3 scope separate. Day 1 may use manual internal
 TestFlight evidence for acceptance review when a maintainer chooses to run it.
-Broader release automation, external beta distribution, public App Store or
-Play Store launch automation, payment-provider integration, and production
-public exposure remain separate future gated work unless a later issue
-explicitly approves them.
+Minimum immutable-RC state, qualification, same-build UAT/promotion and retry
+foundations are approved Day 1 work under #1315–1322, with actual signing,
+provider/store and production actions still separately human-gated. Advanced
+release epochs/multi-line routing/forward-port remain Day 2 #946; payment-provider
+integration and production public exposure are not authorized by these docs.
 
 ## Finding Uploaded Builds
 
@@ -304,7 +315,7 @@ The repository has no Codemagic `triggering.events` configuration, and GitHub Ac
 
 1. Merge the Codemagic/TestFlight repository setup.
 2. In Codemagic, confirm the branch with root `codemagic.yaml` is detected.
-3. Confirm the exact release candidate passed its classifier-required GitHub Actions lanes and stable `Validate scaffold` aggregate; run `Mobile iOS validation` manually only if supplementary Codemagic evidence is required.
+3. For current manual evidence, confirm the exact source passed its required GitHub Actions lanes and stable `Validate scaffold` aggregate. For a future canonical RC, require the complete #1318 qualification, not ordinary PR path-filter coverage alone; run supplementary Codemagic validation only when explicitly required.
 4. Confirm Apple Developer Program, App Store Connect app record, registered bundle ID `com.tommytang213.settleora`, internal tester access needs, and Codemagic integration `settleora-app-store-connect`.
 5. Manually run `Mobile iOS internal TestFlight` only at a milestone or release gate when signing and App Store Connect setup are ready.
 6. After upload processing, check App Store Connect > My Apps > Settleora > TestFlight / Builds and perform any manual internal tester setup needed in App Store Connect.

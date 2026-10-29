@@ -22,6 +22,25 @@ R03 completion addendum: [Issue #1214](https://github.com/tommytang213/Settleora
 
 R04 completion addendum: [Issue #1232](https://github.com/tommytang213/Settleora/issues/1232) is implemented by [PR #1233](https://github.com/tommytang213/Settleora/pull/1233), reviewed source `31d58e06ccbb31fda079bf532aae8cb696606fea`, tree `d2122b86b22884c609048c02975fc9077831c832`, normal merge `3b0a78bc9883b643e889d28d5b43adcdbd47bd19`. The repository now contains an unpublished TrueNAS 25.10.x Docker Apps skeleton that semantically consumes the retained R03 identity, selects immutable Linux/amd64 runtime digests, preserves R11/R12, renders only five private services, and publishes only exact-RFC1918 HTTPS. Exact-head and merged-source direct/official rendering, negatives, determinism, CI/scanners, and independent reviews passed. No catalog publication, live TrueNAS action, deployment, real secret/certificate, migration/database operation, backup/restore, or public/admin exposure occurred; R05/#975 retain all live/manual acceptance.
 
+## Release-model supersession — 2026-10-29 (#1315)
+
+The September 24 owner decision in [#1315](https://github.com/tommytang213/Settleora/issues/1315) supersedes this audit's earlier blanket deferral of release cuts and immutable UAT-to-production promotion to #946. The **minimum #1315–1322 foundation is approved Day 1 scope**; only advanced release epochs, multi-line routing and forward-port automation remain Day 2 #946. [Canonical branching/RC/state/retry authority](../architecture/BRANCHING_AND_RELEASE_STRATEGY.md) and [CI/CD handoffs](../architecture/CI_CD_AND_PUBLISHING_REQUIREMENTS.md) define build-once, exact-artifact UAT and same-artifact promotion with human production approval.
+
+This is a documentation reconciliation, not execution or acceptance. Historical R03/R04 source, digest, review and render receipts above remain unchanged; they prove their original bounded slices, not the new RC control/promotion implementation. The 69-capability inventory below retains its original categories/counts (I04 now explicitly means advanced epochs only). The following **eight issue owners** are a separate dependency overlay, not eight extra completed capabilities or duplicate MD burn. At verification against main `f0f54b081b37e48b1099a0379c3d444b08b0ea94`, #1315–1322 are all open; documenting a requirement does not complete any implementation child.
+
+| Day 1 owner | Dependency / bounded responsibility | Remaining gate |
+| --- | --- | --- |
+| [#1315](https://github.com/tommytang213/Settleora/issues/1315) | Canonical documentation and ownership reconciliation | Fresh docs validation/review/PR convergence; no implementation acceptance |
+| [#1316](https://github.com/tommytang213/Settleora/issues/1316) | State/readiness layer consuming R03/#1214 | Exact evidence, transitions, stale/ambiguous-state refusal; unimplemented here |
+| [#1317](https://github.com/tommytang213/Settleora/issues/1317) | #1316 -> owner-initiated exact-SHA RC cut, immutable tag/ordinal, fixed mobile build identities | Tommy initiates Day 1 RC creation; no cut/tag in this task |
+| [#1318](https://github.com/tommytang213/Settleora/issues/1318) | #1317 -> full RC qualification, including Android+iOS 101-image OCR via #1247/#1301 | Complete required non-external evidence before signed-build readiness; no publication |
+| [#1319](https://github.com/tommytang213/Settleora/issues/1319) | State/RC/qualification + R03 + serving/product prerequisites -> immutable server/web UAT/promotion | Same-digest proof and compatible rollback; R05 retains live TrueNAS, R09 human production/exposure |
+| [#1320](https://github.com/tommytang213/Settleora/issues/1320) | State/RC/qualification + #1322 -> signed iOS RC, exact TestFlight build and same-build App Store promotion | Adopts R06 repository flow; signing/run/upload/device/store evidence remains separately manual/external |
+| [#1321](https://github.com/tommytang213/Settleora/issues/1321) | State/RC/qualification + R01 + #1322 -> signed AAB/Play test-track and same-release promotion | Adopts R07 preparation; application identity/signing/tester/store/device gates remain |
+| [#1322](https://github.com/tommytang213/Settleora/issues/1322) | #1316/#1317 -> provider intent/retry/reconciliation shared by platform flows | Crash/timeout/accepted-response-loss proof; ambiguity blocks, no duplicate build |
+
+[#975](https://github.com/tommytang213/Settleora/issues/975) consumes the resulting exact final-candidate evidence together with outstanding product/native/device/operator acceptance. It cannot infer acceptance from docs, uploads or historical R03/R04 proof. #380 stays open. R05/R08/R09/R13 and domain/security prerequisites are not replaced by this overlay. Current Codemagic `$BUILD_NUMBER` remains a #1320 implementation gap. Current main-push GHCR publication means this docs task stops **before merge** absent separate artifact-publication authority; no workflow change is made to avoid that boundary.
+
 ## 1. Scope, method, and conclusion
 
 This is a source-of-truth inventory, not a release. It reconciles the current
@@ -174,12 +193,12 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | F08 | Android identity/signing/Play preparation | `unavailable` | B12 | Missing approved application ID, release-signing boundary, valid App Bundle, and Play publishing preparation. Play Console processing/testing and device install become `externally-gated` only after this repository preparation exists | R07 owns preparation and later evidence; #975 consumes it |
 | G01 | Exact source identity | `implemented` | Git commit/tree, OCI revision label; `tools/release/` | PR/check evidence is SHA-bound; completed R03 also requires a clean exact-source checkout and binds source/tree across the candidate | #1214 |
 | G02 | API image digest/tag discoverability | `implemented` | GHCR workflow/run logs; external R03 candidate | Completed R03 binds the exact `sha-<source>` tag, immutable index and selected-platform digests, matching OCI revision, BuildKit provenance, and successful normal publication run. Floating `main` is rejected as authority | #1214; publication is not promotion/deployment |
-| G03 | Mobile version/build identity | `partial` | `pubspec.yaml`; Codemagic vars; R03 candidate | R03 deterministically records static `1.0.0+1`; Codemagic overrides build number. No accepted cross-platform release/version policy or current signed build record | R06/R07 |
+| G03 | Mobile version/build identity | `partial` | `pubspec.yaml`; Codemagic vars; R03 candidate | R03 deterministically records static `1.0.0+1`; Codemagic overrides build number. The #1315 contract now defines fixed release-state build identities, but allocation/enforcement and current signed evidence remain absent | #1316/#1317; #1320/R06 and #1321/R07 |
 | G04 | Release notes/changelog | `partial` | mobile bundled What's New; R03 bounded candidate notes | R03 binds explicit bounded candidate notes by digest and rejects inferred commit-message claims, but no broader product release-note authority or release epoch exists | Product release owner; broad epoch automation is #946 later-day |
-| G05 | Development/test/staging/production distinction | `documentation-only` | architecture requirements; environment variables | Names are described and mobile tokens accept build-environment labels, but no staged deployment/promotion system exists | R09 for any live environment; #946 later-day automation |
+| G05 | Development/test/staging/production distinction | `documentation-only` | architecture requirements; environment variables | Names are described and mobile tokens accept build-environment labels, but no staged deployment/promotion system exists | R09 for live activation; #1316/#1319–1322 minimum Day 1; advanced #946 remains Day 2 |
 | G06 | Post-deploy health/smoke and approvals | `documentation-only` | deployment guides/checklists | Endpoints and evidence fields exist; only historical #483 bounded health proof exists, not current release-candidate smoke | R05 produces self-host evidence; #975 consumes it |
 | G07 | Incident/recovery and retention | `documentation-only` | rollback/backup docs; R03 evidence retention | R03 records bounded evidence retention and an immutable prior API artifact with an explicit rollback-safety caveat. No product deployment incident drill or restore/rollback rehearsal exists | R05 |
-| G08 | Production artifact promotion | `blocked` | no current production deployment workflow | R03 supplies a non-production cross-artifact identity candidate, not a complete promotable product candidate. A supported deployment path and product acceptance remain prerequisites, and promotion stays an explicit production/manual gate | R05/R08 before R09; immutable UAT-to-production automation is #946 later-day |
+| G08 | Production artifact promotion | `blocked` | no current production deployment workflow | R03 supplies a non-production cross-artifact identity candidate, not a complete promotable product candidate. A supported deployment path and product acceptance remain prerequisites, and promotion stays an explicit production/manual gate | R05/R08 and product readiness before R09; #1319 owns minimum immutable promotion, #1322 recovery; advanced epochs only remain #946 |
 | H01 | Real Codemagic cloud validation/signed build | `externally-gated` | portable repository config only | Not run in #1201: `mobile-ios-validation` and optional `mobile-ios-visual-evidence` still need manual post-merge provider proof; signed TestFlight remains separate | R06 for signed release evidence; #1201 records the pending unsigned validation/visual reruns |
 | H02 | App Store Connect upload/processing | `externally-gated` | repository upload block only | No current provider evidence | R06 |
 | H03 | TestFlight internal availability and real-device install | `externally-gated` | completed #383 manual checklist only | No current tester/device evidence | R06 owns evidence production; #975 consumes it |
@@ -190,7 +209,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | I01 | Auto-runner operational program | `implemented` | `tools/auto-runner/**`; #910/#912 evidence | #910 and #912 are CLOSED; #912 accepted deployed automation source `ecf69d41...`; PR #968 merged `6182d714...` from head `43b2f02b...` as part of that chain | Completed development automation program; not a product deploy dependency |
 | I02 | Auto-runner authority boundary | `implemented` | issue close rules and `AGENTS.md` | Can coordinate approved development PR work; cannot authorize production, stores, exposure, secrets, or destructive migrations | Completed #910/#912; no gap |
 | I03 | Stale #974 dependency text | `superseded` | live #910/#912/PR #968 state and #974 reconciliation comment | “May run after #912” wording is historical; all are completed and separate evidence | #974 issue-body hygiene after merge |
-| I04 | Release epochs/UAT promotion | `later-day` | [#946](https://github.com/tommytang213/Settleora/issues/946) | Deferred until Day 1 implementation and integrated acceptance; no release branch or environment branch should be invented now | #946 only |
+| I04 | Advanced release epochs/multi-line routing/forward-port | `later-day` | [#946](https://github.com/tommytang213/Settleora/issues/946) | Advanced automation remains deferred; minimum RC/state/UAT/promotion/recovery foundation is Day 1 #1315–1322, tracked separately above. No release or environment branch is created by this audit | #946 advanced only |
 
 ## 4. Artifact matrix
 
@@ -439,8 +458,9 @@ Findings:
   #1195 implements the R12 private bind/HTTPS repository contract. A polished
   catalog, live DNS/certificate/physical-device proof, automated upgrade/
   backup/rollback, and current restore drill remain absent.
-- #946 owns post-Day-1 release epochs and UAT artifact promotion and must not be
-  pulled into Day 1 minimum readiness.
+- #1315–1322 own the approved minimum Day 1 release contract/state/RC/qualification/
+  same-artifact UAT/promotion/recovery foundation. #946 owns advanced Day 2 epochs,
+  multi-line routing and forward-port only; it must not defer the minimum foundation.
 - #777 owns the auth production/public-exposure security-review gate; #376 is
   the admin product umbrella and #463 supplies planning-only prerequisites;
   completed #485 supplies the existing proxy/TLS/exposure planning baseline.
@@ -449,7 +469,7 @@ Findings:
 
 ## 11. Remaining owner and gate matrix
 
-Recommendation IDs are audit outputs only; no child issue is created here.
+Recommendation IDs are audit outputs only; no child issue is created here. The dated #1315 overlay above adopts existing issue owners: R06 maps to #1320, R07 to #1321, and R09 consumes #1319/#1322 alongside its live/manual prerequisites. These are not duplicate implementation recommendations.
 
 | Owner | Scope and non-goals | Gate | Lane / paths | Validation / review | Close rule and dependencies |
 | --- | --- | --- | --- | --- | --- |
@@ -467,7 +487,8 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 | R12 — **completed by Issue #1195 / PR #1196:** fail-closed private LAN bind and mobile-safe transport | Both LAN variants require an RFC1918 interface, publish only exact-host HTTPS through Caddy, isolate the proxy from backend dependencies, and require operator-external trusted TLS material. Mobile retains strict platform trust and declares Android network/iOS local-network access | Repository network/TLS/security review completed; all live DNS/certificate/host/device actions remain manual | PR #1196 source `849c5695fc5e90eddf788777cab588ab9e90c784`, tree `91e414b4d58b8640124e34bb35f0c168cc0d4ca5`, normal merge `43a828b9e5172069a00e80928069e815ae0dec9e`; LAN Compose/env/Caddy/tests/runbooks plus mobile platform declarations | fail-closed matrices, aligned Compose JSON, disposable trusted HTTPS readiness, R11 regressions, mobile validation, Gemini/local/GitHub security review | Repository contract complete; R05 owns real private DNS, certificate, TrueNAS and physical-device proof, while R09 owns any wider exposure. No public/admin activation or secret material is included |
 | R13 — **new focused recommendation after #964:** admin-web serving package | Add an unpublished private serving package only after #964 has split and the resulting focused admin runtime/auth prerequisites are complete. Non-goals: build the admin product, change auth/API, deploy, or expose publicly | Admin auth/security, storage/privacy, deployment/exposure gates | deployment lane; future focused admin serving/package paths | completed product tests/visual/authz evidence first, then package/render/private-smoke validation; strong security/deployment review | Close on a reproducible unpublished private package after #964's reconciled runtime graph; #376 remains the umbrella and completed/planning issues are dependencies, not execution owners |
 | #975 | Consume, but do not manufacture, final native/device/UI/operator evidence | Final human/platform acceptance | `docs-planning` acceptance audit | evidence-bound audit/review | Runs after relevant product/release gaps; cannot close gates from configuration alone |
-| #946 | Post-Day-1 release epochs, release cuts, UAT-to-production immutable promotion | Deferred activation gate | later-day release management | its own future validation | Start only after complete Day 1 implementation and integrated acceptance |
+| #1315–1322 | Minimum Day 1 release foundation; exact owners/dependencies in dated overlay above | Repository review plus separate human provider/production gates | Separately scoped tasks; not M15 or automatic-runner admission | Exact RC/state/artifact/retry tests and independent review in each implementation issue | Docs are not implementation; #975 consumes final evidence |
+| #946 | Advanced Day 2 epochs, multi-line routing and forward-port | Deferred advanced automation | later-day release management | its own future validation | Does not own or defer the minimum #1315–1322 Day 1 foundation |
 
 ## 12. Dependency-safe remaining work graph
 
@@ -487,8 +508,11 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
    any production/exposure action; #975 consumes the final evidence.
-5. **Later day:** #946 release epochs, clean release cuts, multi-environment UAT
-   promotion, and generalized release-line automation.
+5. **Day 1 minimum release foundation:** #1315 docs -> #1316 state -> #1317 RC
+   cut -> #1318 qualification -> #1319/#1320/#1321 same-artifact platform flows;
+   #1322 consumes state/RC identity and supplies provider recovery to those flows.
+   Product readiness and R05/R06/R07/R09 external/manual gates remain independent.
+6. **Later day:** #946 advanced epochs, multi-line routing and forward-port.
 
 Dependency summary:
 
@@ -499,7 +523,10 @@ completed R10 -> completed R02 -> completed R03 -> completed R04 -+
 completed #970 -> completed R01 Android compile -> completed R03/R07+
 #373 user web -> R08; #964 -> admin runtime -> R13 -------------------+
 R12 + domain reviews -> R09 production/exposure ---------------------+
-complete Day 1 + #975 acceptance -------------------------------> #946 (later day)
+#1315 -> #1316 -> #1317 -> #1318 -> #1319/#1320/#1321 -----------+--> #975
+                    +-> #1322 recovery -> platform flows -------+
+product readiness + exact UAT + HUMAN approval -> production (separate gate)
+complete Day 1 + #975 acceptance -> #946 advanced epochs/routing/forward-port
 ```
 
 ### Possible next dependency-safe logical task for GPT review
@@ -522,5 +549,7 @@ device proof, catalog/upgrade/restore/rollback remain incomplete; signed iOS evi
 remains manual/external; and current-host, Android store, staging/production, and
 exposure acceptance is blocked or unavailable until repository and product
 prerequisites exist, after which live actions remain manually gated. #380 must
-remain open. #975 remains the later acceptance consumer. #946 remains deferred.
+remain open. #975 remains the final evidence consumer. Minimum Day 1 #1315–1322
+implementation and external gates remain outstanding; only advanced #946 epochs,
+multi-line routing and forward-port remain deferred.
 #959 remains isolated.
