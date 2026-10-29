@@ -335,11 +335,11 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                       message: widget.openGroupBillCreateOnPick
                           ? 'Create a group first, then pick it to start a group bill.'
                           : 'Groups you can access will appear here. Create a group to start sharing bills.',
-                      action: FilledButton.icon(
+                      action: AppButton(
                         key: const Key('group-list-empty-create'),
                         onPressed: _isCreating ? null : _createGroup,
-                        icon: const Icon(Icons.group_add_outlined),
-                        label: const Text('Create group'),
+                        icon: Icons.group_add_outlined,
+                        label: 'Create group',
                       ),
                     ),
                   ] else ...[
