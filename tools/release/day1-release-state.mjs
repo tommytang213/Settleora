@@ -105,7 +105,7 @@ export function inspectReleaseState(input) {
     // Source acceptance precedes the cut; source-only qualification can precede signed artifacts.
     // Later artifact-bound evidence must cover the exact complete current artifact set.
     if (record.rcTag !== (state.rc?.tag ?? null) && !(record.kind === 'source_acceptance' && record.rcTag === null)) blockers.add(`evidence_rc_mismatch:${record.kind}`);
-    const exactArtifactSet = ['uat', 'human_production_approval', 'provider_reconciliation'].includes(record.kind);
+    const exactArtifactSet = ['r03_identity', 'uat', 'human_production_approval', 'provider_reconciliation'].includes(record.kind);
     if ((exactArtifactSet && canonicalJson(record.artifacts) !== canonicalJson(state.artifacts))
       || Object.entries(record.artifacts).some(([kind, identity]) => state.artifacts[kind] !== identity)) blockers.add(`evidence_artifacts_mismatch:${record.kind}`);
     blockers.add(`evidence_unverified:${record.kind}`);

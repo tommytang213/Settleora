@@ -210,3 +210,29 @@ test('terminal declarations allow exact no-op only, not same-state revisions', (
       assert.throws(() => inspectProposedTransition(previous, { ...previous, ...changes, revision: 1 }), /terminal_state_conflict/u);
   }
 });
+
+test('R03 evidence must cover the complete declared built artifact set', () => {
+  const artifacts = { 'api-image': digest, 'android-apk': `sha256:${'d'.repeat(64)}` };
+  for (const inventory of [{}, { 'api-image': digest }, artifacts]) {
+    const input = state({ state: 'RC_BUILT', rc, artifacts, evidence: [evidence('r03_identity', { artifacts: inventory, identity: { schema: R03_SCHEMA, identityDigest: 'e'.repeat(64) } })] });
+    const report = inspectReleaseState(input);
+    assert.equal(report.blockers.includes('evidence_artifacts_mismatch:r03_identity'), inventory !== artifacts);
+    assert.equal(report.operationAuthorized, false);
+  }
+});
+
+test('CLI validates through a symlinked checkout with either main-module resolution mode', (t) => {
+  const { root } = fixture(t);
+  const repo = fileURLToPath(new URL('../../..', import.meta.url));
+  const link = path.join(root, 'checkout-link');
+  symlinkSync(repo, link);
+  const cli = path.join(link, 'tools/release/day1-release-state-cli.mjs');
+  for (const flags of [[], ['--preserve-symlinks-main']]) {
+    const result = spawnSync(process.execPath, [...flags, cli, 'validate', '--fixture-root', root, '--state', 'state.json'], { encoding: 'utf8', env: { PATH: '', HOME: root, TMPDIR: root } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).structurallyValid, true);
+    const rejected = spawnSync(process.execPath, [...flags, cli, 'persist'], { encoding: 'utf8', env: { PATH: '', HOME: root, TMPDIR: root } });
+    assert.equal(rejected.status, 1);
+    assert.equal(JSON.parse(rejected.stderr).error, 'release_state_input_rejected');
+  }
+});

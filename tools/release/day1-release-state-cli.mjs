@@ -54,7 +54,12 @@ export function main(argv = process.argv.slice(2)) {
     : inspectReleaseState(input);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const invokedAsEntryPoint = () => {
+  try { return Boolean(process.argv[1]) && realpathSync(path.resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url)); }
+  catch { return false; } // Imported modules need not have an existing argv entry.
+};
+
+if (invokedAsEntryPoint()) {
   try { process.stdout.write(`${JSON.stringify(main())}\n`); }
   catch (error) {
     process.stderr.write(`${JSON.stringify({ error: 'release_state_input_rejected', reason: error?.code && /^[a-z_]+$/u.test(error.code) ? error.code : 'invalid_fixture_input' })}\n`);
