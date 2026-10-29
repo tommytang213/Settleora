@@ -1,7 +1,11 @@
+import { englishMessages } from "./localization/catalog";
+import { translateMessage } from "./localization/locale";
 import { describe, expect, it, vi } from "vitest";
 import { normalizeRouteId } from "./App";
 import {
   collectNotificationTargetFields,
+  notificationTemplateKeys,
+  resolveNotificationPresentation,
   filterNotificationsForPresentation,
   loadNotificationsReadout,
   notificationsListQuery,
@@ -296,5 +300,168 @@ describe("notifications readout adapter", () => {
     expect(normalizeRouteId("notifications")).toBe("notifications");
     expect(normalizeRouteId("settle")).toBe("settlements");
     expect(normalizeRouteId("unknown")).toBe("home");
+  });
+});
+
+// Independent approved reference retained before the cross-root fixture failure.
+const approvedNotificationMessages = {
+  "notifications.bill.submitted.title": "Bill submitted",
+  "notifications.bill.participant_accepted.title": "Bill accepted",
+  "notifications.bill.participant_rejected.title": "Bill rejected",
+  "notifications.bill.confirmed.title": "Bill confirmed",
+  "notifications.bill.revision_proposed.title": "Bill revision proposed",
+  "notifications.bill.revision_resubmitted.title": "Bill revision resubmitted",
+  "notifications.bill.revision_submitted.title": "Bill revision submitted",
+  "notifications.bill.revision_withdrawn.title": "Bill revision withdrawn",
+  "notifications.bill.revision_approved.title": "Bill revision approved",
+  "notifications.bill.revision_rejected.title": "Bill revision rejected",
+  "notifications.bill.revision_payer_confirmed.title": "Bill revision payer confirmed",
+  "notifications.bill.revision_applied.title": "Bill revision applied",
+  "notifications.settlement.request_created.title": "Settlement requested",
+  "notifications.settlement.payment_marked_paid.title": "Payment marked paid",
+  "notifications.settlement.payment_partially_paid.title": "Partial payment marked paid",
+  "notifications.settlement.payment_confirmed.title": "Payment confirmed",
+  "notifications.settlement.request_disputed.title": "Settlement disputed",
+  "notifications.settlement.payment_disputed.title": "Payment disputed",
+  "notifications.settlement.request_cancelled.title": "Settlement cancelled",
+  "notifications.settlement.payment_cancelled.title": "Payment cancelled",
+  "notifications.settlement.proof_attached.title": "Proof attached",
+  "notifications.settlement.residual_review_needed.title": "Settlement review",
+  "notifications.recurring_bill.due_soon.title": "Recurring bill due soon",
+  "notifications.recurring_bill.draft_generated.title": "Recurring draft generated",
+  "notifications.sync.conflict_detected.title": "Sync issue",
+  "notifications.sync.operation_failed.title": "Sync issue",
+  "notifications.ocr.needs_review.title": "Receipt review",
+  "notifications.bill.submitted.message": "Bill",
+  "notifications.bill.participant_accepted.message": "Bill",
+  "notifications.bill.participant_rejected.message": "Bill",
+  "notifications.bill.confirmed.message": "Bill",
+  "notifications.bill.revision_proposed.message": "Bill",
+  "notifications.bill.revision_resubmitted.message": "Bill",
+  "notifications.bill.revision_submitted.message": "Bill",
+  "notifications.bill.revision_withdrawn.message": "Bill",
+  "notifications.bill.revision_approved.message": "Bill",
+  "notifications.bill.revision_rejected.message": "Bill",
+  "notifications.bill.revision_payer_confirmed.message": "Bill",
+  "notifications.bill.revision_applied.message": "Bill",
+  "notifications.settlement.request_created.message": "Settlement request",
+  "notifications.settlement.payment_marked_paid.message": "Settlement payment",
+  "notifications.settlement.payment_partially_paid.message": "Settlement payment",
+  "notifications.settlement.payment_confirmed.message": "Settlement payment",
+  "notifications.settlement.request_disputed.message": "Settlement request",
+  "notifications.settlement.payment_disputed.message": "Settlement payment",
+  "notifications.settlement.request_cancelled.message": "Settlement request",
+  "notifications.settlement.payment_cancelled.message": "Settlement payment",
+  "notifications.settlement.proof_attached.message": "Settlement payment",
+  "notifications.settlement.residual_review_needed.message": "Settlement payment",
+  "notifications.recurring_bill.due_soon.message": "Recurring bill",
+  "notifications.recurring_bill.draft_generated.message": "Recurring bill",
+  "notifications.sync.conflict_detected.message": "Sync issue",
+  "notifications.sync.operation_failed.message": "Sync issue",
+  "notifications.ocr.needs_review.message": "Receipt review"
+} as const;
+
+describe("approved static notification presentation", () => {
+  it("matches all 27 admitted event pairs and all 54 approved English strings", () => {
+    const expectedKeys = Object.keys(approvedNotificationMessages);
+    expect(expectedKeys).toHaveLength(54);
+    const events = new Set(expectedKeys.map((key) => key.replace(/^notifications\./, "").replace(/\.(title|message)$/, "")));
+    expect(events.size).toBe(27);
+    expect([...notificationTemplateKeys].sort()).toEqual(expectedKeys.sort());
+    for (const event of events) {
+      expect(Object.prototype.hasOwnProperty.call(approvedNotificationMessages, `notifications.${event}.title`)).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(approvedNotificationMessages, `notifications.${event}.message`)).toBe(true);
+    }
+    for (const [key, copy] of Object.entries(approvedNotificationMessages)) {
+      expect(englishMessages[key as keyof typeof englishMessages]).toBe(copy);
+      const row = { titleKey: key.endsWith(".title") ? key : "", messageKey: key.endsWith(".message") ? key : "", safeSummary: null };
+      const shown = resolveNotificationPresentation(row, (k) => translateMessage("en", k));
+      expect(key.endsWith(".title") ? shown.title : shown.message).toBe(copy);
+    }
+    expect(Object.keys(englishMessages).filter((key) => key.startsWith("notifications.")).sort()).toEqual([
+      ...expectedKeys, "notifications.fallback.title", "notifications.fallback.message"
+    ].sort());
+  });
+
+  it("preserves meaningful dynamic safe-summary text before static message fallback", () => {
+    const row = { ...unreadSettlementNotification, safeSummary: "  Payment of HKD 42.00 awaits your review on 29 October.  " };
+    expect(resolveNotificationPresentation(row, (k) => translateMessage("en", k))).toEqual({
+      title: "Settlement requested", message: "Payment of HKD 42.00 awaits your review on 29 October."
+    });
+    expect(row.safeSummary).toBe("  Payment of HKD 42.00 awaits your review on 29 October.  ");
+    const long = "A".repeat(300);
+    expect(resolveNotificationPresentation({ ...row, safeSummary: long }, (k) => translateMessage("en", k)).message).toBe("A".repeat(237) + "...");
+  });
+
+  it.each([null, undefined, "", "  ", 42, {}, "<img src=x onerror=alert(1)>", "notifications.unknown.message", "bill.submitted", "settlement.payment_confirmed", "sync.future_event", "expense_bill", "Review expense_bill today", "Review expense_bill_revision today", "Use Bearer synthetic.header.signature to authenticate", "secret: hidden", "Authorization: Bearer hidden", "?requestId=opaque", "&id=value", "secret=hidden", "Bearer hidden", "https://invalid.example/", "/api/private", "bad\u0000text", "00000000-0000-0000-0000-000000000001"])(
+    "uses safe catalog copy for an unusable summary %j", (summary) => {
+      const row = { ...unreadSettlementNotification, safeSummary: summary } as unknown as InAppNotificationResponse;
+      expect(resolveNotificationPresentation(row, (k) => translateMessage("en", k)).message).toBe("Settlement request");
+    }
+  );
+
+  it.each([null, undefined, "", "notifications.future.title", "__proto__", "constructor", "<script>bad</script>", 42, {}])(
+    "does not expose unknown or malformed keys %j", (key) => {
+      const row = { titleKey: key, messageKey: key, safeSummary: null } as unknown as InAppNotificationResponse;
+      expect(resolveNotificationPresentation(row, (k) => translateMessage("en", k))).toEqual({
+        title: "Notification", message: "Notification type"
+      });
+    }
+  );
+
+  it("rejects known message/title keys in the wrong field and preserves transport/filter behavior", () => {
+    expect(resolveNotificationPresentation({ titleKey: "notifications.bill.submitted.message", messageKey: "notifications.bill.submitted.title", safeSummary: null }, (k) => translateMessage("en", k))).toEqual({
+      title: "Notification", message: "Notification type"
+    });
+    const row = structuredClone(unreadSettlementNotification);
+    const before = structuredClone(row);
+    resolveNotificationPresentation(row, (k) => translateMessage("en", k));
+    expect(row).toEqual(before);
+    expect(filterNotificationsForPresentation([row], { search: "settlement.request_created", status: "unread", sort: "newest" })).toEqual([before]);
+    expect(collectNotificationTargetFields(row)).toEqual(collectNotificationTargetFields(before));
+  });
+});
+
+it("preserves ordinary question punctuation in a meaningful safe summary", () => {
+  expect(resolveNotificationPresentation({ ...unreadSettlementNotification, safeSummary: "Ready to review this bill?" }, (k) => translateMessage("en", k)).message).toBe("Ready to review this bill?");
+});
+
+it.each(["The secretary approved your bill.", "The secret Santa bill is ready.", "The expense bill revision is ready."])("preserves ordinary summary prose %s", (message) => {
+  expect(resolveNotificationPresentation({ ...unreadSettlementNotification, safeSummary: message }, (k) => translateMessage("en", k)).message).toBe(message);
+});
+
+it("rejects the bounded current transport inventory both alone and embedded", () => {
+  const subjects = ["expense_bill", "settlement_request", "settlement_payment", "recurring_bill_occurrence", "receipt_ocr_review", "sync_operation"];
+  const keys = Object.keys(approvedNotificationMessages);
+  const events = [...new Set(keys.map((key) => key.replace(/^notifications\./, "").replace(/\.(title|message)$/, "")))];
+  expect(keys).toHaveLength(54);
+  expect(events).toHaveLength(27);
+  const identifiers = [...subjects, ...events, ...keys];
+  expect(identifiers).toHaveLength(87);
+  for (const identifier of identifiers) {
+    for (const safeSummary of [identifier, `Review ${identifier} today`]) {
+      expect(resolveNotificationPresentation({ ...unreadSettlementNotification, safeSummary }, (k) => translateMessage("en", k)).message).toBe("Settlement request");
+    }
+  }
+});
+
+it.each(["Authenticate with Bearer abcdefghijklmnop to continue.", "The header contains Bearer abcdefghijklmnop.", "Bearer abcdefghijklmnop is the authentication token.", "OAuth Bearer abcdefghijklmnop is required.", "Use Bearer abcdefghijklmnop to authenticate", "Use Bearer abc to authenticate", "Use BEARER ABCDEFGHIJKLMNOP to authenticate", "Use Bearer opaque123value to authenticate", "Use Bearer fake_token_value to authenticate", "Authorization: Bearer hidden", "Use Bearer synthetic.header.signature to authenticate"])("rejects explicit credential-shaped syntax %s", (safeSummary) => {
+  expect(resolveNotificationPresentation({ ...unreadSettlementNotification, safeSummary }, (k) => translateMessage("en", k)).message).toBe("Settlement request");
+});
+
+it.each(["The secretary approved your bill.", "The secret Santa bill is ready.", "Ready to review this bill?", "The total is < 100 and the payment is > 10."])("preserves ordinary prose and punctuation %s", (message) => {
+  expect(resolveNotificationPresentation({ ...unreadSettlementNotification, safeSummary: message }, (k) => translateMessage("en", k)).message).toBe(message);
+});
+
+
+describe("conservative credential-shaped preview policy", () => {
+  const t = (key: Parameters<typeof translateMessage>[1]) => translateMessage("en", key);
+  it.each(["of", "must", "has", "abcdefghijklmnop", "abc", "opaque123value", "fake_token_value", "synthetic.header.signature", "opaque+slash/value=="])("uses fallback for ambiguous or credential-shaped Bearer value %s at every position", (token) => {
+    for (const safeSummary of [`Bearer ${token}`, `Authenticate with Bearer ${token} to continue.`, `The preview contains BEARER ${token}.`]) {
+      expect(resolveNotificationPresentation({ ...unreadSettlementNotification, safeSummary }, t).message).toBe("Settlement request");
+    }
+  });
+  it.each(["The bearer-of this bill should review it.", "The secretary approved your bill.", "The secret Santa bill is ready.", "Ready to review this bill?", "A bill is ready for review."])("preserves ordinary prose outside the bounded syntax: %s", (safeSummary) => {
+    expect(resolveNotificationPresentation({ ...unreadSettlementNotification, safeSummary }, t).message).toBe(safeSummary);
   });
 });

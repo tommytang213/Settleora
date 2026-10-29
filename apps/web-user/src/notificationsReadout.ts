@@ -1,3 +1,5 @@
+import type { MessageKey } from "./localization/catalog";
+import type { Translate } from "./localization/locale";
 import {
   SettleoraApiClient,
   SettleoraApiError,
@@ -336,4 +338,101 @@ function classifyApiFailure(
     status: "error",
     message: fallback
   };
+}
+
+
+// Exact approved static keys only. Unknown server keys never reach strict catalog lookup.
+export const notificationTemplateKeys = [
+  "notifications.bill.submitted.title",
+  "notifications.bill.participant_accepted.title",
+  "notifications.bill.participant_rejected.title",
+  "notifications.bill.confirmed.title",
+  "notifications.bill.revision_proposed.title",
+  "notifications.bill.revision_resubmitted.title",
+  "notifications.bill.revision_submitted.title",
+  "notifications.bill.revision_withdrawn.title",
+  "notifications.bill.revision_approved.title",
+  "notifications.bill.revision_rejected.title",
+  "notifications.bill.revision_payer_confirmed.title",
+  "notifications.bill.revision_applied.title",
+  "notifications.settlement.request_created.title",
+  "notifications.settlement.payment_marked_paid.title",
+  "notifications.settlement.payment_partially_paid.title",
+  "notifications.settlement.payment_confirmed.title",
+  "notifications.settlement.request_disputed.title",
+  "notifications.settlement.payment_disputed.title",
+  "notifications.settlement.request_cancelled.title",
+  "notifications.settlement.payment_cancelled.title",
+  "notifications.settlement.proof_attached.title",
+  "notifications.settlement.residual_review_needed.title",
+  "notifications.recurring_bill.due_soon.title",
+  "notifications.recurring_bill.draft_generated.title",
+  "notifications.sync.conflict_detected.title",
+  "notifications.sync.operation_failed.title",
+  "notifications.ocr.needs_review.title",
+  "notifications.bill.submitted.message",
+  "notifications.bill.participant_accepted.message",
+  "notifications.bill.participant_rejected.message",
+  "notifications.bill.confirmed.message",
+  "notifications.bill.revision_proposed.message",
+  "notifications.bill.revision_resubmitted.message",
+  "notifications.bill.revision_submitted.message",
+  "notifications.bill.revision_withdrawn.message",
+  "notifications.bill.revision_approved.message",
+  "notifications.bill.revision_rejected.message",
+  "notifications.bill.revision_payer_confirmed.message",
+  "notifications.bill.revision_applied.message",
+  "notifications.settlement.request_created.message",
+  "notifications.settlement.payment_marked_paid.message",
+  "notifications.settlement.payment_partially_paid.message",
+  "notifications.settlement.payment_confirmed.message",
+  "notifications.settlement.request_disputed.message",
+  "notifications.settlement.payment_disputed.message",
+  "notifications.settlement.request_cancelled.message",
+  "notifications.settlement.payment_cancelled.message",
+  "notifications.settlement.proof_attached.message",
+  "notifications.settlement.residual_review_needed.message",
+  "notifications.recurring_bill.due_soon.message",
+  "notifications.recurring_bill.draft_generated.message",
+  "notifications.sync.conflict_detected.message",
+  "notifications.sync.operation_failed.message",
+  "notifications.ocr.needs_review.message",
+] as const satisfies readonly MessageKey[];
+
+const knownNotificationTemplateKeys: ReadonlySet<string> = new Set(notificationTemplateKeys);
+
+export function resolveNotificationPresentation(
+  notification: Pick<InAppNotificationResponse, "titleKey" | "messageKey" | "safeSummary">,
+  t: Translate
+): { title: string; message: string } {
+  const resolve = (key: unknown, kind: "title" | "message", fallback: MessageKey): string =>
+    typeof key === "string" && key.endsWith(`.${kind}`) && knownNotificationTemplateKeys.has(key)
+      ? t(key as MessageKey)
+      : t(fallback);
+  return {
+    title: resolve(notification.titleKey, "title", "notifications.fallback.title"),
+    message: boundedNotificationSummary(notification.safeSummary)
+      ?? resolve(notification.messageKey, "message", "notifications.fallback.message")
+  };
+}
+
+function boundedNotificationSummary(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // Presentation-only safety boundary; source eligibility and authorization remain server-owned.
+  if (
+    /[\u0000-\u001f\u007f]/.test(trimmed)
+    || /<[a-z/!?]/i.test(trimmed)
+    || /\b(?:notifications|bill|settlement|recurring_bill|sync|ocr|auth|security|group|friend|comment|thread)\.[a-z0-9_.-]+/i.test(trimmed)
+    || /\b(?:expense_bill|settlement_request|settlement_payment|recurring_bill_occurrence|receipt_ocr_review|sync_operation)(?:_[a-z0-9]+)*\b/i.test(trimmed)
+    || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(trimmed)
+    || /\b(?:token|secret|password|api[_-]?key)\s*[:=]/i.test(trimmed)
+    // Conservative display policy: ambiguous marker+word previews use safe fallback too.
+    // This is a bounded syntax check, not a claim to detect arbitrary secrets.
+    || /\bbearer\s+[a-z0-9._~+/-]+={0,2}/i.test(trimmed)
+    || /https?:\/\/|\/api\//i.test(trimmed)
+    || /[?&][a-z_][a-z0-9_.-]*=/i.test(trimmed)
+  ) return null;
+  return trimmed.length <= 240 ? trimmed : `${trimmed.slice(0, 237)}...`;
 }

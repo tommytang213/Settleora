@@ -802,6 +802,25 @@ h1 {
   padding: 15px;
 }
 
+.notification-readout-row {
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
+}
+
+.notification-readout-row .readout-pill {
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.notification-readout-row .readout-pill > * {
+  min-width: 0;
+}
+
+.notification-readout-row .readout-pill strong {
+  flex-shrink: 0;
+}
+
 .export-action-grid {
   display: grid;
   gap: 14px;

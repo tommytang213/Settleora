@@ -54,6 +54,7 @@ import {
   collectNotificationTargetFields,
   filterNotificationsForPresentation,
   loadNotificationsReadout,
+  resolveNotificationPresentation,
   summarizeNotificationPreferences,
   summarizeNotificationPriorities,
   summarizeNotificationStatuses,
@@ -3223,15 +3224,17 @@ function NotificationsReadoutPanel({
   );
 }
 
-function NotificationReadoutRow({ notification }: { notification: InAppNotificationResponse }) {
+export function NotificationReadoutRow({ notification }: { notification: InAppNotificationResponse }) {
   const targets = collectNotificationTargetFields(notification);
+  const { t } = useLocalization();
+  const presentation = resolveNotificationPresentation(notification, t);
 
   return (
-    <article className="notification-row">
+    <article className="notification-row notification-readout-row">
       <div className="notification-row-header">
         <div>
-          <strong>{formatNotificationEvent(notification.eventType)}</strong>
-          <small>{notification.safeSummary ?? notification.messageKey}</small>
+          <strong>{presentation.title}</strong>
+          <small>{presentation.message}</small>
         </div>
         <span className={`status-chip ${notificationPriorityClass(notification.priority)}`}>
           {labelize(notification.priority)}
@@ -3255,9 +3258,9 @@ function NotificationReadoutRow({ notification }: { notification: InAppNotificat
           <dd>{formatDate(notification.readAtUtc)}</dd>
         </div>
       </dl>
-      <ReadoutSection title="Display keys">
-        <StatusPill label="Title key" value={notification.titleKey} />
-        <StatusPill label="Message key" value={notification.messageKey} />
+      <ReadoutSection title="Notification metadata">
+        <StatusPill label="Title" value={presentation.title} />
+        <StatusPill label="Message" value={presentation.message} />
         <StatusPill label="Action path" value={notification.actionUrl ?? "Not returned"} />
       </ReadoutSection>
       <ReadoutSection title="Related IDs">
@@ -4614,10 +4617,6 @@ function mapImportPreflightStateForMessage(
     case "idle":
       return "empty";
   }
-}
-
-function formatNotificationEvent(eventType: string): string {
-  return labelize(eventType.replace(/[.]/g, "_"));
 }
 
 function notificationPriorityClass(priority: string): string {
