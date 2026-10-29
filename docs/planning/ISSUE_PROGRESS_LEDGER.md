@@ -1,5 +1,14 @@
 # Issue Progress Ledger
 
+### Issue #973 — Day 1 notification completeness audit (2026-10-29 UTC)
+
+- Separate docs-planning task from exact main `f0f54b081b37e48b1099a0379c3d444b08b0ea94` adds [the notification completeness audit](../qa/DAY1_NOTIFICATION_COMPLETENESS_AUDIT.md). It partitions the 27 supported source events, channel/preference/delivery foundations, mobile/user-web interaction, merged work and current open ownership without claiming runtime, external delivery or acceptance completion.
+- In-app remains the eligible authorized baseline; email/push are optional attempts. Unsupported/unconfigured/disabled/muted/deferred/queued/provider-accepted/failed/user-read states are not interchangeable. Existing #370/#371/#448–#452/#629 and #689 slices remain credited; #368/#369/#403/#634/#635 remain open for their full close rules.
+- #409 comment5599460079 and merged #1160/#1172/#1174/#1179 are reconciled: mobile generic keys with bounded safe-summary fallback are real; typed dynamic arguments, user-web key resolution and separate SMTP/push template seams remain gaps. #965 comment5666988667 preserves security/session notification source/target/recipient/classifier/safe-open gates; no auth audit row is credited as a notification producer.
+- Twelve dependency-ordered packets reuse existing domain owners or recommend narrow separately contracted children. First safe implementation wave is a separately admitted user-web static-key display slice under #373, preserving safe summaries and no inferred arguments. No child issue, label, provider activation, product decision, umbrella comment or issue closure is performed here; #973 still requires merge and later graph reconciliation.
+- Admission found no active serialized ledger writer for #960/#407/#409/#963/#964/#970 and no duplicate #973 PR/local claim. PR #1340's unmerged #1315 ledger entry and frozen edits remain intact in their own worktree; merge reconciliation must retain both checkpoints rather than overwrite either. Exact candidate/review/validation/PR evidence is retained in the external task report; this source entry cannot self-record its final commit identity.
+- Only this ledger and the audit change. M15/runner controls, all runtime/UI/API/OpenAPI/generated-client/schema/security/privacy/money/sync/OCR/provider/config/CI/deployment/release behavior remain unchanged. The task stops at a draft, unmerged PR because main-push GHCR publication is outside its authority; native/manual/provider/release acceptance remains incomplete.
+
 ### Issue #722 — Lifecycle implementation split and focused handoff (2026-09-17 HKT)
 
 - Logical task `20260917-2247` used retained source branch
