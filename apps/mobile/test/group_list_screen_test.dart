@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
@@ -19,8 +23,212 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_theme.dart';
+
+import 'helpers/settleora_visual_test_fonts.dart';
 
 void main() {
+  for (final billPick in [false, true]) {
+    testWidgets(
+      'empty create action preserves message and one keyboard flow $billPick',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          final repository = FakeGroupRepository(groups: const []);
+          final observer = _GroupCreateDialogObserver();
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: SettleoraTheme.light(),
+              navigatorObservers: [observer],
+              home: SettleoraGroupListScreen(
+                repository: repository,
+                billRepository: FakeBillRepository(),
+                openGroupBillCreateOnPick: billPick,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final action = find.byKey(const Key('group-list-empty-create'));
+          final button = tester.widget<AppButton>(action);
+          expect(button.variant, AppButtonVariant.primary);
+          expect(button.label, 'Create group');
+          expect(button.icon, Icons.group_add_outlined);
+          expect(button.onPressed, isNotNull);
+          expect(
+            find.ancestor(
+              of: action,
+              matching: find.byType(SettleoraStatePanel),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.text(
+              billPick
+                  ? 'Create a group first, then pick it to start a group bill.'
+                  : 'Groups you can access will appear here. Create a group to start sharing bills.',
+            ),
+            findsOneWidget,
+          );
+          final data = tester.getSemantics(action).getSemanticsData();
+          expect(data.label, 'Create group');
+          expect(data.flagsCollection.isButton, isTrue);
+          expect(data.flagsCollection.isEnabled.name, 'isTrue');
+          expect(data.hasAction(ui.SemanticsAction.tap), isTrue);
+          expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
+          expect(tester.getSize(action).width, greaterThanOrEqualTo(48));
+          final focus = Focus.of(
+            tester.element(
+              find.descendant(of: action, matching: find.text('Create group')),
+            ),
+          );
+          focus.requestFocus();
+          await tester.pump();
+          expect(focus.hasFocus, isTrue);
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.pumpAndSettle();
+          expect(observer.dialogPushes, 1);
+          expect(find.byKey(const Key('group-form-name')), findsOneWidget);
+          expect(repository.createCalls, 0);
+          expect(repository.listCalls, 1);
+          await tester.tap(find.byKey(const Key('group-form-cancel')));
+          await tester.pumpAndSettle();
+          expect(repository.createCalls, 0);
+          expect(
+            find.byKey(const Key('group-list-empty-create')),
+            findsOneWidget,
+          );
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+  }
+
+  testWidgets(
+    'empty create action disables during save and restores after failure',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        final pending = Completer<SettleoraGroup>();
+        final repository = FakeGroupRepository(
+          groups: const [],
+          createCompleter: pending,
+        );
+        final observer = _GroupCreateDialogObserver();
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: SettleoraTheme.light(),
+            navigatorObservers: [observer],
+            home: SettleoraGroupListScreen(
+              repository: repository,
+              billRepository: FakeBillRepository(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final action = find.byKey(const Key('group-list-empty-create'));
+        await tester.tap(action);
+        await tester.pumpAndSettle();
+        expect(observer.dialogPushes, 1);
+        expect(repository.createCalls, 0);
+        await tester.enterText(
+          find.byKey(const Key('group-form-name')),
+          'House',
+        );
+        await tester.tap(find.byKey(const Key('group-form-save')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(repository.createCalls, 1);
+        expect(repository.lastGroupSave?.name, 'House');
+        expect(tester.widget<AppButton>(action).onPressed, isNull);
+        final disabled = tester.getSemantics(action).getSemanticsData();
+        expect(disabled.flagsCollection.isEnabled.name, 'isFalse');
+        expect(disabled.hasAction(ui.SemanticsAction.tap), isFalse);
+        await tester.tap(action);
+        await tester.pump();
+        expect(observer.dialogPushes, 1);
+        expect(repository.createCalls, 1);
+        pending.completeError(StateError('fixture create failure'));
+        await tester.pumpAndSettle();
+        expect(tester.widget<AppButton>(action).onPressed, isNotNull);
+        expect(find.text('Group created.'), findsNothing);
+        expect(repository.listCalls, 1);
+        await tester.tap(action);
+        await tester.pumpAndSettle();
+        expect(observer.dialogPushes, 2);
+        expect(repository.createCalls, 1);
+        await tester.tap(find.byKey(const Key('group-form-cancel')));
+        await tester.pumpAndSettle();
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  for (final narrow in [false, true]) {
+    testWidgets(
+      'empty create production capture ${narrow ? '320-2x' : '390-1x'}',
+      (tester) async {
+        await tester.runAsync(loadSettleoraVisualTestFonts);
+        await setSettleoraMobileViewport(tester, width: narrow ? 320 : 390);
+        const capture = Key('group-empty-create-capture');
+        final repository = FakeGroupRepository(groups: const []);
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: capture,
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: SettleoraTheme.light(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(narrow ? 2 : 1)),
+                child: child!,
+              ),
+              home: SettleoraGroupListScreen(
+                repository: repository,
+                billRepository: FakeBillRepository(),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final action = find.byKey(const Key('group-list-empty-create'));
+        final rect = tester.getRect(action);
+        expect(rect.height, greaterThanOrEqualTo(48));
+        expect(rect.width, greaterThanOrEqualTo(48));
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(narrow ? 320 : 390));
+        expect(rect.bottom, lessThanOrEqualTo(844));
+        expect(find.text('Create group'), findsOneWidget);
+        expect(repository.createCalls, 0);
+        expect(tester.takeException(), isNull);
+        // Only the explicitly requested evidence run writes PNGs outside the repo.
+        if (Platform.environment.containsKey(
+          settleoraVisualOutputRootEnvironmentVariable,
+        )) {
+          await tester.runAsync(() async {
+            final image = await tester
+                .renderObject<RenderRepaintBoundary>(find.byKey(capture))
+                .toImage(pixelRatio: 1);
+            final bytes = await image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            final output = Directory(
+              settleoraVisualOutputDirectory('issue-1162-groups-empty-create'),
+            );
+            await output.create(recursive: true);
+            await File(
+              '${output.path}/groups-empty-${narrow ? '320-2x' : '390-1x'}.png',
+            ).writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
+      },
+    );
+  }
+
   testWidgets('group list renders empty state and creates a group', (
     tester,
   ) async {
@@ -886,6 +1094,7 @@ class FakeGroupRepository implements SettleoraGroupRepository {
     this.listFailure,
     this.detailFailure,
     this.actionFailure,
+    this.createCompleter,
     this.addMemberCompleter,
     this.updateMemberCompleter,
     this.addMemberResult,
@@ -899,6 +1108,7 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   final SettleoraGroupFailure? listFailure;
   final SettleoraGroupFailure? detailFailure;
   final SettleoraGroupFailure? actionFailure;
+  final Completer<SettleoraGroup>? createCompleter;
   final Completer<SettleoraGroupMember>? addMemberCompleter;
   final Completer<SettleoraGroupMember>? updateMemberCompleter;
   final SettleoraGroupMember? addMemberResult;
@@ -933,7 +1143,9 @@ class FakeGroupRepository implements SettleoraGroupRepository {
     createCalls += 1;
     lastGroupSave = request;
     _throwActionIfNeeded();
-    final created = sampleGroup(name: request.name.trim());
+    final created = createCompleter == null
+        ? sampleGroup(name: request.name.trim())
+        : await createCompleter!.future;
     groups = [created, ...groups];
     return created;
   }
@@ -1658,3 +1870,13 @@ const _otherProfileId = '33333333-3333-3333-3333-333333333333';
 const _billId = '44444444-4444-4444-4444-444444444444';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);
+
+class _GroupCreateDialogObserver extends NavigatorObserver {
+  int dialogPushes = 0;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    if (route is DialogRoute<SettleoraGroupSaveRequest>) dialogPushes += 1;
+  }
+}
