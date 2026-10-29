@@ -146,6 +146,175 @@ void main() {
     final preview = parseSummaryBlocks(blocks);
     expect(preview.reviewHints, isNotEmpty);
   });
+
+  for (final clock in [
+    'Time Out: 18:43',
+    'Date: 2026-09-17 18:43',
+    'Date: 2026-09-17 Due Date: 2026-09-18',
+  ]) {
+    for (final suspect in [
+      'Cash Bouquet USD 2.00',
+      'Card Holder USD 2.00',
+      'VISA Gift USD 2.00',
+      'Cash paid bouquet',
+      'Cash USD 10.00 Gift',
+      'Cash USD 10.00 USD 2.00',
+      'Cash USD 10.00 EUR',
+      'Cash tendered Bouquet USD 2.00',
+      'Card charged Holder USD 2.00',
+      'Cash tendered USD 10.00 USD 2.00',
+      'Card charged USD 10.00 EUR',
+      'APPROVED AUTH # 293847 extra USD 2.00',
+      'Payment card Bouquet USD 2.00',
+      'Tender cash Gift USD 2.00',
+      'Payment card amount currency charged USD 10.00',
+      'Payment card USD 10.00 USD 2.00',
+      'Payment card USD 10.00 EUR',
+      'Approval: 123456 extra USD 2.00',
+      'Auth: 123456 USD 2.00',
+      'Authorization code 123456 Gift',
+      'ApprovalBoard123456',
+      'Approval: 1234567890123',
+    ]) {
+      final arrangements = <List<String>>[
+        [suspect, clock],
+        [suspect, 'Cash USD 10.00', clock],
+        ['Cash USD 10.00', suspect, clock],
+        ['Cash USD 10.00', clock, suspect],
+        ['Cash USD 10.00', clock, suspect, 'VISA ****4321'],
+      ];
+      for (var order = 0; order < arrangements.length; order++) {
+        test(
+          'labeled metadata retains unbounded payment evidence $clock/$suspect/$order',
+          () {
+            final preview = _paymentPreview(postTotalRows: arrangements[order]);
+            expect(preview.total, '10.00');
+            expect(preview.reviewHints, isNotEmpty);
+            expect(preview.adjustmentsComplete, isFalse);
+          },
+        );
+      }
+    }
+    for (final payment in [
+      'Cash USD 10.00',
+      'Card USD 10.00',
+      'Paid by Cash USD 10.00',
+      'Payment Summary: USD 10.00',
+      '現金 USD 10.00',
+      'VISA ****4321',
+      'Cash tendered USD 10.00',
+      'Cash Tender USD 10.00',
+      'Cash: paid USD 10.00',
+      'Cash payment total USD 10.00',
+      'Card charged USD 10.00',
+      'APPROVED AUTH # 293847',
+      'APPROVED AUTH#293847',
+      'APPROVED AUTH:293847',
+      'Approved Authorization # A29384',
+      'Approved auth code 1234',
+    ]) {
+      test(
+        'whole bounded payment retains labeled metadata $payment/$clock',
+        () {
+          final preview = _paymentPreview(postTotalRows: [payment, clock]);
+          expect(preview.items.single.lineTotal, '10.00');
+          expect(preview.total, '10.00');
+          expect(preview.reviewHints, isEmpty);
+          expect(preview.adjustmentsComplete, isTrue);
+        },
+      );
+    }
+    test('multiple bounded tenders retain labeled metadata $clock', () {
+      final preview = _paymentPreview(
+        postTotalRows: ['Cash USD 3.00', 'VISA ****4321 USD 7.00', clock],
+      );
+      expect(preview.reviewHints, isEmpty);
+      expect(preview.adjustmentsComplete, isTrue);
+    });
+    test(
+      'existing credit adjustment warning survives bounded context $clock',
+      () {
+        final preview = _paymentPreview(
+          postTotalRows: ['Credit card USD 10.00', clock],
+        );
+        expect(preview.total, '10.00');
+        expect(preview.reviewHints, isNotEmpty);
+      },
+    );
+    for (final prefix in ['Payment', 'Tender']) {
+      for (final qualifier in [
+        'amount',
+        'currency',
+        'conversion',
+        'reference',
+        'rate',
+        'charged',
+        'cash',
+        'card',
+        'credit card',
+        'debit card',
+        'visa',
+        'mastercard',
+        'master card',
+        'amex',
+        'american express',
+        'card charged',
+        'currency amount',
+        'card charged amount',
+      ]) {
+        test(
+          'qualified metadata preserves legacy payment policy $prefix/$qualifier/$clock',
+          () {
+            final payment = '$prefix $qualifier USD 10.00';
+            final baseline = _paymentPreview(postTotalRows: [payment]);
+            final labeled = _paymentPreview(postTotalRows: [payment, clock]);
+            expect(labeled.total, baseline.total);
+            expect(
+              labeled.items.map((item) => [item.description, item.lineTotal]),
+              baseline.items.map((item) => [item.description, item.lineTotal]),
+            );
+            expect(labeled.reviewHints, baseline.reviewHints);
+            expect(labeled.adjustmentsComplete, baseline.adjustmentsComplete);
+          },
+        );
+      }
+    }
+    for (final label in ['Approval', 'Auth', 'Authorization']) {
+      for (final separator in [' ', ': ', '#']) {
+        final identifier = '$label${separator}123456';
+        final sequences = <List<String>>[
+          ['Cash USD 10.00', identifier, clock],
+          [identifier, 'Cash USD 10.00', clock],
+          ['Cash USD 10.00', clock, identifier],
+        ];
+        for (var order = 0; order < sequences.length; order++) {
+          test('bounded approval is auxiliary $identifier/$clock/$order', () {
+            final preview = _paymentPreview(postTotalRows: sequences[order]);
+            expect(preview.reviewHints, isEmpty);
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.total, '10.00');
+          });
+        }
+        test(
+          'approval alone does not establish payment $identifier/$clock',
+          () {
+            final preview = _paymentPreview(postTotalRows: [identifier, clock]);
+            expect(preview.reviewHints, isNotEmpty);
+            expect(preview.adjustmentsComplete, isFalse);
+          },
+        );
+      }
+    }
+    for (final code in ['1', 'A12345678901', 'AB-1234']) {
+      test('bounded auxiliary identifier boundary $code/$clock', () {
+        final preview = _paymentPreview(
+          postTotalRows: ['Cash USD 10.00', 'Approval: $code', clock],
+        );
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.adjustmentsComplete, isTrue);
+      });
+    }
+  }
 }
 
 ReceiptOcrPreview _paymentPreview({
@@ -154,6 +323,7 @@ ReceiptOcrPreview _paymentPreview({
   String? payment = 'VISA ****4321',
   String item = 'Tea USD 10.00',
   String? extra,
+  List<String>? postTotalRows,
 }) {
   final rows = <String>[
     'Synthetic Market',
@@ -161,9 +331,8 @@ ReceiptOcrPreview _paymentPreview({
     item,
     'Subtotal USD 10.00',
     'Total USD 10.00',
-    ?payment,
-    ?clock,
-    ?extra,
+    ...?postTotalRows,
+    if (postTotalRows == null) ...[?payment, ?clock, ?extra],
     footer,
   ];
   final blocks = <ReceiptOcrBlockEvidence>[
