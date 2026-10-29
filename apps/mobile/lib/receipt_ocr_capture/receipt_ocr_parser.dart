@@ -9571,6 +9571,58 @@ bool _isCenteredPostTotalFooter(
   return true;
 }
 
+// Existing bounded qualifier vocabulary shared with currency metadata.
+const _paymentCurrencyMetadataQualifierPattern =
+    r'(?:amount|currency|conversion|reference|rate|charged|cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)';
+
+// Shared existing whole payment-label grammar; callers still prove their
+// complete bounded monetary suffix independently.
+final _boundedPaymentMetadataLabel = RegExp(
+  r'^(?:charged\s+(?:to\s+)?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
+  r'(?:gift|prepaid)[ -]?card|payment\s+(?:coupon|information|summary)|remittance|deposit\s+paid|paid\s+deposit|'
+  r'cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express|'
+  r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)'
+  r'(?:(?:\s+|\s*[:：]\s*)(?:tendered|paid|received|charged|payment|tender|amount|total|due))*(?=\s|[:：]|$)',
+  caseSensitive: false,
+);
+
+bool _isBoundedCourtesyPaymentContextLine(String line) {
+  if (_isBoundedPaymentIdentityLine(line)) return true;
+  final text = line.trim();
+  final paymentPrefix = RegExp(
+    r'^(?:payment|tender)\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (paymentPrefix != null) {
+    final remainder = text.substring(paymentPrefix.end).trimLeft();
+    if (_hasCurrencyMetadataShape(remainder)) {
+      final qualifiers = RegExp(
+        '^(?:[:#=\\-]\\s*)?'
+        '(?:$_paymentCurrencyMetadataQualifierPattern(?:\\s*[:#=\\-]\\s*|\\s+)){0,3}',
+        caseSensitive: false,
+      ).firstMatch(remainder);
+      if (qualifiers != null &&
+          _isBoundedPaymentAmount(remainder.substring(qualifiers.end).trim())) {
+        return true;
+      }
+    }
+  }
+  final label = _boundedPaymentMetadataLabel.firstMatch(text);
+  if (label == null) return false;
+  // Only a whole existing payment label and one bounded monetary cell prove
+  // context; broad payment prefixes and permissive standalone rows do not.
+  return _isBoundedPaymentAmount(
+    text.substring(label.end).replaceFirst(RegExp(r'^\s*[:：]\s*'), '').trim(),
+  );
+}
+
+bool _isBoundedCourtesyApprovalIdentifierLine(String line) => RegExp(
+  r'^(?:approval|auth(?:orization)?)\b\s*'
+  r'(?:(?:code|number|no\.?)\s*)?[:#=-]?\s*'
+  r'(?=[a-z0-9-]{0,11}\d)[a-z0-9](?:[a-z0-9-]{0,10}[a-z0-9])?$',
+  caseSensitive: false,
+).hasMatch(line.trim());
+
 bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   List<String> lines,
   int lastPricedTotal,
@@ -9578,17 +9630,41 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   Set<int> ownedSummaryAmountRows = const {},
 }) {
   var sawPayment = false;
+  var sawBoundedPayment = false;
+  var hasUnboundedPaymentRow = false;
+  var usedLabeledMetadata = false;
   for (var index = lastPricedTotal + 1; index < lines.length; index++) {
     // Geometry already assigned this entire row to the printed total. It
     // still contributes its original points to the footer's vertical bounds.
     if (ownedSummaryAmountRows.contains(index)) continue;
+    final isPayment = _isPaymentMetadataLine(lines[index]);
+    if (isPayment) {
+      final bounded = _isBoundedCourtesyPaymentContextLine(lines[index]);
+      sawBoundedPayment = sawBoundedPayment || bounded;
+      // Keep evidence from the entire window, including after a clock or a
+      // later valid payment. A broad prefix cannot erase a product warning.
+      // Whole approval identifiers are auxiliary metadata, not evidence that
+      // a payment occurred. They cannot establish sawBoundedPayment alone.
+      hasUnboundedPaymentRow =
+          hasUnboundedPaymentRow ||
+          (!bounded && !_isBoundedCourtesyApprovalIdentifierLine(lines[index]));
+    }
     if (!_lineHasAmount(lines[index])) continue;
     if (index >= courtesyIndex) return false;
-    if (_isPaymentMetadataLine(lines[index])) {
+    if (isPayment) {
       sawPayment = true;
       continue;
     }
+    // Reuse whole-row metadata ownership from item extraction. A labeled
+    // clock/date after a proven payment is not another monetary cell. Prefixes
+    // with extra prices, prose or invalid values still fail these validators.
     if (sawPayment && _isDateOrTimeOnlyLine(lines[index].toLowerCase())) {
+      continue;
+    }
+    if (sawBoundedPayment &&
+        (_isCompleteClockMetadataLine(lines[index]) ||
+            _isCompleteOriginalCalendarMetadataRow(lines[index]))) {
+      usedLabeledMetadata = true;
       continue;
     }
     if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {
@@ -9616,7 +9692,9 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
     }
     return false;
   }
-  return true;
+  // Leave legacy bare-clock/no-clock behavior unchanged. The new labeled
+  // exemption requires positive ownership of every payment-like row.
+  return !usedLabeledMetadata || !hasUnboundedPaymentRow;
 }
 
 bool _isBareInvoiceBuyerHeading(String text) => RegExp(
@@ -11374,14 +11452,7 @@ bool _isOwnedAdjacentFinancialAmount(
   }
   // Payment metadata has permissive legacy prefix checks. Do not use those
   // checks alone to excuse unexplained money on a different OCR row.
-  final paymentLabel = RegExp(
-    r'^(?:charged\s+(?:to\s+)?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
-    r'(?:gift|prepaid)[ -]?card|payment\s+(?:coupon|information|summary)|remittance|deposit\s+paid|paid\s+deposit|'
-    r'cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express|'
-    r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)'
-    r'(?:(?:\s+|\s*[:：]\s*)(?:tendered|paid|received|charged|payment|tender|amount|total|due))*(?=\s|[:：]|$)',
-    caseSensitive: false,
-  ).firstMatch(label);
+  final paymentLabel = _boundedPaymentMetadataLabel.firstMatch(label);
   if (paymentLabel == null) return false;
   final remainder = label
       .substring(paymentLabel.end)
@@ -13721,8 +13792,7 @@ String? _boundedDccChargedTotal(
 }
 
 bool _hasCurrencyMetadataShape(String remainder) {
-  const qualifierPattern =
-      r'(?:amount|currency|conversion|reference|rate|charged|cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)';
+  const qualifierPattern = _paymentCurrencyMetadataQualifierPattern;
   final currencyPattern = '(?:$_currencyTokenPattern)';
   final amountPattern = '(?:$_amountTokenPattern)';
   return RegExp(

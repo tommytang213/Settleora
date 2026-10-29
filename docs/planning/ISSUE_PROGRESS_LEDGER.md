@@ -1,5 +1,15 @@
 # Issue Progress Ledger
 
+### #1346 — OCR positive row-ownership characterization and conditional correction
+
+- Manual, separately scoped product task; not M15 or an auto-runner lane expansion. Atlas technical gate owner; draft/unmerged execution boundary.
+- Product base: PR #1327 `d564e4156f95614f435c1a55b11e7d537b201a3d`; relevant parser/preview/fixture-contract/corpus blobs match V6 source `98a0e50c317f06b394f2a4d59a1a4f6c75932fd6`.
+- Deterministic characterization isolated a footer-check mismatch: whole labeled clock/calendar rows accepted by extraction were rejected after payment by the footer's bare-date/time-only check. Before repair: 39 pass/12 fail. The original repair passed 58 focused and 8,039 full non-visual tests (historical candidate evidence). The hosted-review follow-up adds two-field calendar ownership and extra-money/prose/invalid-date controls: 67 focused and 8,048 full non-visual tests pass; analysis is clean. Parser/model bindings are unchanged by that test follow-up; strict model/catalog verification and the OCR Node suite (316 passes, two expected platform skips) remain bound to those unchanged inputs. Required independent local/pre-push and exact-head hosted review/CI receipts are tracked separately; skips are not passes.
+- Parser inventory/trusted digest are refreshed together only for changed source; acceptance remains `pending_native_provider_acceptance`. No fixture truth, model/provider/native harness, money authority or API change. V6 remains a consumed failed 78/101 run; no native retry or new native acceptance is claimed.
+- Keep #1247/#1309 and other failure clusters open. A fresh full101 packet/admission is required after source gates; no merge, release/image publishing or deployment in this task. Preserve separately unmerged #1315/#973 ledger checkpoints during eventual reconciliation.
+- 2026-10-29 separate manual correction/routing checkpoint: labeled-clock/calendar footer ownership now requires whole bounded payment/identity evidence and retains warnings for unbounded payment-like rows anywhere in the post-total window; legacy bare-clock/no-clock classification remains outside this repair. The first repair candidate passed 196 focused and 8,177 full non-visual Flutter tests (historical evidence). The qualified-tender/established-identity follow-up passes 676 focused tests; current full-suite, analysis, OCR inventory/integrity and CI-policy results are retained in exact-source external validation receipts. The seven-path candidate also admits only the literal existing stack PR target and fail-closed merge/head source binding; fresh independent pre-push reviews and exact-head hosted mobile/iOS/web/API/security/aggregate evidence remain required, not implied by local results.
+
+
 ### Issue #722 — Lifecycle implementation split and focused handoff (2026-09-17 HKT)
 
 - Logical task `20260917-2247` used retained source branch
