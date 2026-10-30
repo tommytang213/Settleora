@@ -224,6 +224,20 @@ Future OpenAPI/generated-client issue bodies must include a checklist covering:
 - Do not weaken validation for code, API, security, runtime, migration, generated-client, or infrastructure changes.
 - Do not fake validation success; report the exact failing command and error summary.
 
+### CI and Review Scheduling
+
+Ordinary isolated CI and existing independent reviews may run in parallel when
+each operation already has the required authorization and prerequisites, and
+its actual effects and resource ownership allow overlap. Complete all required
+pre-push gates before push; retain the required final-head test/review evidence
+and renew it after changed bytes under the existing rules.
+
+Follow [AGENTS.md](../../AGENTS.md): concurrency is scheduling guidance only,
+not execution or data-disclosure authority. Reviewer destinations, prior
+denials, protected/risky execution approvals and ownership/serialization rules,
+money-safety checks, native acceptance gates and task-specific restrictions
+remain unchanged.
+
 ## Git Rules
 
 - Work on the requested branch and keep changes scoped.
