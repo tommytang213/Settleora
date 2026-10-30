@@ -301,6 +301,7 @@ test('Codemagic visual evidence remains a separate explicit test lane', () => {
       .map((file) => path.relative(path.join(repoRoot, 'apps/mobile'), file))
       .sort(),
     [
+      'test/notification_screen_test.dart',
       'test/ui/settlement_detail_search_shared_fields_test.dart',
       'test/ui/settleora_component_guardrail_test.dart',
     ],

@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:mobile/api/settleora_api_client.dart';
@@ -24,6 +28,10 @@ import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/sync/sync_queue.dart';
 import 'package:mobile/sync/sync_queue_processor.dart';
 import 'package:mobile/sync/sync_repository.dart';
+import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_theme.dart';
+
+import 'helpers/settleora_visual_test_fonts.dart';
 
 void main() {
   test('notification preferences use safe defaults and local suppression', () {
@@ -1106,6 +1114,202 @@ void main() {
     expect(find.text('Archived (0)'), findsOneWidget);
     expect(find.text('Read (1)'), findsOneWidget);
   });
+
+  testWidgets('global mark all read uses shared secondary accessible action', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final repository = FakeNotificationRepository();
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+      final action = find.byKey(const Key('notification-mark-all-read'));
+      final shared = tester.widget<AppButton>(action);
+      expect(shared.variant, AppButtonVariant.secondary);
+      expect(shared.label, 'Mark all read');
+      expect(shared.icon, Icons.done_all_outlined);
+      expect(shared.isLoading, isFalse);
+      expect(shared.onPressed, isNotNull);
+      expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
+      final node = tester.getSemantics(action);
+      expect(node.label, 'Mark all read');
+      expect(node.getSemanticsData().flagsCollection.isButton, isTrue);
+      expect(node.getSemanticsData().flagsCollection.isEnabled.name, 'isTrue');
+      expect(node.getSemanticsData().hasAction(ui.SemanticsAction.tap), isTrue);
+      expect(repository.markAllReadCalls, 0);
+      expect(repository.markReadCalls, 0);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('global shared mark all read is disabled without unread rows', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final repository = FakeNotificationRepository(notifications: []);
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+      final action = find.byKey(const Key('notification-mark-all-read'));
+      expect(tester.widget<AppButton>(action).onPressed, isNull);
+      expect(tester.widget<AppButton>(action).isLoading, isFalse);
+      final node = tester.getSemantics(action);
+      expect(node.getSemanticsData().flagsCollection.isEnabled.name, 'isFalse');
+      expect(
+        node.getSemanticsData().hasAction(ui.SemanticsAction.tap),
+        isFalse,
+      );
+      await tester.tap(action);
+      await tester.pump();
+      expect(repository.markAllReadCalls, 0);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('shared mark all read loading rejects repeat and semantic taps', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final repository = FakeNotificationRepository(
+        actionDelay: const Duration(seconds: 1),
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+      );
+      await tester.pumpAndSettle();
+      final action = find.byKey(const Key('notification-mark-all-read'));
+      final summaryBefore = repository.summaryCalls;
+      final listBefore = repository.listCalls;
+      await tester.tap(action);
+      await tester.pump();
+      expect(repository.markAllReadCalls, 1);
+      expect(tester.widget<AppButton>(action).isLoading, isTrue);
+      expect(tester.widget<AppButton>(action).onPressed, isNull);
+      expect(
+        find.descendant(
+          of: action,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+      final node = tester.getSemantics(action);
+      expect(node.label, 'Mark all read');
+      expect(node.value, 'In progress');
+      expect(node.getSemanticsData().flagsCollection.isEnabled.name, 'isFalse');
+      expect(
+        node.getSemanticsData().hasAction(ui.SemanticsAction.tap),
+        isFalse,
+      );
+      await tester.tap(action);
+      tester.binding.platformDispatcher.onSemanticsActionEvent!(
+        ui.SemanticsActionEvent(
+          nodeId: node.id,
+          viewId: tester.view.viewId,
+          type: ui.SemanticsAction.tap,
+        ),
+      );
+      await tester.pump();
+      expect(repository.markAllReadCalls, 1);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(repository.markAllReadCalls, 1);
+      expect(repository.markReadCalls, 0);
+      expect(repository.summaryCalls, summaryBefore + 1);
+      expect(repository.listCalls, listBefore + 1);
+      expect(find.text('Unread: 0'), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  for (final viewport in [(390.0, 1.0), (320.0, 2.0)]) {
+    testWidgets(
+      'global shared mark all read visual ${viewport.$1}/${viewport.$2}',
+      (tester) async {
+        await tester.runAsync(loadSettleoraVisualTestFonts);
+        tester.view.physicalSize = Size(viewport.$1, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final repository = FakeNotificationRepository(
+          actionDelay: const Duration(seconds: 1),
+        );
+        const capture = Key('global-mark-all-production-capture');
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: capture,
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: SettleoraTheme.light(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(viewport.$2)),
+                child: child!,
+              ),
+              home: SettleoraNotificationScreen(repository: repository),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final action = find.byKey(const Key('notification-mark-all-read'));
+        expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
+        final tag = '${viewport.$1.toInt()}-${viewport.$2.toInt()}x';
+        Future<void> captureState(String state) async {
+          final renderingException = tester.takeException();
+          await tester.runAsync(() async {
+            final boundary = tester.renderObject<RenderRepaintBoundary>(
+              find.byKey(capture),
+            );
+            final image = await boundary.toImage(pixelRatio: 1);
+            final bytes = await image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            final directory = settleoraVisualOutputDirectory('global-mark-all');
+            await Directory(directory).create(recursive: true);
+            await File(
+              '$directory/$tag-$state.png',
+            ).writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+          expect(renderingException, isNull);
+        }
+
+        await captureState('enabled');
+        var actionFocused = false;
+        for (var attempt = 0; attempt < 16 && !actionFocused; attempt++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+          FocusManager.instance.primaryFocus?.context?.visitAncestorElements((
+            element,
+          ) {
+            actionFocused = identical(element, tester.element(action));
+            return !actionFocused;
+          });
+        }
+        expect(actionFocused, isTrue);
+        await tester.pump(const Duration(milliseconds: 200));
+        await captureState('focused');
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pump(const Duration(milliseconds: 120));
+        expect(repository.markAllReadCalls, 1);
+        await captureState('loading');
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pumpAndSettle();
+        expect(tester.widget<AppButton>(action).onPressed, isNull);
+        await captureState('disabled');
+        expect(tester.takeException(), isNull);
+      },
+      tags: ['visual'],
+    );
+  }
 
   testWidgets('duplicate mark-all-read taps are single flight', (tester) async {
     final repository = FakeNotificationRepository(
