@@ -85,6 +85,20 @@ A repository manual gate is a required review decision, not automatically a requ
 
 Implementing and testing an agreed security feature in isolated source is routine technical development; assess the actual effect and scope rather than treating every auth-related edit as a live access change. Ask Tommy when a product requirement or UX direction is unresolved, or before changing live credentials, permissions, exposure, or security-sensitive system or network settings, a production-triggering merge, deployment or release, purchases, adding reviewers, or any task that expressly requires Tommy's own approval. Code and configuration labels do not create an exemption when their actual effect is protected. A task-specific human-merge-only rule remains in force. Do not infer permission for a protected action from Atlas technical signoff. Record the actual gate owner and decision in the task report; do not repeatedly escalate routine technical choices to Tommy after the agreed requirement is clear.
 
+## CI and Review Scheduling
+
+Ordinary isolated CI and existing independent reviews may run in parallel when
+each operation is already authorized, its prerequisites are met, and its actual
+effects and resource ownership allow overlap. Required pre-push gates remain
+before push, and all required final-head review/test gates still apply to the
+unchanged candidate; renew evidence when the existing rules require it.
+
+This is scheduling guidance, not execution or disclosure authority. It changes
+no reviewer destination and does not resolve or bypass a prior denial. Existing
+protected/risky execution approvals, ownership and serialization rules,
+money-safety checks, native acceptance gates and task-specific restrictions
+remain in force.
+
 ## Required Task Report Fields
 
 - Task status and branch names.
