@@ -1435,30 +1435,37 @@ class _SummaryPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const CircleAvatar(child: Icon(Icons.inbox_outlined)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Inbox',
-                    style: Theme.of(context).textTheme.titleMedium,
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircleAvatar(child: Icon(Icons.inbox_outlined)),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Inbox',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ],
                   ),
-                ),
-                OutlinedButton.icon(
-                  key: const Key('notification-mark-all-read'),
-                  onPressed: summary.unreadCount > 0 && !isMarkingAllRead
-                      ? onMarkAllRead
-                      : null,
-                  icon: isMarkingAllRead
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.done_all_outlined),
-                  label: const Text('Mark all read'),
-                ),
-              ],
+                  AppButton(
+                    key: const Key('notification-mark-all-read'),
+                    variant: AppButtonVariant.secondary,
+                    label: 'Mark all read',
+                    icon: Icons.done_all_outlined,
+                    isLoading: isMarkingAllRead,
+                    onPressed: summary.unreadCount > 0 && !isMarkingAllRead
+                        ? onMarkAllRead
+                        : null,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 8),
             Text(

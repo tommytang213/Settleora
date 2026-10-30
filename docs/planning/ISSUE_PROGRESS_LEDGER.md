@@ -1,5 +1,11 @@
 # Issue Progress Ledger
 
+### Issue #301 — Notifications global Mark all read shared action (2026-10-30 UTC)
+
+- Separate manually scoped derivative presentation task from main `f0f54b081b37e48b1099a0379c3d444b08b0ea94`: use the existing secondary `AppButton` for only `notification-mark-all-read`, retaining label, icon, unread/loading gate, callback and repository/refresh/single-flight behavior.
+- Completed issue #1112 and its intentionally retained compact visible/per-row Mark read exception remain unchanged. No shared API, notification policy, navigation, filter, domain or OCR behavior change is part of this task.
+- #301/#372 remain open. Exact-candidate widget/semantics/visual evidence, existing independent reviews and hosted checks remain required; this task stops draft/unmerged and grants no native, release or production acceptance. This checkpoint does not transplant PR #1340's separate unmerged ledger work.
+
 ### Issue #722 — Lifecycle implementation split and focused handoff (2026-09-17 HKT)
 
 - Logical task `20260917-2247` used retained source branch
