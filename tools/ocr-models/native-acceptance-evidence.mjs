@@ -760,6 +760,42 @@ function productReviewKinds(repoRoot) {
   }));
 }
 
+// Raw marker tuple v1 only. Historical map packets remain supported; the
+// retained evidence schema is unchanged. Never recover malformed counts.
+function unresolvedBranchMap(value, branches, decisions, label) {
+  if (!Array.isArray(value)) return value;
+  const exactTuple = (tuple, length) => Array.isArray(tuple) && tuple.length === length &&
+    Object.keys(tuple).length === length &&
+    Object.keys(tuple).every((key, index) => key === String(index));
+  if (!exactTuple(value, branches.length) ||
+      value.some((row) => !exactTuple(row, decisions.length))) {
+    throw new Error(`${label} has an invalid fixed tuple shape`);
+  }
+  return Object.fromEntries(branches.map((branch, i) => [branch,
+    Object.fromEntries(decisions.map((decision, j) => [decision,
+      boundedInteger(value[i][j], `${label}.${branch}.${decision}`)]))]));
+}
+
+export function boundedParserDiagnostics(value) {
+  const invalid = { schemaVersion: 1, status: "invalid" };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalid;
+  const keys = Object.keys(value).sort().join(",");
+  if (value.schemaVersion !== 1) return invalid;
+  if (["unavailable", "invalid"].includes(value.status)) {
+    return keys === "schemaVersion,status" ? { schemaVersion: 1, status: value.status } : invalid;
+  }
+  const counts = (v, n) => Array.isArray(v) && v.length === n &&
+    v.every((c) => Number.isSafeInteger(c) && c >= 0 && c <= 256);
+  if (value.status !== "observed" || keys !== "dates,quantity,schemaVersion,status" ||
+      !counts(value.quantity, 21) || !Array.isArray(value.dates) || value.dates.length !== 3 ||
+      !value.dates.every((v) => counts(v, 19))) return invalid;
+  return { schemaVersion: 1, status: "observed", quantity: [...value.quantity],
+    dates: value.dates.map((v) => [...v]) };
+}
+const reviewRoleDiagnosticNames = new Set(["unavailable", "matched", "invalidContract",
+  "roleRowAbsent", "ambiguousRoleRow", "contextMismatch", "amountBoundaryMismatch",
+  "extraneousColumn", "forbiddenIncompleteReason", "warningMismatch", "decisionHintMismatch"]);
+
 const fixtureProcessingFailureFields = new Set(["normalization","provider_status","provider_exception","ocr_resource_lookup","ocr_model_open","ocr_model_configuration","ocr_runtime_initialization","ocr_runtime_initialization_opencv","ocr_runtime_initialization_onnxruntime","ocr_input_validation","ocr_postprocessing","ocr_detection_inference","ocr_recognition_inference","ocr_output_decode"]);
 
 function sanitizeProductObservation(value, entry, expectedKind, mismatches) {
@@ -889,6 +925,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
       "nordicFooterOwnershipFailureCounts"];
     const hasUnresolvedOwnership = unresolvedKeys.some((key) => Object.hasOwn(entry, key));
     const hasUnresolvedOtherDecisions = Object.hasOwn(entry, "unresolvedOtherBranchDecisionCounts");
+    const hasParserDiagnostics = Object.hasOwn(entry, "parserDiagnostics");
+    const hasReviewRoleDiagnostic = Object.hasOwn(entry, "reviewRoleDiagnostic");
     const hasNumericRoutingObservation = Object.hasOwn(entry, "numericRoutingObservation");
     const hasProductObservation = Object.hasOwn(entry, "productObservation");
     const hasUiWitness = Object.hasOwn(entry, "uiWitness");
@@ -906,6 +944,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
       ...(hasPatternReasons ? patternReasonKeys : []),
       ...(hasUnresolvedOwnership ? unresolvedKeys : []),
       ...(hasUnresolvedOtherDecisions ? ["unresolvedOtherBranchDecisionCounts"] : []),
+      ...(hasParserDiagnostics ? ["parserDiagnostics"] : []),
+      ...(hasReviewRoleDiagnostic ? ["reviewRoleDiagnostic"] : []),
       ...(hasNumericRoutingObservation ? ["numericRoutingObservation"] : []),
       ...(hasProductObservation ? ["productObservation"] : []),
       ...(hasUiWitness ? ["uiWitness"] : []),
@@ -1052,14 +1092,16 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
     if (hasUnresolvedOtherDecisions) {
       const label = `recognitionCoverage[${index}].unresolvedOtherBranchDecisionCounts`;
       const branches = ["explicitModifier", "ordinaryCourtesy", "otherDescription"];
-      assertExactKeys(entry.unresolvedOtherBranchDecisionCounts, branches, label);
+      const decoded = unresolvedBranchMap(entry.unresolvedOtherBranchDecisionCounts,
+        branches, itemDecisionNames, label);
+      assertExactKeys(decoded, branches, label);
       if (!hasUnresolvedOwnership || !hasItemDecisions) {
         throw new Error("Recognition coverage unresolved branch decisions require ownership and item decisions");
       }
       unresolvedOtherBranchDecisionCounts = Object.fromEntries(branches.map((branch) => {
-        assertExactKeys(entry.unresolvedOtherBranchDecisionCounts[branch], itemDecisionNames, `${label}.${branch}`);
+        assertExactKeys(decoded[branch], itemDecisionNames, `${label}.${branch}`);
         return [branch, Object.fromEntries(itemDecisionNames.map((decision) => [decision,
-          boundedInteger(entry.unresolvedOtherBranchDecisionCounts[branch][decision], `${label}.${branch}.${decision}`)]))];
+          boundedInteger(decoded[branch][decision], `${label}.${branch}.${decision}`)]))];
       }));
       const counts = Object.values(unresolvedOtherBranchDecisionCounts).flatMap(Object.values);
       if (counts.some((count) => count > parserLineCount) ||
@@ -1118,6 +1160,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
       ...(hasProductObservation ? { productObservation: sanitizeProductObservation(
         entry.productObservation, entry, expectedReviewKinds.get(fixtureId), mismatches) } : {}),
       ...(hasUiWitness ? { uiWitness: sanitizeUiWitness(entry.uiWitness, entry) } : {}),
+      ...(hasParserDiagnostics ? { parserDiagnostics: boundedParserDiagnostics(entry.parserDiagnostics) } : {}),
+      ...(hasReviewRoleDiagnostic ? { reviewRoleDiagnostic: reviewRoleDiagnosticNames.has(entry.reviewRoleDiagnostic)
+        ? entry.reviewRoleDiagnostic : "invalidDiagnostic" } : {}),
       ...(hasNumericRoutingObservation ? {
         numericRoutingObservation: sanitizeNumericRoutingObservation(entry.numericRoutingObservation) } : {}),
       ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),
@@ -1148,6 +1193,15 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
         expectedTaxTokenSeen: entry.expectedTaxTokenSeen,
         expectedSubtotalTokenSeen: entry.expectedSubtotalTokenSeen } : {}) };
   });
+  for (const [field, label] of [
+    ["parserDiagnostics", "parser diagnostics"],
+    ["reviewRoleDiagnostic", "review role diagnostics"],
+  ]) {
+    if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, field)) &&
+        boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, field))) {
+      throw new Error(`Recognition coverage ${label} are incomplete`);
+    }
+  }
   if (hasProducts && boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "productObservation"))) {
     throw new Error("Recognition coverage product observations are incomplete");
   }

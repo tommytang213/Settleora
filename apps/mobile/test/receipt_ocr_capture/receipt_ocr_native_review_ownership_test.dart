@@ -53,6 +53,92 @@ void main() {
         },
       );
     }
+    for (final merchant in [
+      'Sumatra Parking',
+      'Asuma Parking',
+      'Gesamtheit Parking',
+      'Toplamada Parking',
+      'Tổnghợp Parking',
+      'Suma\u0301tra Parking',
+    ]) {
+      test('parking localized prefix is not a summary $layout/$merchant', () {
+        expect(
+          _parkingPreview(
+            withLayout: layout,
+            changes: {'merchant': merchant},
+          ).total,
+          '18.00',
+        );
+      });
+    }
+    for (final summary in [
+      'Suma',
+      'Suma: USD 1O.00',
+      'Gesamt',
+      'Razem',
+      'Toplam',
+      'Tổng',
+      'Sous-total',
+      'Zwischensumme',
+      'Ara toplam',
+      'Tạm tính',
+      '小計',
+      '合計',
+      '總計',
+    ]) {
+      test(
+        'parking retains independent localized summary $layout/$summary',
+        () {
+          final preview = _parkingPreview(
+            withLayout: layout,
+            beforeSession: [summary],
+          );
+          expect(preview.total, isNull);
+          expect(preview.warnings, isNotEmpty);
+        },
+      );
+    }
+    for (final merchant in [
+      'TotalÉnergies Parking',
+      'Total\u0301Energies Parking',
+      'ÀTotalÉnergies Parking',
+      'ＳTotalＥnergies Parking',
+      'SubtotalÉquipement Parking',
+      'Total_Commerce Parking',
+    ]) {
+      test(
+        'parking English Unicode boundary is not a summary $layout/$merchant',
+        () {
+          expect(
+            _parkingPreview(
+              withLayout: layout,
+              changes: {'merchant': merchant},
+            ).total,
+            '18.00',
+          );
+        },
+      );
+    }
+    for (final summary in [
+      'TOTALÉ',
+      'TOTAL金額',
+      'SUBTOTALÉ',
+      'TotalÉ USD 1O.00',
+      'TotalÉ USD 20.00',
+    ]) {
+      test(
+        'adjacent English summary retains independent authority $layout/$summary',
+        () {
+          final preview = _parkingPreview(
+            withLayout: layout,
+            beforeSession: [summary],
+          );
+          // A recognized printed total stays authoritative; never replace20 with fee18.
+          expect(preview.total, summary == 'TotalÉ USD 20.00' ? '20.00' : null);
+          expect(preview.warnings, isNotEmpty);
+        },
+      );
+    }
     test('parking merchant prefix is not a printed total $layout', () {
       expect(
         _parkingPreview(

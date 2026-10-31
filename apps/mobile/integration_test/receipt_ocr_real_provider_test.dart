@@ -71,7 +71,9 @@ String? _boundedNativeString(Pointer<Int8> pointer) {
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const fixtures = _NativeAcceptanceFixtures();
-  const provider = PaddleReceiptOcrProvider();
+  const provider = PaddleReceiptOcrProvider(
+    parser: ReceiptOcrParser(collectDiagnostics: true),
+  );
   const artifactProcessor = ReceiptImageArtifactProcessor();
   var networkIsolated = false;
 
@@ -1625,6 +1627,12 @@ Map<String, Object> _boundedRecognitionCoverage(
 
   return {
     'fixtureId': fixtureId,
+    'parserDiagnostics':
+        result.preview?.parserDiagnostics?.toBoundedEvidence() ??
+        ReceiptOcrParserDiagnostics.unavailable,
+    'reviewRoleDiagnostic': result.preview == null
+        ? ReceiptOcrReviewRoleFailure.unavailable.name
+        : receiptOcrFixtureReviewFailure(result.preview!, expected).name,
     'numericRoutingObservation':
         (result.preview?.runEvidence?.numericRoutingObservation ??
                 ReceiptOcrNumericRoutingObservation.unavailable)
@@ -1669,17 +1677,8 @@ Map<String, Object> _boundedRecognitionCoverage(
         reason.name:
             result.preview?.nordicFooterOwnershipFailureCounts[reason] ?? 0,
     },
-    'unresolvedOtherBranchDecisionCounts': {
-      for (final branch in ReceiptOcrUnresolvedOtherBranch.values)
-        branch.name: {
-          for (final decision in ReceiptOcrItemLineDecision.values)
-            decision.name:
-                result
-                    .preview
-                    ?.unresolvedOtherBranchDecisionCounts[branch]?[decision] ??
-                0,
-        },
-    },
+    'unresolvedOtherBranchDecisionCounts':
+        receiptOcrUnresolvedBranchMarkerCounts(result.preview),
     'reviewDecision':
         result.preview?.reviewHintDecision.name ??
         ReceiptOcrReviewDecision.none.name,

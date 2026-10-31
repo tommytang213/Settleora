@@ -141,10 +141,53 @@ List<String> receiptOcrFixtureFieldMismatches(
 
 // These conditions describe adjudicated source roles, never permission to
 // ignore arbitrary warnings or change the independent field/item assertions.
-bool receiptOcrFixtureReviewMatches(
+// Marker-only tuple v1: branch enum order, then item-decision enum order.
+// The exact-source collector restores the historical named map before all
+// existing ownership/count checks. Null preview keeps the former all-zero map.
+// Do not clamp invalid counters: the collector must reject them, not repair them.
+List<List<int>> receiptOcrUnresolvedBranchMarkerCounts(
+  ReceiptOcrPreview? preview,
+) => List<List<int>>.unmodifiable([
+  for (final branch in ReceiptOcrUnresolvedOtherBranch.values)
+    List<int>.unmodifiable([
+      for (final decision in ReceiptOcrItemLineDecision.values)
+        preview?.unresolvedOtherBranchDecisionCounts[branch]?[decision] ?? 0,
+    ]),
+]);
+
+// Observation only: the matcher below remains the sole acceptance decision.
+enum ReceiptOcrReviewRoleFailure {
+  unavailable,
+  matched,
+  invalidContract,
+  roleRowAbsent,
+  ambiguousRoleRow,
+  contextMismatch,
+  amountBoundaryMismatch,
+  extraneousColumn,
+  forbiddenIncompleteReason,
+  warningMismatch,
+  decisionHintMismatch,
+}
+
+ReceiptOcrReviewRoleFailure receiptOcrFixtureReviewFailure(
   ReceiptOcrPreview preview,
   Map<String, Object?> expected,
 ) {
+  var failure = ReceiptOcrReviewRoleFailure.invalidContract;
+  final matches = receiptOcrFixtureReviewMatches(
+    preview,
+    expected,
+    onFailure: (value) => failure = value,
+  );
+  return matches ? ReceiptOcrReviewRoleFailure.matched : failure;
+}
+
+bool receiptOcrFixtureReviewMatches(
+  ReceiptOcrPreview preview,
+  Map<String, Object?> expected, {
+  void Function(ReceiptOcrReviewRoleFailure)? onFailure,
+}) {
   final condition = expected['expected_review_condition'];
   const unsupportedConditions = {
     'printed unsupported fees need manual review',
@@ -152,9 +195,12 @@ bool receiptOcrFixtureReviewMatches(
     'printed fee and payment credit need manual review',
   };
   if (unsupportedConditions.contains(condition)) {
-    return _unsupportedRolesMatch(preview, expected);
+    return _unsupportedRolesMatch(preview, expected, onFailure: onFailure);
   }
-  if (expected.containsKey('expected_review_roles')) return false;
+  if (expected.containsKey('expected_review_roles')) {
+    onFailure?.call(ReceiptOcrReviewRoleFailure.invalidContract);
+    return false;
+  }
   final expectedReviewCondition =
       expected['expected_review_condition'] as String?;
   final expectedHints = expectedReviewCondition == null
@@ -186,21 +232,36 @@ bool receiptOcrFixtureReviewMatches(
           !preview.incompleteAdjustmentReasons.contains(
             ReceiptOcrIncompleteAdjustmentReason.chargeTableAdjustment,
           ));
-  return expectedHints != null &&
+  final matches =
+      expectedHints != null &&
       actualHints.length == expectedHints.length &&
       actualHints.asMap().entries.every(
         (entry) => entry.value == expectedHints[entry.key],
       ) &&
       !printedAdjustmentReviewIncomplete;
+  if (!matches) {
+    onFailure?.call(
+      printedAdjustmentReviewIncomplete
+          ? ReceiptOcrReviewRoleFailure.forbiddenIncompleteReason
+          : ReceiptOcrReviewRoleFailure.decisionHintMismatch,
+    );
+  }
+  return matches;
 }
 
 bool _unsupportedRolesMatch(
   ReceiptOcrPreview preview,
-  Map<String, Object?> expected,
-) {
+  Map<String, Object?> expected, {
+  void Function(ReceiptOcrReviewRoleFailure)? onFailure,
+}) {
+  bool fail(ReceiptOcrReviewRoleFailure failure) {
+    onFailure?.call(failure);
+    return false;
+  }
+
   final roles = expected['expected_review_roles'];
   if (roles is! List<Object?> || roles.isEmpty || roles.length > 4) {
-    return false;
+    return fail(ReceiptOcrReviewRoleFailure.invalidContract);
   }
   final rows = <int, List<ReceiptOcrBlockEvidence>>{};
   for (final block in preview.blocks) {
@@ -217,7 +278,7 @@ bool _unsupportedRolesMatch(
         role.keys.any(
           (key) => !{'kind', 'label', 'amount', 'source_context'}.contains(key),
         )) {
-      return false;
+      return fail(ReceiptOcrReviewRoleFailure.invalidContract);
     }
     final kind = role['kind'];
     final label = role['label'];
@@ -227,7 +288,7 @@ bool _unsupportedRolesMatch(
         (sourceContext is! String ||
             sourceContext.trim().isEmpty ||
             sourceContext.length > 100)) {
-      return false;
+      return fail(ReceiptOcrReviewRoleFailure.invalidContract);
     }
     if (kind is! String ||
         label is! String ||
@@ -236,15 +297,19 @@ bool _unsupportedRolesMatch(
         label.trim().isEmpty ||
         label.length > 100 ||
         !RegExp(r'^-?(?:0|[1-9]\d*)\.\d{2}$').hasMatch(amount)) {
-      return false;
+      return fail(ReceiptOcrReviewRoleFailure.invalidContract);
     }
-    if ((kind == 'payment_credit') != amount.startsWith('-')) return false;
+    if ((kind == 'payment_credit') != amount.startsWith('-')) {
+      return fail(ReceiptOcrReviewRoleFailure.invalidContract);
+    }
     final normalizedLabel = _normalizedText(label).toLowerCase();
-    if (!labels.add(normalizedLabel)) return false;
+    if (!labels.add(normalizedLabel)) {
+      return fail(ReceiptOcrReviewRoleFailure.invalidContract);
+    }
     kinds.add(kind);
     final currency = expected['currency'];
     if (currency is! String || !RegExp(r'^[A-Z]{3}$').hasMatch(currency)) {
-      return false;
+      return fail(ReceiptOcrReviewRoleFailure.invalidContract);
     }
     final currencyPattern =
         '(?:${RegExp.escape(currency.toLowerCase())}|'
@@ -269,6 +334,9 @@ bool _unsupportedRolesMatch(
     final placeholderContext =
         normalizedContext != null &&
         RegExp(r'^[-–—](?: [-–—])+$').hasMatch(normalizedContext);
+    var sawLabel = false;
+    var sawContext = false;
+    var sawAmount = false;
     final matchingRows = rows.values.where((blocks) {
       // A source role may span several OCR blocks. Only a separate, distant,
       // nonnumeric column after the amount may be excluded from its row.
@@ -277,6 +345,7 @@ bool _unsupportedRolesMatch(
           blocks.take(end).map((b) => b.text).join(' '),
         ).toLowerCase();
         if (!line.startsWith(normalizedLabel)) continue;
+        sawLabel = true;
         var tail = line
             .substring(normalizedLabel.length)
             .replaceFirst(RegExp(r'^\s*[:：]?\s*'), '');
@@ -290,7 +359,9 @@ bool _unsupportedRolesMatch(
         if (placeholderContext && !RegExp('^$currencyPattern').hasMatch(tail)) {
           continue;
         }
+        sawContext = true;
         if (!amountPattern.hasMatch(tail)) continue;
+        sawAmount = true;
         if (end == blocks.length) return true;
         final amountBlock = blocks[end - 1];
         if (amountBlock.points.length != 4 ||
@@ -326,7 +397,19 @@ bool _unsupportedRolesMatch(
       }
       return false;
     }).length;
-    if (matchingRows != 1) return false;
+    if (matchingRows != 1) {
+      return fail(
+        matchingRows > 1
+            ? ReceiptOcrReviewRoleFailure.ambiguousRoleRow
+            : !sawLabel
+            ? ReceiptOcrReviewRoleFailure.roleRowAbsent
+            : !sawContext
+            ? ReceiptOcrReviewRoleFailure.contextMismatch
+            : !sawAmount
+            ? ReceiptOcrReviewRoleFailure.amountBoundaryMismatch
+            : ReceiptOcrReviewRoleFailure.extraneousColumn,
+      );
+    }
   }
   final condition = expected['expected_review_condition'];
   final hotel =
@@ -335,13 +418,13 @@ bool _unsupportedRolesMatch(
       (kinds.length != 2 ||
           kinds.any((kind) => kind != 'fee') ||
           expected['subtotal'] != null)) {
-    return false;
+    return fail(ReceiptOcrReviewRoleFailure.invalidContract);
   }
   if (condition == 'printed combined taxes and fees need manual review' &&
       (kinds.length != 1 ||
           kinds.single != 'combined_tax_fee' ||
           expected['tax'] != null)) {
-    return false;
+    return fail(ReceiptOcrReviewRoleFailure.invalidContract);
   }
   if (hotel &&
       (kinds.length != 2 ||
@@ -352,7 +435,7 @@ bool _unsupportedRolesMatch(
           expected['discount'] != null ||
           preview.discount != null ||
           expected['subtotal'] == null)) {
-    return false;
+    return fail(ReceiptOcrReviewRoleFailure.invalidContract);
   }
   const allowedReasons = {
     ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
@@ -368,7 +451,7 @@ bool _unsupportedRolesMatch(
       preview.incompleteAdjustmentReasons.any(
         (reason) => !allowedReasons.contains(reason),
       )) {
-    return false;
+    return fail(ReceiptOcrReviewRoleFailure.forbiddenIncompleteReason);
   }
   const incompleteWarning =
       'Some OCR lines need manual review because no traceable line amount was found.';
@@ -378,7 +461,7 @@ bool _unsupportedRolesMatch(
   if (preview.warnings.toSet().length != preview.warnings.length ||
       preview.warnings.any((warning) => !allowedWarnings.contains(warning)) ||
       (hotel && !preview.warnings.contains(stayWarning))) {
-    return false;
+    return fail(ReceiptOcrReviewRoleFailure.warningMismatch);
   }
   // A combined tax/fee row remains ambiguous whether or not the source prints
   // a subtotal. The exact decision and hint must match that printed structure.
@@ -388,9 +471,12 @@ bool _unsupportedRolesMatch(
   final expectedHint = expected['subtotal'] == null
       ? 'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.'
       : 'OCR item total differs from detected subtotal. Review the receipt before applying.';
-  return preview.reviewHintDecision == expectedDecision &&
+  final matches =
+      preview.reviewHintDecision == expectedDecision &&
       preview.reviewHints.length == 1 &&
       preview.reviewHints.single == expectedHint;
+  if (!matches) return fail(ReceiptOcrReviewRoleFailure.decisionHintMismatch);
+  return true;
 }
 
 void _collectField(

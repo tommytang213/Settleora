@@ -71,7 +71,9 @@ bool _isEmailOnlyMetadataLine(String line) => RegExp(
 ).hasMatch(line);
 
 class ReceiptOcrParser {
-  const ReceiptOcrParser();
+  const ReceiptOcrParser({this.collectDiagnostics = false});
+
+  final bool collectDiagnostics;
 
   ReceiptOcrPreview parse(
     String recognizedText, {
@@ -79,11 +81,34 @@ class ReceiptOcrParser {
     List<ReceiptOcrBlockEvidence> blocks = const [],
     ReceiptOcrRunEvidence? runEvidence,
   }) {
+    final diagnostics = collectDiagnostics
+        ? ReceiptOcrPredicateCounter()
+        : null;
     final sourceLines = recognizedText
         .split(RegExp(r'\r?\n'))
         .where((line) => line.trim().isNotEmpty)
         .toList(growable: false);
     final lines = sourceLines.map(_normalizeOcrLine).toList(growable: false);
+    if (diagnostics != null) {
+      // Observation-only replays. Their selected dates are deliberately ignored.
+      // Failure of optional observation must not turn provider success into failure.
+      try {
+        _detectDate(
+          sourceLines,
+          selectTransactionDate: true,
+          diagnostics: diagnostics,
+          diagnosticStage: ReceiptOcrDateStage.original,
+        );
+        _detectDate(
+          lines,
+          selectTransactionDate: true,
+          diagnostics: diagnostics,
+          diagnosticStage: ReceiptOcrDateStage.normalized,
+        );
+      } catch (_) {
+        diagnostics.invalidate();
+      }
+    }
     final detachedAmountSignRows = <int>{
       for (var index = 0; index < sourceLines.length; index++)
         if (_hasDetachedAmountSign(sourceLines[index]) &&
@@ -348,6 +373,7 @@ class ReceiptOcrParser {
     final extractedItems = _extractItems(
       itemLines,
       currency,
+      diagnostics: diagnostics,
       selectedTotal: amounts.total,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       mixedMerchantRows: {
@@ -602,6 +628,8 @@ class ReceiptOcrParser {
       receiptDate: _detectDate(
         itemLines,
         selectTransactionDate: true,
+        diagnostics: diagnostics,
+        diagnosticStage: ReceiptOcrDateStage.projected,
         onAmbiguousReceiptDate: () => warnings.add(
           'Conflicting receipt dates were detected. Review the receipt date.',
         ),
@@ -685,6 +713,7 @@ class ReceiptOcrParser {
       }),
       blocks: blocks,
       runEvidence: runEvidence,
+      parserDiagnostics: diagnostics?.freeze(),
     );
   }
 
@@ -1089,6 +1118,8 @@ class ReceiptOcrParser {
     bool selectTransactionDate = false,
     void Function()? onAmbiguousReceiptDate,
     void Function()? onStayOnlyDate,
+    ReceiptOcrPredicateCounter? diagnostics,
+    ReceiptOcrDateStage diagnosticStage = ReceiptOcrDateStage.projected,
   }) {
     // Split only fully owned original calendar rows. Keep the original row
     // position for scoring and allow wrapped roles only on its first field.
@@ -1101,6 +1132,7 @@ class ReceiptOcrParser {
           (text: field, sourceIndex: index, firstInRow: fieldIndex == 0),
     ];
     ({String date, int score})? best;
+    var bestRole = ReceiptOcrDatePredicate.selectedOther;
     final explicitReceiptDates = <String>{};
     // Values owned by the same primary date role must corroborate. Keep
     // different roles separate: an order date need not equal a receipt date.
@@ -1147,8 +1179,15 @@ class ReceiptOcrParser {
       );
       int? ownedStayDateEnd;
       void consider(String? date, int dateStart, int dateEnd) {
+        diagnostics?.date(
+          diagnosticStage,
+          date == null
+              ? ReceiptOcrDatePredicate.invalidCandidate
+              : ReceiptOcrDatePredicate.validCandidate,
+        );
         var score = positionScore;
         var secondaryDate = false;
+        var primaryDate = false;
         final labels =
             <({int start, bool secondary, bool stay})>[
                 ...primaryLabel
@@ -1179,6 +1218,10 @@ class ReceiptOcrParser {
         if (labels.isNotEmpty) {
           final nearest = labels.last;
           if (date != null && selectTransactionDate && nearest.stay) {
+            diagnostics?.date(
+              diagnosticStage,
+              ReceiptOcrDatePredicate.stayExcluded,
+            );
             sawStayDate = true;
             ownedStayDateEnd = dateEnd;
             return;
@@ -1201,6 +1244,7 @@ class ReceiptOcrParser {
                 .firstMatch(lower.substring(nearest.start, dateStart))
                 ?.group(1);
             if (role != null) {
+              primaryDate = true;
               (primaryRoleDates[role] ??= <String>{}).add(date);
             }
           }
@@ -1226,6 +1270,10 @@ class ReceiptOcrParser {
             ).hasMatch(lower.substring(0, dateStart))) {
           // A wrapped range endpoint inherits its immediately preceding stay
           // label. A new transaction label still establishes its own role.
+          diagnostics?.date(
+            diagnosticStage,
+            ReceiptOcrDatePredicate.stayExcluded,
+          );
           sawStayDate = true;
           return;
         } else if (field.firstInRow &&
@@ -1246,6 +1294,10 @@ class ReceiptOcrParser {
           if (date != null &&
               selectTransactionDate &&
               standaloneStayLabel.hasMatch(previous)) {
+            diagnostics?.date(
+              diagnosticStage,
+              ReceiptOcrDatePredicate.stayExcluded,
+            );
             sawStayDate = true;
             ownedStayDateEnd = dateEnd;
             return;
@@ -1260,6 +1312,7 @@ class ReceiptOcrParser {
               line.substring(0, dateStart).trim().isEmpty) {
             final role = directPrimaryDateLabel.firstMatch(previous)?.group(1);
             if (role != null) {
+              primaryDate = true;
               (primaryRoleDates[role] ??= <String>{}).add(date);
             }
           }
@@ -1275,7 +1328,22 @@ class ReceiptOcrParser {
         if (date != null && date == labeledDate && !secondaryDate) {
           labeledCalendarDates.add(date);
         }
+        if (date != null) {
+          diagnostics?.date(
+            diagnosticStage,
+            secondaryDate
+                ? ReceiptOcrDatePredicate.secondaryRole
+                : (primaryDate
+                      ? ReceiptOcrDatePredicate.primaryRole
+                      : ReceiptOcrDatePredicate.otherRole),
+          );
+        }
         if (date != null && (best == null || score > best!.score)) {
+          bestRole = secondaryDate
+              ? ReceiptOcrDatePredicate.selectedSecondary
+              : primaryDate
+              ? ReceiptOcrDatePredicate.selectedPrimary
+              : ReceiptOcrDatePredicate.selectedOther;
           best = (date: date, score: score);
         }
       }
@@ -1287,6 +1355,7 @@ class ReceiptOcrParser {
           _middleDotCalendarDatePattern,
         ).firstMatch(line);
         if (middleDot != null) {
+          diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.middleDot);
           consider(labeledDate, middleDot.start, middleDot.end);
         }
       }
@@ -1296,6 +1365,7 @@ class ReceiptOcrParser {
         caseSensitive: false,
       ).allMatches(line);
       for (final month in monthMatches) {
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.namedMonth);
         consider(_dateFromNamedMonthMatch(month), month.start, month.end);
       }
       final eastAsianMatches = RegExp(
@@ -1307,6 +1377,7 @@ class ReceiptOcrParser {
           int.parse(eastAsian.group(2)!),
           int.parse(eastAsian.group(3)!),
         );
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.eastAsian);
         consider(formatted, eastAsian.start, eastAsian.end);
       }
 
@@ -1317,6 +1388,7 @@ class ReceiptOcrParser {
           int.parse(iso.group(2)!),
           int.parse(iso.group(3)!),
         );
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.yearFirst);
         consider(formatted, iso.start, iso.end);
       }
 
@@ -1330,6 +1402,7 @@ class ReceiptOcrParser {
         final formatted = first > 12
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.slash);
         consider(formatted, slash.start, slash.end);
       }
 
@@ -1344,6 +1417,7 @@ class ReceiptOcrParser {
         final formatted = first > 12 || (separator == '.' && second <= 12)
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.separated);
         consider(formatted, separatedDate.start, separatedDate.end);
       }
       // A wrapped endpoint can cross one complete separator-only row. Other
@@ -1362,11 +1436,28 @@ class ReceiptOcrParser {
     }
     if (primaryRoleDates.values.any((dates) => dates.length > 1) ||
         {...explicitReceiptDates, ...labeledCalendarDates}.length > 1) {
+      diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.noSelection);
+      diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.conflict);
       onAmbiguousReceiptDate?.call();
       return null;
     }
     final result = explicitReceiptDates.singleOrNull ?? best?.date;
+    diagnostics?.date(
+      diagnosticStage,
+      result == null
+          ? ReceiptOcrDatePredicate.noSelection
+          : ReceiptOcrDatePredicate.selected,
+    );
+    if (result != null) {
+      diagnostics?.date(
+        diagnosticStage,
+        explicitReceiptDates.length == 1
+            ? ReceiptOcrDatePredicate.selectedPrimary
+            : bestRole,
+      );
+    }
     if (result == null && sawStayDate) {
+      diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.stayOnly);
       onStayOnlyDate?.call();
     }
     return result;
@@ -3584,6 +3675,7 @@ class ReceiptOcrParser {
   _extractItems(
     List<String> lines,
     String? currency, {
+    ReceiptOcrPredicateCounter? diagnostics,
     String? selectedTotal,
     Set<int> merchantLineIndices = const {},
     Set<int> mixedMerchantRows = const {},
@@ -3613,7 +3705,11 @@ class ReceiptOcrParser {
     final ambiguousLayoutItemRows = <int>{};
     final contactLayoutItemRows = <int>{};
     var afterSubtotal = false;
-    final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
+    final leadingQuantityRows = _leadingQuantityColumnRows(
+      lines,
+      layoutRows,
+      diagnostics: diagnostics,
+    );
     final hasFuelMeasurementLayout =
         lines.any(
           (line) => RegExp(
@@ -13302,12 +13398,16 @@ bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {
 // a merchant word, a lone fee, or arithmetic that happens to balance.
 // A printed summary remains independent financial evidence even when its
 // amount cannot be extracted. Word boundaries avoid treating merchant-name
-// prefixes such as TotalEnergies as an English summary label.
+// prefixes such as TotalEnergies as an English summary label. Existing Latin
+// localized labels also require letter/mark boundaries; CJK and other existing
+// non-Latin label matching remains unchanged.
 final _parkingPrintedSummaryLabelPattern = RegExp(
   '(?:'
-  '\\b(?:${[..._englishTotalLabels, 'subtotal', 'sub total', 'sub-total'].map((label) => RegExp.escape(label).replaceAll(' ', r'\s+')).join('|')})\\b'
-  '|(?:${[..._localizedTotalLabels, ..._localizedSubtotalLabels, '合計'].map(RegExp.escape).join('|')}))',
+  '(?<![\\p{L}\\p{M}0-9_])(?:${[..._englishTotalLabels, 'subtotal', 'sub total', 'sub-total'].map((label) => RegExp.escape(label).replaceAll(' ', r'\s+')).join('|')})(?![\\p{L}\\p{M}0-9_])'
+  '|(?<![\\p{L}\\p{M}])(?:${[..._localizedTotalLabels, ..._localizedSubtotalLabels].where((label) => RegExp(r'[A-Za-z]').hasMatch(label)).map(RegExp.escape).join('|')})(?![\\p{L}\\p{M}])'
+  '|(?:${[..._localizedTotalLabels, ..._localizedSubtotalLabels, '合計'].where((label) => !RegExp(r'[A-Za-z]').hasMatch(label)).map(RegExp.escape).join('|')}))',
   caseSensitive: false,
+  unicode: true,
 );
 
 ({int feeRow, String total, Set<int> metadataRows})? _closedParkingSessionFee(
@@ -15586,8 +15686,9 @@ double _blockCenterX(ReceiptOcrBlockEvidence block) {
 
 Set<int> _leadingQuantityColumnRows(
   List<String> lines,
-  List<List<ReceiptOcrBlockEvidence>> layoutRows,
-) {
+  List<List<ReceiptOcrBlockEvidence>> layoutRows, {
+  ReceiptOcrPredicateCounter? diagnostics,
+}) {
   final accepted = <int>{};
   final run = <({int index, double centerX})>[];
   void finishRun() {
@@ -15602,6 +15703,15 @@ Set<int> _leadingQuantityColumnRows(
           index,
     ];
     final headerIndex = headerIndices.lastOrNull;
+    if (run.isEmpty) return;
+    void countRun(ReceiptOcrQuantityPredicate predicate) {
+      for (final _ in run) {
+        diagnostics?.quantity(predicate);
+      }
+    }
+
+    if (headerIndex != null) countRun(ReceiptOcrQuantityPredicate.headingFound);
+    var headingGeometry = false;
     var ownedByQuantityHeading = false;
     if (headerIndex != null && headerIndex < layoutRows.length) {
       final headings = layoutRows[headerIndex].where(
@@ -15626,7 +15736,33 @@ Set<int> _leadingQuantityColumnRows(
                 .singleOrNull
           : null;
       final heading = quantityHeading ?? combinedHeading;
+      if (diagnostics != null) {
+        final itemHeading = headings
+            .where(
+              (block) => RegExp(
+                r'^\s*(?:item|description|product)\s*$',
+                caseSensitive: false,
+              ).hasMatch(block.text),
+            )
+            .singleOrNull;
+        if (itemHeading != null &&
+            run.every(
+              (entry) =>
+                  entry.centerX >=
+                      itemHeading.points
+                          .map((p) => p.x)
+                          .reduce((a, b) => a < b ? a : b) &&
+                  entry.centerX <=
+                      itemHeading.points
+                          .map((p) => p.x)
+                          .reduce((a, b) => a > b ? a : b),
+            )) {
+          countRun(ReceiptOcrQuantityPredicate.underItemHeading);
+        }
+      }
       if (heading != null) {
+        headingGeometry = true;
+        countRun(ReceiptOcrQuantityPredicate.headingGeometry);
         final left = heading.points
             .map((point) => point.x)
             .reduce((a, b) => a < b ? a : b);
@@ -15642,11 +15778,27 @@ Set<int> _leadingQuantityColumnRows(
         );
       }
     }
-    if (ownedByQuantityHeading &&
+    final aligned =
         run.isNotEmpty &&
         run.map((entry) => entry.centerX).reduce((a, b) => a < b ? a : b) +
                 12 >=
-            run.map((entry) => entry.centerX).reduce((a, b) => a > b ? a : b)) {
+            run.map((entry) => entry.centerX).reduce((a, b) => a > b ? a : b);
+    if (ownedByQuantityHeading) {
+      countRun(ReceiptOcrQuantityPredicate.underQuantityHeading);
+    }
+    if (aligned) countRun(ReceiptOcrQuantityPredicate.alignedRun);
+    countRun(
+      headerIndex == null
+          ? ReceiptOcrQuantityPredicate.failHeading
+          : !headingGeometry
+          ? ReceiptOcrQuantityPredicate.failHeadingGeometry
+          : !ownedByQuantityHeading
+          ? ReceiptOcrQuantityPredicate.failHeadingOwnership
+          : !aligned
+          ? ReceiptOcrQuantityPredicate.failRunAlignment
+          : ReceiptOcrQuantityPredicate.accepted,
+    );
+    if (ownedByQuantityHeading && aligned) {
       accepted.addAll(run.map((entry) => entry.index));
     }
     run.clear();
@@ -15658,12 +15810,34 @@ Set<int> _leadingQuantityColumnRows(
     final row = index < layoutRows.length
         ? layoutRows[index]
         : const <ReceiptOcrBlockEvidence>[];
-    if (match == null ||
-        !_isPricedItemLine(line) ||
-        row.length < 3 ||
-        row.first.text.trim() != match.group(1) ||
-        row.first.points.length != 4 ||
-        row[1].points.length != 4) {
+    if (match == null) {
+      finishRun();
+      continue;
+    }
+    diagnostics?.quantity(ReceiptOcrQuantityPredicate.candidate);
+    ReceiptOcrQuantityPredicate? failure;
+    if (!_isPricedItemLine(line)) {
+      failure = ReceiptOcrQuantityPredicate.failPricedRow;
+    } else {
+      diagnostics?.quantity(ReceiptOcrQuantityPredicate.pricedRow);
+      if (row.length < 3) {
+        failure = ReceiptOcrQuantityPredicate.failRowMatch;
+      } else {
+        diagnostics?.quantity(ReceiptOcrQuantityPredicate.rowMatched);
+        if (row.first.text.trim() != match.group(1)) {
+          failure = ReceiptOcrQuantityPredicate.failDigitCell;
+        } else {
+          diagnostics?.quantity(ReceiptOcrQuantityPredicate.separateDigitCell);
+          if (row.first.points.length != 4 || row[1].points.length != 4) {
+            failure = ReceiptOcrQuantityPredicate.failGeometry;
+          } else {
+            diagnostics?.quantity(ReceiptOcrQuantityPredicate.geometryPresent);
+          }
+        }
+      }
+    }
+    if (failure != null) {
+      diagnostics?.quantity(failure);
       finishRun();
       continue;
     }
@@ -15676,9 +15850,11 @@ Set<int> _leadingQuantityColumnRows(
         .map((point) => point.x)
         .reduce((a, b) => a < b ? a : b);
     if (quantityRight >= descriptionLeft) {
+      diagnostics?.quantity(ReceiptOcrQuantityPredicate.failSeparatedCells);
       finishRun();
       continue;
     }
+    diagnostics?.quantity(ReceiptOcrQuantityPredicate.separatedCells);
     final quantityLeft = quantityPoints
         .map((point) => point.x)
         .reduce((a, b) => a < b ? a : b);
