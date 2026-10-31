@@ -169,6 +169,7 @@ test('stack source binding preserves merge validation and the exact owned target
   const checkout = stepsFor(mobile).find((step) => step.uses?.startsWith('actions/checkout@'));
   assert.equal(checkout.with.ref, undefined);
   assert.equal(checkout.with['fetch-depth'], 2);
+  assert.equal(checkout.with['persist-credentials'], false);
   const binding = stepsFor(mobile).find((step) => step.name === 'Verify stacked PR source binding');
   assert.equal(binding.if, "${{ github.event.pull_request.base.ref == 'ai/task/1324-included-tax-contract-on-1308-20261002' }}");
   assert.equal(binding.shell, 'bash');
