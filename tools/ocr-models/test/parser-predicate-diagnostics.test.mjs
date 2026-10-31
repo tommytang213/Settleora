@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import * as evidence from "../native-acceptance-evidence.mjs";
 import { boundedParserDiagnostics } from "../native-acceptance-evidence.mjs";
-const valid = () => ({schemaVersion:1,status:"observed",quantity:Array(21).fill(0),dates:Array.from({length:3},()=>Array(19).fill(0))});
+const valid = () => ({schemaVersion:1,status:"observed",quantity:Array(evidence.parserDiagnosticQuantityCount).fill(0),dates:Array.from({length:evidence.parserDiagnosticDateStageCount},()=>Array(evidence.parserDiagnosticDateCount).fill(0))});
 test("bounded parser tuples are copied and retain no unknown field",()=>{
  const input=valid(); input.quantity[0]=256;
  const result=boundedParserDiagnostics(input);
@@ -21,4 +23,20 @@ for(const mutate of [v=>v.raw="PRIVATE_SENTINEL",v=>v.quantity[0]="PRIVATE_SENTI
 test("old absent observations remain explicitly unavailable",()=>{
  assert.deepEqual(boundedParserDiagnostics({schemaVersion:1,status:"unavailable"}),
   {schemaVersion:1,status:"unavailable"});
+});
+
+// Cross-language wire dimensions must fail a test when the producer enum changes.
+test("collector dimensions match the committed Dart predicate enums", () => {
+ const source=readFileSync(new URL("../../../apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",import.meta.url),"utf8");
+ const enumCount=(name)=>{
+  const match=source.match(new RegExp(`enum\\s+${name}\\s*\\{([^}]*)\\}`));
+  assert.ok(match,`missing ${name}`);
+  const values=match[1].replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/[^\n]*/g,"").split(",").map(v=>v.trim()).filter(Boolean);
+  assert.ok(values.every(v=>/^[A-Za-z_]\w*$/.test(v)),`unsupported enum shape ${name}`);
+  assert.equal(new Set(values).size,values.length);
+  return values.length;
+ };
+ assert.equal(evidence.parserDiagnosticQuantityCount,enumCount("ReceiptOcrQuantityPredicate"));
+ assert.equal(evidence.parserDiagnosticDateCount,enumCount("ReceiptOcrDatePredicate"));
+ assert.equal(evidence.parserDiagnosticDateStageCount,enumCount("ReceiptOcrDateStage"));
 });

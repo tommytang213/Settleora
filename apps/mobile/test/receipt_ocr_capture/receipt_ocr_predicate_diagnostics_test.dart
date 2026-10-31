@@ -252,6 +252,18 @@ void main() {
       ReceiptOcrReviewRoleFailure.matched,
     );
     expect(receiptOcrFixtureReviewMatches(p, {}), isTrue);
+    for (final condition in ['unknown review condition', 'PRIVATE_SENTINEL']) {
+      final expected = <String, Object?>{
+        'expected_review_condition': condition,
+      };
+      final before = semantic(p);
+      expect(receiptOcrFixtureReviewMatches(p, expected), isFalse);
+      expect(
+        receiptOcrFixtureReviewFailure(p, expected),
+        ReceiptOcrReviewRoleFailure.invalidContract,
+      );
+      expect(semantic(p), before);
+    }
     expect(
       receiptOcrFixtureReviewFailure(p, {'expected_review_roles': []}),
       ReceiptOcrReviewRoleFailure.invalidContract,

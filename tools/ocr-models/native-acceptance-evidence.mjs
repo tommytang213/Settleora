@@ -776,6 +776,11 @@ function unresolvedBranchMap(value, branches, decisions, label) {
       boundedInteger(value[i][j], `${label}.${branch}.${decision}`)]))]));
 }
 
+// Wire-v1 dimensions are fixed, not inferred from runtime data. The cross-language
+// test binds them to the producer enums; changes need reviewed schema compatibility.
+export const parserDiagnosticQuantityCount = 21;
+export const parserDiagnosticDateCount = 19;
+export const parserDiagnosticDateStageCount = 3;
 export function boundedParserDiagnostics(value) {
   const invalid = { schemaVersion: 1, status: "invalid" };
   if (!value || typeof value !== "object" || Array.isArray(value)) return invalid;
@@ -787,8 +792,9 @@ export function boundedParserDiagnostics(value) {
   const counts = (v, n) => Array.isArray(v) && v.length === n &&
     v.every((c) => Number.isSafeInteger(c) && c >= 0 && c <= 256);
   if (value.status !== "observed" || keys !== "dates,quantity,schemaVersion,status" ||
-      !counts(value.quantity, 21) || !Array.isArray(value.dates) || value.dates.length !== 3 ||
-      !value.dates.every((v) => counts(v, 19))) return invalid;
+      !counts(value.quantity, parserDiagnosticQuantityCount) || !Array.isArray(value.dates) ||
+      value.dates.length !== parserDiagnosticDateStageCount ||
+      !value.dates.every((v) => counts(v, parserDiagnosticDateCount))) return invalid;
   return { schemaVersion: 1, status: "observed", quantity: [...value.quantity],
     dates: value.dates.map((v) => [...v]) };
 }

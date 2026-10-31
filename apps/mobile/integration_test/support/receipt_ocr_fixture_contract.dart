@@ -241,7 +241,9 @@ bool receiptOcrFixtureReviewMatches(
       !printedAdjustmentReviewIncomplete;
   if (!matches) {
     onFailure?.call(
-      printedAdjustmentReviewIncomplete
+      expectedHints == null
+          ? ReceiptOcrReviewRoleFailure.invalidContract
+          : printedAdjustmentReviewIncomplete
           ? ReceiptOcrReviewRoleFailure.forbiddenIncompleteReason
           : ReceiptOcrReviewRoleFailure.decisionHintMismatch,
     );
