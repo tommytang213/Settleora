@@ -877,6 +877,9 @@ SettleoraBillItem _mapPersonalItem(api.PersonalBillItemResponse response) {
     amount: response.amount,
     currency: response.currency,
     sortOrder: response.sortOrder,
+    splits: List<SettleoraBillItemSplit>.unmodifiable(
+      response.splits.map(_mapPersonalItemSplit),
+    ),
   );
 }
 
@@ -888,6 +891,37 @@ SettleoraBillItem _mapGroupItem(api.GroupBillItemResponse response) {
     amount: response.amount,
     currency: response.currency,
     sortOrder: response.sortOrder,
+    splits: List<SettleoraBillItemSplit>.unmodifiable(
+      response.splits.map(_mapGroupItemSplit),
+    ),
+  );
+}
+
+SettleoraBillItemSplit _mapPersonalItemSplit(
+  api.PersonalBillItemSplitResponse response,
+) {
+  return SettleoraBillItemSplit(
+    userProfileId: response.userProfileId,
+    splitMethod: response.splitMethod,
+    basisValue: response.basisValue,
+    resolvedAmount: response.resolvedAmount,
+    resolvedCurrency: response.resolvedCurrency,
+    allocationOrder: response.allocationOrder,
+    receivedResidualMinorUnit: response.receivedResidualMinorUnit,
+  );
+}
+
+SettleoraBillItemSplit _mapGroupItemSplit(
+  api.GroupBillItemSplitResponse response,
+) {
+  return SettleoraBillItemSplit(
+    userProfileId: response.userProfileId,
+    splitMethod: response.splitMethod,
+    basisValue: response.basisValue,
+    resolvedAmount: response.resolvedAmount,
+    resolvedCurrency: response.resolvedCurrency,
+    allocationOrder: response.allocationOrder,
+    receivedResidualMinorUnit: response.receivedResidualMinorUnit,
   );
 }
 

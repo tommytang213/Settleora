@@ -201,6 +201,7 @@ class SettleoraBillItem {
     required this.amount,
     required this.currency,
     required this.sortOrder,
+    this.splits = const [],
   });
 
   final String id;
@@ -209,6 +210,28 @@ class SettleoraBillItem {
   final String amount;
   final String currency;
   final int sortOrder;
+  final List<SettleoraBillItemSplit> splits;
+}
+
+// Server-resolved read data; this does not establish quantity-claim authority.
+class SettleoraBillItemSplit {
+  const SettleoraBillItemSplit({
+    required this.userProfileId,
+    required this.splitMethod,
+    required this.basisValue,
+    required this.resolvedAmount,
+    required this.resolvedCurrency,
+    required this.allocationOrder,
+    required this.receivedResidualMinorUnit,
+  });
+
+  final String userProfileId;
+  final String splitMethod;
+  final String? basisValue;
+  final String resolvedAmount;
+  final String resolvedCurrency;
+  final int allocationOrder;
+  final bool receivedResidualMinorUnit;
 }
 
 class SettleoraBillParticipant {

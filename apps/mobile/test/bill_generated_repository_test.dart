@@ -83,6 +83,178 @@ void main() {
       expect(client.lastBillId, _billId);
     });
 
+    test('preserves personal server item split readout', () async {
+      final repository = GeneratedSettleoraBillRepository(
+        client: FakeBillGeneratedClient(
+          detailBill: sampleApiBill(
+            itemSplits: const [
+              api.PersonalBillItemSplitResponse(
+                userProfileId: _otherUserProfileId,
+                splitMethod: api.ExpenseBillItemSplitMethodValues.ratio,
+                basisValue: '2.5000',
+                resolvedAmount: '6.6700',
+                resolvedCurrency: 'USD',
+                allocationOrder: 9,
+                receivedResidualMinorUnit: true,
+              ),
+              api.PersonalBillItemSplitResponse(
+                userProfileId: _userProfileId,
+                splitMethod: api.ExpenseBillItemSplitMethodValues.equal,
+                basisValue: null,
+                resolvedAmount: '3.3300',
+                resolvedCurrency: 'USD',
+                allocationOrder: 2,
+                receivedResidualMinorUnit: false,
+              ),
+            ],
+          ),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final detail = await repository.getPersonalBill(_billId);
+      expect(splitReadout(detail.items.single), [
+        [_otherUserProfileId, 'ratio', '2.5000', '6.6700', 'USD', 9, true],
+        [_userProfileId, 'equal', null, '3.3300', 'USD', 2, false],
+      ]);
+    });
+
+    test(
+      'preserves group server item split readout without arithmetic',
+      () async {
+        final repository = GeneratedSettleoraBillRepository(
+          client: FakeBillGeneratedClient(
+            groupDetailBill: sampleApiGroupBill(
+              itemSplits: const [
+                api.GroupBillItemSplitResponse(
+                  userProfileId: _otherUserProfileId,
+                  splitMethod: api.ExpenseBillItemSplitMethodValues.shareWeight,
+                  basisValue: '0.00000001',
+                  resolvedAmount: '9007199254740993.0100',
+                  resolvedCurrency: 'KWD',
+                  allocationOrder: 8,
+                  receivedResidualMinorUnit: false,
+                ),
+                api.GroupBillItemSplitResponse(
+                  userProfileId: _userProfileId,
+                  splitMethod: api.ExpenseBillItemSplitMethodValues.equal,
+                  basisValue: null,
+                  resolvedAmount: '0.0000',
+                  resolvedCurrency: 'JPY',
+                  allocationOrder: 1,
+                  receivedResidualMinorUnit: true,
+                ),
+              ],
+            ),
+          ),
+          accessTokenProvider: FakeAccessTokenProvider('redacted'),
+        );
+
+        final detail = await repository.getGroupBill(_groupId, _billId);
+
+        // Deliberately opaque source values exercise transport, not bill validity.
+        expect(splitReadout(detail.items.single), [
+          [
+            _otherUserProfileId,
+            'share_weight',
+            '0.00000001',
+            '9007199254740993.0100',
+            'KWD',
+            8,
+            false,
+          ],
+          [_userProfileId, 'equal', null, '0.0000', 'JPY', 1, true],
+        ]);
+      },
+    );
+
+    test(
+      'empty server item splits do not infer participant assignments',
+      () async {
+        final repository = GeneratedSettleoraBillRepository(
+          client: FakeBillGeneratedClient(),
+          accessTokenProvider: FakeAccessTokenProvider('redacted'),
+        );
+
+        final personal = await repository.getPersonalBill(_billId);
+        final group = await repository.getGroupBill(_groupId, _billId);
+
+        expect(personal.participants, isNotEmpty);
+        expect(group.participants, isNotEmpty);
+        expect(personal.items.single.splits, isEmpty);
+        expect(group.items.single.splits, isEmpty);
+      },
+    );
+
+    test('existing item constructors default to an empty split readout', () {
+      const item = SettleoraBillItem(
+        id: _itemId,
+        name: 'Milk',
+        note: null,
+        amount: '10.00',
+        currency: 'USD',
+        sortOrder: 0,
+      );
+
+      expect(item.splits, isEmpty);
+    });
+
+    test('personal item split readout is an unmodifiable snapshot', () async {
+      final source = [
+        const api.PersonalBillItemSplitResponse(
+          userProfileId: _userProfileId,
+          splitMethod: api.ExpenseBillItemSplitMethodValues.exactAmount,
+          basisValue: '10.00',
+          resolvedAmount: '10.00',
+          resolvedCurrency: 'USD',
+          allocationOrder: 0,
+          receivedResidualMinorUnit: false,
+        ),
+      ];
+      final repository = GeneratedSettleoraBillRepository(
+        client: FakeBillGeneratedClient(
+          detailBill: sampleApiBill(itemSplits: source),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final detail = await repository.getPersonalBill(_billId);
+      source.clear();
+      final splits = detail.items.single.splits;
+
+      expect(splits.single.resolvedAmount, '10.00');
+      expect(() => splits.clear(), throwsUnsupportedError);
+      expect(() => splits[0] = splits[0], throwsUnsupportedError);
+    });
+
+    test('group item split readout is an unmodifiable snapshot', () async {
+      final source = [
+        const api.GroupBillItemSplitResponse(
+          userProfileId: _userProfileId,
+          splitMethod: api.ExpenseBillItemSplitMethodValues.equal,
+          basisValue: null,
+          resolvedAmount: '10.00',
+          resolvedCurrency: 'USD',
+          allocationOrder: 0,
+          receivedResidualMinorUnit: true,
+        ),
+      ];
+      final repository = GeneratedSettleoraBillRepository(
+        client: FakeBillGeneratedClient(
+          groupDetailBill: sampleApiGroupBill(itemSplits: source),
+        ),
+        accessTokenProvider: FakeAccessTokenProvider('redacted'),
+      );
+
+      final detail = await repository.getGroupBill(_groupId, _billId);
+      source.clear();
+      final splits = detail.items.single.splits;
+
+      expect(splits.single.receivedResidualMinorUnit, isTrue);
+      expect(() => splits.clear(), throwsUnsupportedError);
+      expect(() => splits[0] = splits[0], throwsUnsupportedError);
+    });
+
     test('createPersonalBill maps a complete draft request safely', () async {
       final accessTokenProvider = FakeAccessTokenProvider('  redacted  ');
       final client = FakeBillGeneratedClient(
@@ -1184,6 +1356,7 @@ api.PersonalBillResponse sampleApiBill({
   api.ExpenseBillParticipantStatus participantStatus =
       api.ExpenseBillParticipantStatusValues.pendingAcceptance,
   api.ExpenseBillParticipantRejectionReasonCode? participantRejectionReasonCode,
+  List<api.PersonalBillItemSplitResponse> itemSplits = const [],
 }) {
   return api.PersonalBillResponse(
     id: id,
@@ -1212,7 +1385,7 @@ api.PersonalBillResponse sampleApiBill({
         amount: '10.00',
         currency: 'USD',
         sortOrder: 0,
-        splits: const [],
+        splits: itemSplits,
       ),
     ],
     participants: [
@@ -1256,6 +1429,7 @@ api.GroupBillResponse sampleApiGroupBill({
   api.ExpenseBillParticipantStatus participantStatus =
       api.ExpenseBillParticipantStatusValues.pendingAcceptance,
   api.ExpenseBillParticipantRejectionReasonCode? participantRejectionReasonCode,
+  List<api.GroupBillItemSplitResponse> itemSplits = const [],
 }) {
   return api.GroupBillResponse(
     id: id,
@@ -1285,7 +1459,7 @@ api.GroupBillResponse sampleApiGroupBill({
         amount: '10.00',
         currency: 'USD',
         sortOrder: 0,
-        splits: const [],
+        splits: itemSplits,
       ),
     ],
     participants: [
@@ -1319,6 +1493,22 @@ api.GroupBillResponse sampleApiGroupBill({
     ],
     calculatedAdjustmentAllocations: const [],
   );
+}
+
+List<List<Object?>> splitReadout(SettleoraBillItem item) {
+  return item.splits
+      .map(
+        (split) => <Object?>[
+          split.userProfileId,
+          split.splitMethod,
+          split.basisValue,
+          split.resolvedAmount,
+          split.resolvedCurrency,
+          split.allocationOrder,
+          split.receivedResidualMinorUnit,
+        ],
+      )
+      .toList(growable: false);
 }
 
 const _billId = '22222222-2222-2222-2222-222222222222';
