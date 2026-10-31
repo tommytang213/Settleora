@@ -390,6 +390,39 @@ void main() {
     }
   });
 
+  test(
+    'empty input retains enabled observations without changing semantics',
+    () {
+      for (final text in ['', '  \n\t']) {
+        final disabled = const ReceiptOcrParser().parse(text);
+        final enabled = const ReceiptOcrParser(
+          collectDiagnostics: true,
+        ).parse(text);
+        expect(semantic(enabled), semantic(disabled));
+        expect(disabled.parserDiagnostics, isNull);
+        expect(enabled.parserDiagnostics, isNotNull);
+        expect(
+          enabled.parserDiagnostics!.toBoundedEvidence()['status'],
+          'observed',
+        );
+        expect(
+          enabled.parserDiagnostics!.quantity.every((v) => v == 0),
+          isTrue,
+        );
+        expect(enabled.parserDiagnostics!.dates, [
+          for (final stage in ReceiptOcrDateStage.values)
+            [
+              for (final predicate in ReceiptOcrDatePredicate.values)
+                stage != ReceiptOcrDateStage.projected &&
+                        predicate == ReceiptOcrDatePredicate.noSelection
+                    ? 1
+                    : 0,
+            ],
+        ]);
+      }
+    },
+  );
+
   test('invalid optional observations retain no partial counts', () {
     final counter = ReceiptOcrPredicateCounter();
     counter.quantity(ReceiptOcrQuantityPredicate.candidate);

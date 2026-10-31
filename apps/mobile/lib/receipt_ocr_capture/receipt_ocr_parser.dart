@@ -117,8 +117,9 @@ class ReceiptOcrParser {
     };
     final warnings = <String>[];
     if (lines.isEmpty) {
-      return const ReceiptOcrPreview(
-        warnings: ['No readable receipt text was found.'],
+      return ReceiptOcrPreview(
+        warnings: const ['No readable receipt text was found.'],
+        parserDiagnostics: diagnostics?.freeze(),
       );
     }
 

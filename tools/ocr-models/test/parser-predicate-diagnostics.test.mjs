@@ -28,15 +28,14 @@ test("old absent observations remain explicitly unavailable",()=>{
 // Cross-language wire dimensions must fail a test when the producer enum changes.
 test("collector dimensions match the committed Dart predicate enums", () => {
  const source=readFileSync(new URL("../../../apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",import.meta.url),"utf8");
- const enumCount=(name)=>{
-  const match=source.match(new RegExp(`enum\\s+${name}\\s*\\{([^}]*)\\}`));
+ const enumCount=(match,name)=>{
   assert.ok(match,`missing ${name}`);
   const values=match[1].replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/[^\n]*/g,"").split(",").map(v=>v.trim()).filter(Boolean);
   assert.ok(values.every(v=>/^[A-Za-z_]\w*$/.test(v)),`unsupported enum shape ${name}`);
   assert.equal(new Set(values).size,values.length);
   return values.length;
  };
- assert.equal(evidence.parserDiagnosticQuantityCount,enumCount("ReceiptOcrQuantityPredicate"));
- assert.equal(evidence.parserDiagnosticDateCount,enumCount("ReceiptOcrDatePredicate"));
- assert.equal(evidence.parserDiagnosticDateStageCount,enumCount("ReceiptOcrDateStage"));
+ assert.equal(evidence.parserDiagnosticQuantityCount,enumCount(source.match(/enum\s+ReceiptOcrQuantityPredicate\s*\{([^}]*)\}/),"ReceiptOcrQuantityPredicate"));
+ assert.equal(evidence.parserDiagnosticDateCount,enumCount(source.match(/enum\s+ReceiptOcrDatePredicate\s*\{([^}]*)\}/),"ReceiptOcrDatePredicate"));
+ assert.equal(evidence.parserDiagnosticDateStageCount,enumCount(source.match(/enum\s+ReceiptOcrDateStage\s*\{([^}]*)\}/),"ReceiptOcrDateStage"));
 });
