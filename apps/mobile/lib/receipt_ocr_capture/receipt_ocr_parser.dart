@@ -274,12 +274,27 @@ class ReceiptOcrParser {
       merchantDetection?.lineIndices ?? const {},
     );
     final ownedActivityEvidenceRows = <int>{};
-    final ownedActivityFeeRows = _corroboratedActivityFeeRows(
+    final closedParkingSession = _closedParkingSessionFee(
       lines,
+      layoutRows,
+      merchant,
+      merchantDetection?.lineIndices ?? const {},
       currency,
-      ownedEvidenceRows: ownedActivityEvidenceRows,
-      unresolvedEvidenceRows: ambiguousChargeRows,
+      _detectDate(itemLines, selectTransactionDate: true),
+      hasLayout: blocks.isNotEmpty,
     );
+    if (closedParkingSession != null) {
+      ownedActivityEvidenceRows.addAll(closedParkingSession.metadataRows);
+    }
+    final ownedActivityFeeRows = <int>{
+      ..._corroboratedActivityFeeRows(
+        lines,
+        currency,
+        ownedEvidenceRows: ownedActivityEvidenceRows,
+        unresolvedEvidenceRows: ambiguousChargeRows,
+      ),
+      if (closedParkingSession != null) closedParkingSession.feeRow,
+    };
     final amounts = _extractLabeledAmounts(
       lines,
       currency,
@@ -465,6 +480,9 @@ class ReceiptOcrParser {
     final selectedTotal =
         amounts.total ??
         (contactColumnTotals.length == 1 ? contactColumnTotals.single : null) ??
+        // A closed parking panel cannot account for an extra unpriced product.
+        // Keep the existing unresolved-row proof and warnings conservative.
+        (unresolvedItemLines == 0 ? closedParkingSession?.total : null) ??
         _boundedDccChargedTotal(
           lines,
           itemCandidates,
@@ -13279,6 +13297,195 @@ bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {
   return _isStandaloneAmountRow(remainder);
 }
 
+// A FEE-only parking ticket can print a complete paid session without a Total
+// label. Require the whole dated time/duration/fee/identity panel, not merely
+// a merchant word, a lone fee, or arithmetic that happens to balance.
+// A printed summary remains independent financial evidence even when its
+// amount cannot be extracted. Word boundaries avoid treating merchant-name
+// prefixes such as TotalEnergies as an English summary label.
+final _parkingPrintedSummaryLabelPattern = RegExp(
+  '(?:'
+  '\\b(?:${[..._englishTotalLabels, 'subtotal', 'sub total', 'sub-total'].map((label) => RegExp.escape(label).replaceAll(' ', r'\s+')).join('|')})\\b'
+  '|(?:${[..._localizedTotalLabels, ..._localizedSubtotalLabels, '合計'].map(RegExp.escape).join('|')}))',
+  caseSensitive: false,
+);
+
+({int feeRow, String total, Set<int> metadataRows})? _closedParkingSessionFee(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  String? merchant,
+  Set<int> merchantRows,
+  String? currency,
+  String? receiptDate, {
+  required bool hasLayout,
+}) {
+  if (currency == null ||
+      receiptDate == null ||
+      merchant == null ||
+      merchantRows.isEmpty ||
+      !RegExp(r'\bparking\b', caseSensitive: false).hasMatch(merchant) ||
+      RegExp(r'[\d\p{Sc}]', unicode: true).hasMatch(merchant) ||
+      lines.length < 9 ||
+      lines.any(
+        (line) =>
+            _hasTotalLabel(line, line.toLowerCase()) ||
+            _hasSubtotalLabel(line, line.toLowerCase()) ||
+            _parkingPrintedSummaryLabelPattern.hasMatch(line),
+      )) {
+    return null;
+  }
+  final start = lines.length - 8;
+  if (merchantRows.any((index) => index >= start) ||
+      _labeledCalendarDate(lines[start]) != receiptDate ||
+      !_isCompleteClockMetadataLine(lines[start + 1]) ||
+      !_isCompleteClockMetadataLine(lines[start + 2])) {
+    return null;
+  }
+  int? clock(String line, String role) {
+    final match = RegExp(
+      '^time\\s+$role\\s*[:：]\\s*'
+      r'(\d{1,2}):([0-5]\d)(?::([0-5]\d))?\s*(am|pm)?$',
+      caseSensitive: false,
+    ).firstMatch(line.trim());
+    if (match == null) return null;
+    var hour = int.parse(match[1]!);
+    final period = match[4]?.toLowerCase();
+    if (period == null) {
+      if (hour > 23) return null;
+    } else {
+      if (hour < 1 || hour > 12) return null;
+      hour = hour % 12 + (period == 'pm' ? 12 : 0);
+    }
+    return hour * 3600 + int.parse(match[2]!) * 60 + int.parse(match[3] ?? '0');
+  }
+
+  final entry = clock(lines[start + 1], 'in');
+  final exit = clock(lines[start + 2], 'out');
+  final duration = RegExp(
+    r'^duration\s*[:：]\s*(\d{1,2}):([0-5]\d):([0-5]\d)$',
+    caseSensitive: false,
+  ).firstMatch(lines[start + 3].trim());
+  if (entry == null || exit == null || exit <= entry || duration == null) {
+    return null;
+  }
+  final elapsed =
+      int.parse(duration[1]!) * 3600 +
+      int.parse(duration[2]!) * 60 +
+      int.parse(duration[3]!);
+  if (elapsed != exit - entry) return null;
+
+  final feeRow = start + 4;
+  final fee = RegExp(
+    r'^fee\s*[:：]\s*(.+)$',
+    caseSensitive: false,
+  ).firstMatch(lines[feeRow].trim());
+  if (fee == null || !_isBoundedPaymentAmount(fee[1]!)) return null;
+  final denomination = _currencyAdjacentToSelectedAmount(fee[1]!, currency);
+  final amount = _lastAmountInLine(fee[1]!, currency: currency);
+  if (!denomination.hasExplicitEvidence ||
+      denomination.currency != currency ||
+      amount == null ||
+      (_ocrAmountMinorUnits(amount, currency) ?? BigInt.zero) <= BigInt.zero ||
+      !_isBoundedPaymentIdentityLine(
+        lines[start + 5],
+        allowAmount: false,
+        requireMaskedCard: true,
+      ) ||
+      !_isBoundedCourtesyApprovalIdentifierLine(lines[start + 6]) ||
+      !_isReceiptCourtesyLine(lines[start + 7]) ||
+      _lineHasAmount(lines[start + 7])) {
+    return null;
+  }
+  // This fallback proves only the merchant and the complete paid session.
+  // Any extra header row has no positive role in that proof, even if generic
+  // item accounting classifies it as an address or leaves it unpriced.
+  for (var index = 0; index < start; index++) {
+    if (!merchantRows.contains(index)) return null;
+  }
+  if (hasLayout) {
+    if (rows.length != lines.length ||
+        _receiptRolePanelHasCompetingCells(rows, start, 8)) {
+      return null;
+    }
+    if (!_parkingSessionFieldAssociations(rows.sublist(start))) return null;
+    final boxes = rows.skip(start).map(_receiptRoleBox).toList();
+    if (boxes.any((box) => box == null)) return null;
+    // Every complete field, including a one-block fee, must belong to the
+    // same printed panel. Vertical row order alone cannot associate a field
+    // from a neighboring column. Require a common horizontal band; split
+    // fields still need the stronger independent label/value proof above.
+    if (!_parkingSessionSharesBand(
+      boxes.whereType<_ReceiptRoleBox>().toList(),
+    )) {
+      return null;
+    }
+    for (var index = 1; index < boxes.length; index++) {
+      if (!_receiptRoleFollows(boxes[index - 1]!, boxes[index]!)) return null;
+    }
+  }
+  return (
+    feeRow: feeRow,
+    total: amount,
+    metadataRows: {
+      for (var index = start; index < lines.length; index++)
+        if (index != feeRow) index,
+    },
+  );
+}
+
+// A provider row ID is not a label/value association. A complete source block
+// owns its field; split fields additionally need the same independently printed
+// date/time/duration columns. Column intersection is scale independent and does
+// not invent a maximum label-to-value gap.
+bool _parkingSessionFieldAssociations(
+  List<List<ReceiptOcrBlockEvidence>> panel,
+) {
+  final labels = [
+    RegExp(r'^date\s*[:：]$', caseSensitive: false),
+    RegExp(r'^time\s+in\s*[:：]$', caseSensitive: false),
+    RegExp(r'^time\s+out\s*[:：]$', caseSensitive: false),
+    RegExp(r'^duration\s*[:：]$', caseSensitive: false),
+    RegExp(r'^fee\s*[:：]$', caseSensitive: false),
+    RegExp(r'^paid\s+with\s*[:：]$', caseSensitive: false),
+    RegExp(r'^(?:auth|authorization|approval)\s*[:：]$', caseSensitive: false),
+  ];
+  final pairs = <({_ReceiptRoleBox label, _ReceiptRoleBox value})>[];
+  var temporalAnchors = 0;
+  for (var index = 0; index < panel.length; index++) {
+    final row = panel[index];
+    if (row.length == 1) continue;
+    // The courtesy row has no independent label/value role. Extra cells and
+    // partial labels cannot be rescued by the grammar of a joined row.
+    if (index >= labels.length ||
+        !_receiptRoleColumns(row) ||
+        !labels[index].hasMatch(_normalizeOcrLine(row.first.text).trim())) {
+      return false;
+    }
+    pairs.add((
+      label: _receiptRoleBox([row.first])!,
+      value: _receiptRoleBox([row.last])!,
+    ));
+    if (index < 4) temporalAnchors++;
+  }
+  if (pairs.isEmpty) return true;
+  if (pairs.length < 3 || temporalAnchors < 2) return false;
+  return _parkingSessionSharesBand(pairs.map((pair) => pair.label).toList()) &&
+      _parkingSessionSharesBand(pairs.map((pair) => pair.value).toList());
+}
+
+// Use positive overlap, not proximity across a gap. As in the existing
+// same-row vertical proof, require half of the narrowest field/column width;
+// incidental edge intersection does not establish a shared printed band.
+bool _parkingSessionSharesBand(List<_ReceiptRoleBox> boxes) {
+  if (boxes.isEmpty) return false;
+  final left = boxes.map((box) => box.left).reduce((a, b) => a > b ? a : b);
+  final right = boxes.map((box) => box.right).reduce((a, b) => a < b ? a : b);
+  final width = boxes
+      .map((box) => box.right - box.left)
+      .reduce((a, b) => a < b ? a : b);
+  return width > 0 && right - left >= width / 2;
+}
+
 // A fee is not merchandise merely because it has a price or balances a total.
 // Only the closed activity below owns these named, already priced item rows.
 // Unknown fees, missing activity evidence and contradictory money stay in review.
@@ -13445,7 +13652,11 @@ bool _isExplicitNonItemFeeLine(String line) => _isLabeledStandaloneMoneyLine(
   ),
 );
 
-bool _isBoundedPaymentIdentityLine(String line, {bool allowAmount = true}) {
+bool _isBoundedPaymentIdentityLine(
+  String line, {
+  bool allowAmount = true,
+  bool requireMaskedCard = false,
+}) {
   final normalized = line.toLowerCase().trim();
   // A masked last-four identifier is payment evidence, not a second item
   // amount. Require the whole row: arbitrary product suffixes, extra prices,
@@ -13463,12 +13674,13 @@ bool _isBoundedPaymentIdentityLine(String line, {bool allowAmount = true}) {
       return true;
     }
   }
-  if (RegExp(
-    r'^approved\s+auth(?:orization)?(?=\s|[:#])\s*'
-    r'(?:(?:code|number|no\.?)\s*)?[:#]?\s*'
-    r'(?=[a-z0-9]{0,11}\d)[a-z0-9]{4,12}$',
-    caseSensitive: false,
-  ).hasMatch(normalized)) {
+  if (!requireMaskedCard &&
+      RegExp(
+        r'^approved\s+auth(?:orization)?(?=\s|[:#])\s*'
+        r'(?:(?:code|number|no\.?)\s*)?[:#]?\s*'
+        r'(?=[a-z0-9]{0,11}\d)[a-z0-9]{4,12}$',
+        caseSensitive: false,
+      ).hasMatch(normalized)) {
     return true;
   }
   return false;

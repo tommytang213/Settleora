@@ -1,5 +1,11 @@
 # Issue Progress Ledger
 
+### #1247 / #1346 — Closed parking-session fee total characterization (2026-10-30)
+
+- Separate local manual product candidate from published PR #1347 `d6522d0b0972f0260d74a4ea58b7c3d373619627`; no stay-range or frozen capture/tooling follow-up is transplanted. Atlas owns the technical gate; independent local source review is admitted for this separate candidate; publication and a new native run remain held.
+- The approved FEE-only parking ticket requires a total although no Total label is printed. Red proof retained the sole fee item but failed all four valid total cases; 74 adverse/control cases passed. Conditional correction requires a whole dated parking-session/time/duration/fee/masked-payment/authorization/closing panel, rejects competing money and uncertain supplied geometry, preserves independent totals, and keeps the existing symbol-only currency warning. R1 independent review found a false same-row association; retained red tests reproduce it. Split fields now require exact role labels and independently corroborated columns, while whole-field source blocks remain valid only within a shared horizontal session band. R2 review exposed displaced whole fields; eight retained red cases prove that finding. R3 review exposed approval-only payment evidence; parking now requires a masked-card identity without changing legacy callers. Incidental edge overlap also fails the existing half-overlap convention. Renewed focused local proof: 833 tests pass; full local validation and all independent/hosted/native gates remain separately tracked and are not implied.
+- Parser SHA/canonical trusted catalog binding change together; `pending_native_provider_acceptance`, corpus truth, model bytes, providers, money authority and workflows remain unchanged. Existing native run `41098807964` continues only on published d652; no fixture acceptance or whole OCR completion is claimed from synthetic parser tests. No merge, release, deployment or issue closure.
+
 ### #1346 — OCR positive row-ownership characterization and conditional correction
 
 - Manual, separately scoped product task; not M15 or an auto-runner lane expansion. Atlas technical gate owner; draft/unmerged execution boundary.
