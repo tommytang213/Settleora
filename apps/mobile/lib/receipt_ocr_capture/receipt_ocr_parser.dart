@@ -60,6 +60,7 @@ bool _hasPotentialReceiptAdjustmentLabel(String line) {
   }
   final folded = line.toLowerCase();
   return _boundedJapaneseTaxLabelPattern.hasMatch(line) ||
+      _hasPotentialArabicVatMoneyLine(line) ||
       _localizedReceiptAdjustmentLabels
           .where((label) => label != '消費税' && label != '税' && label != '稅')
           .any(folded.contains);
@@ -247,6 +248,9 @@ class ReceiptOcrParser {
     layoutChargeItems.removeWhere(
       (index, _) =>
           _isAmbiguousAccountBalanceSummaryLine(lines[index]) ||
+          // A row rejected by item selection cannot suppress adjustment review
+          // through an earlier layout-ownership claim.
+          _isUnresolvedArabicVatMoneyLine(lines[index]) ||
           ambiguousProjectionRows.contains(index) ||
           boundedUtility.ambiguous.contains(index) ||
           utilityFinancial.ambiguous.contains(index) ||
@@ -328,7 +332,9 @@ class ReceiptOcrParser {
       chargeTableRows: recognizedChargeRows,
       ownedChargeItemRows: {
         ...layoutChargeItems.keys,
-        ...chargeTable.textOwnedItems,
+        ...chargeTable.textOwnedItems.where(
+          (index) => !_isUnresolvedArabicVatMoneyLine(lines[index]),
+        ),
       },
       ambiguousChargeTableRows: ambiguousChargeRows,
       detachedAmountSignRows: detachedAmountSignRows,
@@ -1949,6 +1955,7 @@ class ReceiptOcrParser {
     final localizedAdjustment =
         _traditionalTaxAmountLinePattern.firstMatch(line) ??
         _attachedJapaneseTaxAmountLinePattern.firstMatch(line) ??
+        _arabicVatAmountLinePattern.firstMatch(line) ??
         _portugueseServiceAmountLinePattern.firstMatch(line);
     if (localizedAdjustment != null) {
       // The label can touch a printed currency code. Resolve the owned cell
@@ -2907,6 +2914,7 @@ class ReceiptOcrParser {
       final localizedAdjustmentSummary =
           _traditionalTaxAmountLinePattern.firstMatch(line) ??
           _attachedJapaneseTaxAmountLinePattern.firstMatch(line) ??
+          _arabicVatAmountLinePattern.firstMatch(line) ??
           _portugueseServiceAmountLinePattern.firstMatch(line);
       final unownedTotalTail =
           _hasPotentialPrimaryTotalCurrencyLine(line, normalized) &&
@@ -3753,8 +3761,11 @@ class ReceiptOcrParser {
       if (_hasSubtotalLabel(line, line.toLowerCase())) {
         afterSubtotal = true;
       }
+      // Incomplete VAT money remains adjustment-review evidence; its last
+      // numeric token cannot become the price of an invented merchandise row.
       if (layoutAdjustmentRows.contains(lineIndex) ||
-          ownedAccountSummaryRows.contains(lineIndex)) {
+          ownedAccountSummaryRows.contains(lineIndex) ||
+          _isUnresolvedArabicVatMoneyLine(line)) {
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.metadataOrHeaderSkipped;
         wrappedDescriptionLines.clear();
@@ -15567,6 +15578,7 @@ bool _hasTaxLabel(
           _hasJapaneseReceiptLabel(line, const ['消費税', '税'])) ||
       _traditionalTaxAmountLinePattern.hasMatch(line) ||
       _attachedJapaneseTaxAmountLinePattern.hasMatch(line) ||
+      _arabicVatAmountLinePattern.hasMatch(line) ||
       _hasLocalizedReceiptLabel(line, const [
         'الضريبة',
         '税额',
@@ -15602,6 +15614,43 @@ final _attachedJapaneseTaxAmountLinePattern = RegExp(
   '(?<amount>$_amountTokenPattern)\\s*(?:$_currencyTokenPattern)?)\\s*\$',
   caseSensitive: false,
 );
+
+const _arabicVatLabelPattern = r'ضريبة\s+القيمة\s+المضافة';
+
+// The printed VAT phrase owns only a complete monetary cell. Product wording
+// before or after the phrase cannot become tax through substring matching.
+final _arabicVatAmountLinePattern = RegExp(
+  '^\\s*$_arabicVatLabelPattern\\s*[:：]?\\s*'
+  '(?<monetaryCell>(?:$_currencyTokenPattern)?\\s*(?<amount>$_amountTokenPattern)'
+  '\\s*(?:$_currencyTokenPattern)?)\\s*\$',
+  caseSensitive: false,
+);
+
+// A missing or malformed cell still needs review, including extra amounts.
+// Require the leading phrase to end the row or directly precede monetary text;
+// a book or other product containing the phrase keeps its merchandise role.
+final _arabicVatMoneyLabelPrefixPattern = RegExp(
+  '^\\s*$_arabicVatLabelPattern\\s*[:：]?\\s*'
+  '(?=\$|(?:$_currencyTokenPattern)?\\s*[+\\-]?\\s*\\d)',
+  caseSensitive: false,
+);
+
+// Use the existing uppercase three-letter denomination shape only after the
+// complete leading label and a separator. Unknown codes grant no tax amount.
+// A product suffix followed by its own explicit currency cell (DVD AED 1.85)
+// does not match this ambiguity; DVD 1.85 and ZZZ 1.85 remain indistinguishable.
+final _arabicVatUnresolvedCodePrefixPattern = RegExp(
+  '^\\s*$_arabicVatLabelPattern(?:\\s+|\\s*[:：]\\s*)'
+  r'[A-Z]{3}(?![A-Za-z])\s*[:=]?\s*[+-]?\s*\d',
+);
+
+bool _hasPotentialArabicVatMoneyLine(String line) =>
+    _arabicVatMoneyLabelPrefixPattern.hasMatch(line) ||
+    _arabicVatUnresolvedCodePrefixPattern.hasMatch(line);
+
+bool _isUnresolvedArabicVatMoneyLine(String line) =>
+    _hasPotentialArabicVatMoneyLine(line) &&
+    !_arabicVatAmountLinePattern.hasMatch(line);
 
 // An explicit item/product qualifier after a tax-rate annotation keeps that
 // rate in the merchandise description. Do not clear generic tax/fee ambiguity
