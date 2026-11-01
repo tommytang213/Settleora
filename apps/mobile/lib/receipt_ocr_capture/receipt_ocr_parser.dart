@@ -15626,12 +15626,14 @@ final _arabicVatAmountLinePattern = RegExp(
   caseSensitive: false,
 );
 
-// A missing or malformed cell still needs review, including extra amounts.
+// A missing or malformed cell still needs review, including a currency-only
+// remainder or extra amounts.
 // Require the leading phrase to end the row or directly precede monetary text;
 // a book or other product containing the phrase keeps its merchandise role.
 final _arabicVatMoneyLabelPrefixPattern = RegExp(
   '^\\s*$_arabicVatLabelPattern\\s*[:：]?\\s*'
-  '(?=\$|(?:$_currencyTokenPattern)?\\s*[+\\-]?\\s*\\d)',
+  '(?=\$|(?:$_currencyTokenPattern)\\s*\$|'
+  '(?:$_currencyTokenPattern)?\\s*[+\\-]?\\s*\\d)',
   caseSensitive: false,
 );
 

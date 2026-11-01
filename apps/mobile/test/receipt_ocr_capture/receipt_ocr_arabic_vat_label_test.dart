@@ -143,6 +143,54 @@ void main() {
     expect(preview.items.map((item) => item.description), ['شاورما', 'عصير']);
   });
 
+  for (final remainder in ['AED', 'aEd', 'د.إ', 'دإ', ': AED', '： د.إ']) {
+    test('currency-only Arabic VAT retains its missing amount: $remainder', () {
+      final preview = _receipt('$_vatLabel $remainder');
+      _expectPurchasesAndTotals(preview);
+      expect(preview.tax, isNull);
+      expect(preview.taxCurrency, isNull);
+      expect(preview.taxHasExplicitCurrencyEvidence, isFalse);
+      expect(preview.items.map((item) => item.description), ['شاورما', 'عصير']);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+      );
+      expect(preview.reviewHints, isNotEmpty);
+    });
+  }
+
+  for (final line in [
+    '$_vatLabel AED Guide',
+    '$_vatLabel AEDGuide',
+    '$_vatLabel د.إ Guide',
+    'Guide $_vatLabel AED',
+    '$_vatLabel ZZZ',
+    '$_vatLabel DVD',
+  ]) {
+    test('other Arabic VAT text is not a known currency-only cell: $line', () {
+      final preview = _receipt(line);
+      _expectPurchasesAndTotals(preview);
+      expect(preview.tax, isNull);
+      expect(preview.taxCurrency, isNull);
+      expect(preview.taxHasExplicitCurrencyEvidence, isFalse);
+      expect(preview.items.map((item) => item.description), ['شاورما', 'عصير']);
+      // These words do not prove a missing known-currency monetary cell.
+      // Other unresolved-row review evidence remains governed by its own role.
+      expect(
+        preview.incompleteAdjustmentReasons,
+        isNot(
+          contains(
+            ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+          ),
+        ),
+      );
+      expect(preview.reviewHints, isNotEmpty);
+    });
+  }
+
   for (final adjustment in [
     '$_vatLabel AED 1.85 pending',
     '$_vatLabel AED 1.85guide',
