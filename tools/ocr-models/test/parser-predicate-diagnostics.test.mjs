@@ -25,17 +25,18 @@ test("old absent observations remain explicitly unavailable",()=>{
   {schemaVersion:1,status:"unavailable"});
 });
 
-// Cross-language wire dimensions must fail a test when the producer enum changes.
+// Wire-v1 positions and dimensions must fail a test when producer enums drift.
 test("collector dimensions match the committed Dart predicate enums", () => {
  const source=readFileSync(new URL("../../../apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",import.meta.url),"utf8");
- const enumCount=(match,name)=>{
+ const enumCount=(match,name,expected)=>{
   assert.ok(match,`missing ${name}`);
   const values=match[1].replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/[^\n]*/g,"").split(",").map(v=>v.trim()).filter(Boolean);
   assert.ok(values.every(v=>/^[A-Za-z_]\w*$/.test(v)),`unsupported enum shape ${name}`);
   assert.equal(new Set(values).size,values.length);
+  assert.deepEqual(values,expected,`wire-v1 enum order changed: ${name}`);
   return values.length;
  };
- assert.equal(evidence.parserDiagnosticQuantityCount,enumCount(source.match(/enum\s+ReceiptOcrQuantityPredicate\s*\{([^}]*)\}/),"ReceiptOcrQuantityPredicate"));
- assert.equal(evidence.parserDiagnosticDateCount,enumCount(source.match(/enum\s+ReceiptOcrDatePredicate\s*\{([^}]*)\}/),"ReceiptOcrDatePredicate"));
- assert.equal(evidence.parserDiagnosticDateStageCount,enumCount(source.match(/enum\s+ReceiptOcrDateStage\s*\{([^}]*)\}/),"ReceiptOcrDateStage"));
+ assert.equal(evidence.parserDiagnosticQuantityCount,enumCount(source.match(/enum\s+ReceiptOcrQuantityPredicate\s*\{([^}]*)\}/),"ReceiptOcrQuantityPredicate",["candidate","pricedRow","rowMatched","separateDigitCell","geometryPresent","separatedCells","headingFound","headingGeometry","underQuantityHeading","underItemHeading","alignedRun","accepted","failPricedRow","failRowMatch","failDigitCell","failGeometry","failSeparatedCells","failHeading","failHeadingGeometry","failHeadingOwnership","failRunAlignment"]));
+ assert.equal(evidence.parserDiagnosticDateCount,enumCount(source.match(/enum\s+ReceiptOcrDatePredicate\s*\{([^}]*)\}/),"ReceiptOcrDatePredicate",["namedMonth","eastAsian","yearFirst","slash","separated","middleDot","validCandidate","invalidCandidate","stayExcluded","primaryRole","secondaryRole","otherRole","conflict","selected","stayOnly","noSelection","selectedPrimary","selectedSecondary","selectedOther"]));
+ assert.equal(evidence.parserDiagnosticDateStageCount,enumCount(source.match(/enum\s+ReceiptOcrDateStage\s*\{([^}]*)\}/),"ReceiptOcrDateStage",["original","normalized","projected"]));
 });
