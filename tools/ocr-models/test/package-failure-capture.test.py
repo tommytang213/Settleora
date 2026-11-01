@@ -349,6 +349,30 @@ class CaptureContractTest(unittest.TestCase):
         (repo / module.IOS_LOCK_VERIFIER).write_bytes(b"untrusted")
         with self.assertRaises(ValueError):module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, git)
 
+    def test_projection_executes_captured_git_bytes_not_reopened_verifier_path(self):
+        repo, lock, projected, git = self.projection_fixture()
+        real_run = subprocess.run
+        commands = []
+        def replace_path(*args, **kwargs):
+            (repo / module.IOS_LOCK_VERIFIER).write_text("throw new Error('untrusted replacement');")
+            commands.append((args, kwargs))
+            return real_run(*args, **kwargs)
+        with patch.object(module.subprocess, "run", side_effect=replace_path):
+            result = module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, git)
+        self.assertEqual(result["workspaceLockSha256"], module.sha(projected))
+        argv = commands[0][0][0]
+        self.assertTrue(Path(argv[0]).is_absolute())
+        self.assertEqual(argv[1:], ["--input-type=module", "--eval", module.PROJECTION_BRIDGE])
+        self.assertNotIn(str(repo), " ".join(argv))
+        self.assertEqual(set(commands[0][1]["env"]), {"PATH", "LANG", "LC_ALL"})
+        self.assertFalse(commands[0][1]["check"])
+        self.assertNotIn("timeout", commands[0][1])
+
+    def test_projection_fails_closed_without_existing_node(self):
+        repo, lock, projected, git = self.projection_fixture()
+        with patch.object(module.shutil, "which", return_value=None):
+            with self.assertRaises(ValueError):module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, git)
+
     def test_projection_rejects_lock_drift_during_verification(self):
         repo, lock, projected, git = self.projection_fixture()
         def mutate(*args, **kwargs):

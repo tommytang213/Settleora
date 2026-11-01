@@ -7,6 +7,7 @@ public bundle metadata. Unknown encodings/values yield hash-only unavailable
 observations. Existing verifier failures remain authoritative.
 """
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -15,6 +16,7 @@ from pathlib import Path
 import plistlib
 import re
 import stat
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -32,6 +34,18 @@ REPOSITORY = "tommytang213/Settleora"
 CONTEXT_KEYS = {"sourceSha", "sourceTree", "sourceTreeFingerprint", "catalogSha256",
                 "workflowSha", "workflowRef", "runId", "runAttempt", "job",
                 "workspaceState", "workspaceLockSha256"}
+
+# Invoke the existing exported pure function, not its path-sensitive CLI main.
+# Node's built-in data-module import consumes the exact committed bytes supplied
+# on stdin. No repository module path is reopened and no custom loader is used.
+PROJECTION_BRIDGE = """import { readFileSync } from 'node:fs';
+if (process.argv.length !== 1) throw new Error('unexpected verifier arguments');
+const input = JSON.parse(readFileSync(0, 'utf8'));
+const verifier = await import('data:text/javascript;base64,' + input.verifier);
+verifier.verifyIosTestPodfileLock(
+  Buffer.from(input.production, 'base64').toString('utf8'),
+  Buffer.from(input.projected, 'base64').toString('utf8'));
+"""
 
 
 def require(value):
@@ -152,12 +166,20 @@ def workspace_context(repo, source_sha, env, git):
     expected_verifier = git("show", source_sha + ":" + IOS_LOCK_VERIFIER)
     _, verifier = open_owned(repo, IOS_LOCK_VERIFIER, MAX_PLIST)
     require(verifier == expected_verifier)
-    before, _ = open_owned(repo, IOS_LOCK, MAX_PLIST)
-    # Existing verifier uses only Node standard-library reads, no hooks, writes,
-    # network, SDK, timers or signaling. Its CLI compares stdin with this lock.
-    verified = subprocess.run(["node", str(repo / IOS_LOCK_VERIFIER)], input=production,
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                              env={"PATH": os.environ.get("PATH", os.defpath), "LANG": "C", "LC_ALL": "C"})
+    before, projected = open_owned(repo, IOS_LOCK, MAX_PLIST)
+    # Existing export uses pure string projection. Its CLI main deliberately is
+    # not entered: import.meta.url would otherwise resolve a repository path.
+    payload = json.dumps({key: base64.b64encode(value).decode("ascii")
+                          for key, value in {"verifier": expected_verifier,
+                                             "production": production,
+                                             "projected": projected}.items()}).encode("ascii")
+    require(len(payload) <= 6 * MAX_PLIST)
+    node = shutil.which("node", path=os.environ.get("PATH", os.defpath))
+    require(node is not None and Path(node).is_absolute())
+    verified = subprocess.run([node, "--input-type=module", "--eval", PROJECTION_BRIDGE],
+                              input=payload, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              env={"PATH": os.environ.get("PATH", os.defpath), "LANG": "C", "LC_ALL": "C"},
+                              check=False)
     require(verified.returncode == 0)
     after, _ = open_owned(repo, IOS_LOCK, MAX_PLIST)
     require(before == after)
