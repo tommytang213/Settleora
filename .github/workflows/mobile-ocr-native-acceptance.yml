@@ -64,6 +64,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Verify package failure capture contracts
+        run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-capture.test.py -v
+
       - name: Setup Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
@@ -431,6 +434,9 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "22"
+
+      - name: Verify package failure capture contracts
+        run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-capture.test.py -v
 
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2

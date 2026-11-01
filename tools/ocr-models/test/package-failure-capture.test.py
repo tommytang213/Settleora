@@ -12,15 +12,16 @@ from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
-import types
+import importlib.util
 import unittest
 from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 HELPER = ROOT / "tools/ocr-models/package-failure-capture.py"
-module = types.ModuleType("package_failure_capture_under_test")
-exec(compile(HELPER.read_bytes(), str(HELPER), "exec"), module.__dict__)
+spec = importlib.util.spec_from_file_location("package_failure_capture_under_test", HELPER)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 PRIVATE = b"PRIVATE_OCR_secret@example.invalid_4111111111111111"
 
 
@@ -29,7 +30,8 @@ def context(platform="ios"):
             "sourceTreeFingerprint": "c" * 64, "catalogSha256": "d" * 64,
             "workflowSha": "e" * 40,
             "workflowRef": module.REPOSITORY + "/" + module.WORKFLOW + "@refs/heads/fixture",
-            "runId": "123", "runAttempt": "1", "job": platform + "-native-acceptance"}
+            "runId": "123", "runAttempt": "1", "job": platform + "-native-acceptance",
+            "workspaceState": "clean", "workspaceLockSha256": None}
 
 
 def public_values():
@@ -306,6 +308,63 @@ class CaptureContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):module.collect_context(repo, "f" * 40, env, git)
         with self.assertRaises(ValueError):module.collect_context(repo, "a" * 40, {}, git)
         with self.assertRaises(ValueError):module.collect_context(repo, "a" * 40, env, lambda *a: b" M private" if a[0] == "status" else git(*a))
+
+    def projection_fixture(self):
+        repo = self.root / "projection"
+        lock = repo / module.IOS_LOCK
+        lock.parent.mkdir(parents=True)
+        verifier = repo / module.IOS_LOCK_VERIFIER
+        verifier.parent.mkdir(parents=True)
+        verifier.write_bytes((ROOT / module.IOS_LOCK_VERIFIER).read_bytes())
+        production = b"PODS:\n  - Flutter (1.0.0)\nDEPENDENCIES:\nEXTERNAL SOURCES:\nSPEC CHECKSUMS:\n"
+        projected = production.replace(b"DEPENDENCIES:", b"  - integration_test (0.0.1):\n    - Flutter\nDEPENDENCIES:")
+        projected = projected.replace(b"EXTERNAL SOURCES:", b"  - integration_test (from `.symlinks/plugins/integration_test/ios`)\nEXTERNAL SOURCES:")
+        projected = projected.replace(b"SPEC CHECKSUMS:", b'  integration_test:\n    :path: ".symlinks/plugins/integration_test/ios"\nSPEC CHECKSUMS:')
+        projected += b"  integration_test: " + b"a" * 40 + b"\n"
+        lock.write_bytes(projected)
+        def git(*args):
+            if args[0] == "status":return b" M " + module.IOS_LOCK.encode() + b"\0"
+            return production if args[1].endswith(":" + module.IOS_LOCK) else (ROOT / module.IOS_LOCK_VERIFIER).read_bytes()
+        return repo, lock, projected, git
+
+    def test_existing_exact_ios_projection_is_bound_without_mutation(self):
+        repo, lock, projected, git = self.projection_fixture()
+        result = module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, git)
+        self.assertEqual(result, {"workspaceState": "verified_ios_test_lock_projection", "workspaceLockSha256": module.sha(projected)})
+        self.assertEqual(lock.read_bytes(), projected)
+        c = context(); c.update(result); module.validate_context(c, "ios")
+        with self.assertRaises(ValueError):module.validate_context(c, "android")
+
+    def test_projection_rejects_extra_version_or_checksum_changes(self):
+        repo, lock, projected, git = self.projection_fixture()
+        for changed in (projected + b"PRIVATE FIELD\n", projected.replace(b"Flutter (1.0.0)", b"Flutter (2.0.0)"), projected.replace(b"a" * 40, b"bad")):
+            lock.write_bytes(changed)
+            with self.assertRaises(ValueError):module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, git)
+
+    def test_projection_rejects_android_staged_other_and_modified_verifier(self):
+        repo, lock, projected, git = self.projection_fixture()
+        with self.assertRaises(ValueError):module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "android-native-acceptance"}, git)
+        for status in (b"M  " + module.IOS_LOCK.encode() + b"\0", b" M other\0", b" M " + module.IOS_LOCK.encode() + b"\0 M other\0"):
+            with self.assertRaises(ValueError):module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, lambda *a: status if a[0] == "status" else git(*a))
+        (repo / module.IOS_LOCK_VERIFIER).write_bytes(b"untrusted")
+        with self.assertRaises(ValueError):module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, git)
+
+    def test_projection_rejects_lock_drift_during_verification(self):
+        repo, lock, projected, git = self.projection_fixture()
+        def mutate(*args, **kwargs):
+            lock.write_bytes(projected + b"changed")
+            return subprocess.CompletedProcess(args[0], 0)
+        with patch.object(module.subprocess, "run", side_effect=mutate):
+            with self.assertRaises(ValueError):module.workspace_context(repo, "a" * 40, {"GITHUB_JOB": "ios-native-acceptance"}, git)
+
+    def test_both_native_jobs_run_source_isolated_capture_contracts(self):
+        workflow = (ROOT / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()
+        command = "run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-capture.test.py -v"
+        self.assertEqual(workflow.count(command), 2)
+        for job in ("android-native-acceptance:", "ios-native-acceptance:"):
+            section = workflow.split(job, 1)[1]
+            self.assertLess(section.index("Verify exact candidate"), section.index(command))
+            self.assertLess(section.index("Setup Node"), section.index(command))
 
     def test_workflow_capture_selectors_are_exact_and_acceptance_stays_required(self):
         workflow = (ROOT / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()

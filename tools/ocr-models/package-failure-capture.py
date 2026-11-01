@@ -25,10 +25,13 @@ MAX_JSON = 16 * 1024
 MAX_ZIP = 64 * 1024
 PRIVACY_PATH = "Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist"
 INVENTORY = "tools/ocr-models/android-production-entry-inventory.mjs"
+IOS_LOCK = "apps/mobile/ios/Podfile.lock"
+IOS_LOCK_VERIFIER = "tools/ocr-models/verify-ios-test-podfile-lock.mjs"
 WORKFLOW = ".github/workflows/mobile-ocr-native-acceptance.yml"
 REPOSITORY = "tommytang213/Settleora"
 CONTEXT_KEYS = {"sourceSha", "sourceTree", "sourceTreeFingerprint", "catalogSha256",
-                "workflowSha", "workflowRef", "runId", "runAttempt", "job"}
+                "workflowSha", "workflowRef", "runId", "runAttempt", "job",
+                "workspaceState", "workspaceLockSha256"}
 
 
 def require(value):
@@ -110,6 +113,12 @@ def validate_context(context, platform):
     require(type(context["runId"]) is str and re.fullmatch(r"[1-9][0-9]{0,19}", context["runId"]))
     require(type(context["runAttempt"]) is str and re.fullmatch(r"[1-9][0-9]{0,2}", context["runAttempt"]))
     require(context["job"] == platform + "-native-acceptance")
+    if context["workspaceState"] == "clean":
+        require(context["workspaceLockSha256"] is None)
+    else:
+        require(platform == "ios" and context["workspaceState"] == "verified_ios_test_lock_projection"
+                and type(context["workspaceLockSha256"]) is str
+                and re.fullmatch(r"[0-9a-f]{64}", context["workspaceLockSha256"]))
 
 
 def read_git(repo, args, limit, popen=subprocess.Popen):
@@ -130,6 +139,32 @@ def read_git(repo, args, limit, popen=subprocess.Popen):
     return bytes(data)
 
 
+def workspace_context(repo, source_sha, env, git):
+    status = git("status", "--porcelain", "-z", "--untracked-files=no")
+    if status == b"":
+        return {"workspaceState": "clean", "workspaceLockSha256": None}
+    # Only the existing, exact test-only projection is admissible. Never restore
+    # a dirty path or exempt arbitrary CocoaPods changes from source binding.
+    require(env.get("GITHUB_JOB") == "ios-native-acceptance"
+            and status == b" M " + IOS_LOCK.encode() + b"\0")
+    production = git("show", source_sha + ":" + IOS_LOCK)
+    require(type(production) is bytes and 0 < len(production) <= MAX_PLIST)
+    expected_verifier = git("show", source_sha + ":" + IOS_LOCK_VERIFIER)
+    _, verifier = open_owned(repo, IOS_LOCK_VERIFIER, MAX_PLIST)
+    require(verifier == expected_verifier)
+    before, _ = open_owned(repo, IOS_LOCK, MAX_PLIST)
+    # Existing verifier uses only Node standard-library reads, no hooks, writes,
+    # network, SDK, timers or signaling. Its CLI compares stdin with this lock.
+    verified = subprocess.run(["node", str(repo / IOS_LOCK_VERIFIER)], input=production,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              env={"PATH": os.environ.get("PATH", os.defpath), "LANG": "C", "LC_ALL": "C"})
+    require(verified.returncode == 0)
+    after, _ = open_owned(repo, IOS_LOCK, MAX_PLIST)
+    require(before == after)
+    return {"workspaceState": "verified_ios_test_lock_projection",
+            "workspaceLockSha256": before["sha256"]}
+
+
 def collect_context(repo, source_sha, env, git=None):
     require(env.get("GITHUB_ACTIONS") == "true" and env.get("CI") == "true"
             and env.get("SETTLEORA_PACKAGE_FAILURE_CAPTURE") == "hosted_v1"
@@ -141,7 +176,7 @@ def collect_context(repo, source_sha, env, git=None):
             return read_git(repo, args, limit)
     require(re.fullmatch(r"[0-9a-f]{40}", source_sha or ""))
     require(git("rev-parse", "HEAD").decode("ascii").strip() == source_sha)
-    require(git("status", "--porcelain", "-z", "--untracked-files=no") == b"")
+    workspace = workspace_context(repo, source_sha, env, git)
     # Bind the catalog to the named immutable Git object, not a mutable path.
     catalog = git("show", source_sha + ":apps/mobile/assets/receipt_ocr_models/catalog.json")
     require(isinstance(catalog, bytes) and 0 < len(catalog) <= MAX_PLIST)
@@ -153,9 +188,10 @@ def collect_context(repo, source_sha, env, git=None):
                "workflowRef": env.get("CAPTURE_WORKFLOW_REF"),
                "runId": env.get("GITHUB_RUN_ID"), "runAttempt": env.get("GITHUB_RUN_ATTEMPT"),
                "job": env.get("GITHUB_JOB")}
+    context.update(workspace)
     # Drift detection only: no atomic source-to-package snapshot/attestation claim.
     require(git("rev-parse", "HEAD").decode("ascii").strip() == source_sha)
-    require(git("status", "--porcelain", "-z", "--untracked-files=no") == b"")
+    require(workspace_context(repo, source_sha, env, git) == workspace)
     return context
 
 
