@@ -7,6 +7,7 @@ on:
       - ai/integration
       # Existing OCR acceptance stack: run the same gates before integration.
       - test/1301-native-ocr-acceptance-20260918-0038
+      - ai/task/1324-included-tax-contract-on-1308-20261002
   push:
     branches:
       - main
@@ -121,6 +122,34 @@ jobs:
       - name: Checkout
         # Pinned from actions/checkout@v6.
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify stacked PR source binding
+        if: ${{ github.event.pull_request.base.ref == 'ai/task/1324-included-tax-contract-on-1308-20261002' }}
+        shell: bash
+        env:
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_MERGE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for sha in "$EXPECTED_BASE" "$EXPECTED_HEAD" "$EXPECTED_MERGE"; do
+            if [[ ! "$sha" =~ ^[0-9a-f]{40}$ || "$sha" == 0000000000000000000000000000000000000000 ]]; then
+              echo "Invalid stacked PR source identity" >&2
+              exit 1
+            fi
+            git cat-file -e "${sha}^{commit}"
+          done
+          actual_merge="$(git rev-parse --verify 'HEAD^{commit}')"
+          test "$actual_merge" = "$EXPECTED_MERGE"
+          test "$(git show -s --format=%P HEAD)" = "$EXPECTED_BASE $EXPECTED_HEAD"
+          merge_tree="$(git rev-parse --verify "${EXPECTED_MERGE}^{tree}")"
+          head_tree="$(git rev-parse --verify "${EXPECTED_HEAD}^{tree}")"
+          test "$merge_tree" = "$head_tree"
+          printf 'stacked_source_binding base=%s head=%s merge=%s tree=%s\n' \
+            "$EXPECTED_BASE" "$EXPECTED_HEAD" "$actual_merge" "$merge_tree"
 
       - name: Setup Node
         # Pinned from actions/setup-node@v6.

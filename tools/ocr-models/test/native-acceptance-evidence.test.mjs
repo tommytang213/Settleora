@@ -451,6 +451,66 @@ test("retains only the bounded native acceptance schema", () => {
       assert.deepEqual(evidence.acceptance.recognitionCoverage, acceptance.recognitionCoverage);
     },
   );
+  // Optional diagnostics are backward compatible only as complete inventories.
+  for (const field of ["parserDiagnostics", "reviewRoleDiagnostic"]) {
+    const recognitionCoverage = acceptance.recognitionCoverage.map((entry, index) => ({
+      ...entry,
+      ...(index === 0 ? { [field]: field === "parserDiagnostics"
+        ? { schemaVersion: 1, status: "unavailable" } : "unavailable" } : {}),
+    }));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage,
+    })}`), (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+        field === "parserDiagnostics" ? /parser diagnostics are incomplete/
+          : /review role diagnostics are incomplete/);
+    });
+  }
+  // Optional diagnostics never change corpus/result decisions or echo input.
+  for (const parserDiagnostics of [
+    { schemaVersion: 1, status: "observed", quantity: Array(21).fill(256),
+      dates: Array.from({ length: 3 }, () => Array(19).fill(256)) },
+    { schemaVersion: 1, status: "unavailable" },
+    { schemaVersion: 1, status: "observed", raw: "PRIVATE_SENTINEL" },
+  ]) {
+    const diagnosticCoverage = acceptance.recognitionCoverage.map((entry) => ({
+      ...entry, parserDiagnostics, reviewRoleDiagnostic: "PRIVATE_SENTINEL",
+    }));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: diagnosticCoverage,
+    })}`), (log) => {
+      const result = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
+      const stripped = result.recognitionCoverage.map(({ parserDiagnostics: d,
+        reviewRoleDiagnostic: r, ...rest }) => {
+        assert.equal(r, "invalidDiagnostic");
+        assert.ok(!JSON.stringify(d).includes("PRIVATE_SENTINEL"));
+        return rest;
+      });
+      assert.deepEqual(stripped, acceptance.recognitionCoverage);
+      assert.equal(result.mismatchCount, acceptance.mismatchCount);
+      assert.deepEqual(result.mismatches, acceptance.mismatches);
+    });
+  }
+  for (const role of ["invalidContract", "unavailable", null, 7,
+    { raw: "PRIVATE_SENTINEL" }, ["PRIVATE_SENTINEL"], "PRIVATE_SENTINEL"]) {
+    const recognitionCoverage = acceptance.recognitionCoverage.map((entry) => ({
+      ...entry, reviewRoleDiagnostic: role,
+    }));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage,
+    })}`), (log) => {
+      const result = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
+      const stripped = result.recognitionCoverage.map(({ reviewRoleDiagnostic, ...rest }) => {
+        assert.equal(reviewRoleDiagnostic, role === "invalidContract" || role === "unavailable"
+          ? role : "invalidDiagnostic");
+        return rest;
+      });
+      assert.deepEqual(stripped, acceptance.recognitionCoverage);
+      assert.deepEqual(result.mismatches, acceptance.mismatches);
+      assert.equal(result.mismatchCount, acceptance.mismatchCount);
+      assert.ok(!JSON.stringify(result).includes("PRIVATE_SENTINEL"));
+    });
+  }
   const numericRoutingObservation = {
     schemaVersion: 1, stage: "selectedOrientationPreRecovery", status: "observed",
     counts: [3, 3, 3, 2, 1, 1, 2], bins: [0, 0, 3, 0, 0, 0, 0, 0],
@@ -943,6 +1003,14 @@ test("retains only the bounded native acceptance schema", () => {
   const unresolvedBranches = ["explicitModifier", "ordinaryCourtesy", "otherDescription"];
   const emptyOtherDecisions = () => Object.fromEntries(unresolvedBranches.map((branch) => [branch,
     Object.fromEntries(itemDecisionNames.map((decision) => [decision, 0]))]));
+  const branchTuple = (counts) => unresolvedBranches.map((branch) =>
+    itemDecisionNames.map((decision) => counts[branch][decision]));
+  const tupleRow = (row) => ({ ...row,
+    unresolvedOtherBranchDecisionCounts: branchTuple(row.unresolvedOtherBranchDecisionCounts) });
+  const assertTupleRoundTrip = (rows) => withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: rows.map(tupleRow),
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
   const withOtherDecisions = withUnresolvedOwnership.map((entry) => ({ ...entry,
     unresolvedOtherBranchDecisionCounts: emptyOtherDecisions() }));
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
@@ -961,6 +1029,7 @@ test("retains only the bounded native acceptance schema", () => {
         ...acceptance, recognitionCoverage: rows,
       })}`), (log) => assert.deepEqual(
         buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
+      assertTupleRoundTrip(rows);
     }
   }
   const mixedOtherDecisions = emptyOtherDecisions();
@@ -973,6 +1042,38 @@ test("retains only the bounded native acceptance schema", () => {
     ...acceptance, recognitionCoverage: mixedOtherRows,
   })}`), (log) => assert.deepEqual(
     buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, mixedOtherRows));
+  assertTupleRoundTrip(withOtherDecisions);
+  assertTupleRoundTrip(mixedOtherRows);
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: mixedOtherRows.map((row, i) => i % 2 ? row : tupleRow(row)),
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, mixedOtherRows));
+  const atCap = emptyOtherDecisions(); atCap.explicitModifier.unclassified = 256;
+  const capRows = [{ ...withOtherDecisions[0], blockCount:256, rowCount:256, parserLineCount:256,
+    itemLineDecisionCounts:Object.fromEntries(itemDecisionNames.map((name)=>[name,name==='unclassified'?256:0])),
+    unresolvedItemLikeCount:256, unresolvedItemLikeRoleCounts:{nordicCourtesy:0,other:256},
+    incompleteAdjustmentReasons:['unresolvedItemLikeLine'], unresolvedOtherBranchDecisionCounts:atCap,
+  }, ...withOtherDecisions.slice(1)];
+  assertTupleRoundTrip(capRows);
+  const invalidTuples = [null, [], Array(42).fill(0), [[],[],[]],
+    Array.from({length:2},()=>Array(14).fill(0)), Array.from({length:4},()=>Array(14).fill(0)),
+    [Array(13).fill(0),Array(14).fill(0),Array(14).fill(0)],
+    [Array(15).fill(0),Array(14).fill(0),Array(14).fill(0)],
+    ['PRIVATE_SENTINEL',Array(14).fill(0),Array(14).fill(0)],
+    ...[-1,0.5,'PRIVATE_SENTINEL',null,257].map((value)=>{
+      const tuple=branchTuple(atCap);tuple[0][0]=value;return tuple;
+    }),
+    // Valid dimensions and counters still must satisfy the original sums and
+    // per-decision ownership gates; decoding is never evidence repair.
+    [[1,...Array(13).fill(0)],Array(14).fill(0),Array(14).fill(0)],
+  ];
+  for (const tuple of invalidTuples) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance,recognitionCoverage:[{...capRows[0],unresolvedOtherBranchDecisionCounts:tuple},
+        ...withOtherDecisions.slice(1).map(tupleRow)],
+    })}`), (log) => assert.throws(()=>buildEvidence(evidenceArgs(log),repoRoot),
+      (error)=>!String(error).includes('PRIVATE_SENTINEL')));
+  }
   const invalidOtherMaps = [
     null, [], {}, { ...emptyOtherDecisions(), rawText: {} },
     { ...emptyOtherDecisions(), explicitModifier: null },
@@ -1009,6 +1110,9 @@ test("retains only the bounded native acceptance schema", () => {
       itemLineDecisionCounts: { ...itemLineDecisionCounts, unclassified: 1, metadataOrHeaderSkipped: 7 } },
   ];
   for (const entry of invalidOtherEntries) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [tupleRow(entry), ...withOtherDecisions.slice(1).map(tupleRow)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
     withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
       ...acceptance, recognitionCoverage: [entry, ...withOtherDecisions.slice(1)],
     })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
@@ -1052,6 +1156,32 @@ test("retains only the bounded native acceptance schema", () => {
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${completeMarker}`), (log) => {
     assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, completeCoverage);
   });
+  const diagnosticCoverage = completeCoverage.map((row)=>({...row,
+    parserDiagnostics:{schemaVersion:1,status:'observed',quantity:Array(21).fill(256),
+      dates:Array.from({length:3},()=>Array(19).fill(256))},
+    reviewRoleDiagnostic:'forbiddenIncompleteReason',
+  }));
+  const oversizedMapMarker=JSON.stringify({...acceptance,recognitionCoverage:diagnosticCoverage});
+  assert.ok(Buffer.byteLength(oversizedMapMarker)>524288,'old carrier plus new counters must reproduce the size blocker');
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${oversizedMapMarker}`),
+    (log)=>assert.throws(()=>buildEvidence(evidenceArgs(log),repoRoot)));
+  const compactMarker=JSON.stringify({...acceptance,recognitionCoverage:diagnosticCoverage.map(tupleRow)});
+  assert.ok(Buffer.byteLength(compactMarker)<524288,'all101 dense rows plus maximum new counters fit the same cap');
+  console.log(`marker_budget map=${Buffer.byteLength(oversizedMapMarker)} tuple=${Buffer.byteLength(compactMarker)} cap=524288 fixtures=101`);
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${compactMarker}`),(log)=>{
+    const retained=buildEvidence(evidenceArgs(log),repoRoot).acceptance;
+    assert.deepEqual(retained.recognitionCoverage,diagnosticCoverage);
+    assert.equal(retained.mismatchCount,acceptance.mismatchCount);
+    assert.deepEqual(retained.mismatches,acceptance.mismatches);
+    assert.equal(retained.passedFixtureCount,acceptance.passedFixtureCount);
+  });
+  // Unknown optional diagnostic data is still sanitized, even with compact
+  // ownership counts. This must not alter any original retained field.
+  const unavailableCoverage=completeCoverage.map((row)=>({...row,
+    parserDiagnostics:{schemaVersion:1,status:'unavailable'},reviewRoleDiagnostic:'unavailable'}));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({...acceptance,
+    recognitionCoverage:unavailableCoverage.map(tupleRow)})}`),(log)=>
+      assert.deepEqual(buildEvidence(evidenceArgs(log),repoRoot).acceptance.recognitionCoverage,unavailableCoverage));
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
     ...acceptance, recognitionCoverage: [{ ...withRowShapes[0],
       expectedUnretainedPatternReasonCounts }, ...withRowShapes.slice(1)],
