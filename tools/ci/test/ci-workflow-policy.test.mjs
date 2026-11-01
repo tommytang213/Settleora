@@ -288,17 +288,25 @@ test('stack source binding rejects missing, malformed, zero and unavailable iden
 
 test('stack source binding rejects a wrong checkout merge and wrong parent identities', (t) => {
   const fixture = stackedSourceFixture(t);
-  for (const overrides of [
-    { EXPECTED_MERGE: fixture.identities.EXPECTED_HEAD },
-    { EXPECTED_BASE: fixture.identities.EXPECTED_HEAD },
-    { EXPECTED_HEAD: fixture.identities.EXPECTED_BASE },
-  ]) assert.notEqual(runStackBinding(fixture, overrides).status, 0);
+  for (const [overrides, diagnostic] of [
+    [{ EXPECTED_MERGE: fixture.identities.EXPECTED_HEAD }, 'Stacked PR checkout merge mismatch'],
+    [{ EXPECTED_BASE: fixture.identities.EXPECTED_HEAD }, 'Stacked PR parent identities mismatch'],
+    [{ EXPECTED_HEAD: fixture.identities.EXPECTED_BASE }, 'Stacked PR parent identities mismatch'],
+  ]) {
+    const result = runStackBinding(fixture, overrides);
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr, `${diagnostic}\n`);
+    assert.equal(result.stdout, '');
+  }
 });
 
 test('stack source binding rejects a merge with valid parents but unequal full trees', (t) => {
   const fixture = stackedSourceFixture(t, { advanceBase: true });
   assert.notEqual(fixture.git('rev-parse', 'HEAD^{tree}'), fixture.git('rev-parse', `${fixture.identities.EXPECTED_HEAD}^{tree}`));
-  assert.notEqual(runStackBinding(fixture).status, 0);
+  const result = runStackBinding(fixture);
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, 'Stacked PR merge/head tree mismatch\n');
+  assert.equal(result.stdout, '');
 });
 
 test('stack source binding fails closed when shallow checkout lacks parent objects', (t) => {

@@ -243,6 +243,13 @@ class CaptureContractTest(unittest.TestCase):
         c = context(); c["raw"] = PRIVATE.decode()
         with self.assertRaises(ValueError):module.capture("ios", self.root, c)
 
+    def test_pull_request_merge_workflow_ref_is_accepted_for_both_platforms(self):
+        for platform in ("android", "ios"):
+            with self.subTest(platform=platform):
+                c = context(platform)
+                c["workflowRef"] = module.REPOSITORY + "/" + module.WORKFLOW + "@refs/pull/123/merge"
+                self.assertIsNone(module.validate_context(c, platform))
+
     def test_canonical_counter_metadata_has_tight_limits(self):
         for key, value in [("runId", "1" * 21), ("runAttempt", "1000"), ("sourceSha", "A" * 40),
                            ("workflowRef", "private://" + PRIVATE.decode())]:

@@ -143,11 +143,20 @@ jobs:
             git cat-file -e "${sha}^{commit}"
           done
           actual_merge="$(git rev-parse --verify 'HEAD^{commit}')"
-          test "$actual_merge" = "$EXPECTED_MERGE"
-          test "$(git show -s --format=%P HEAD)" = "$EXPECTED_BASE $EXPECTED_HEAD"
+          test "$actual_merge" = "$EXPECTED_MERGE" || {
+            echo "Stacked PR checkout merge mismatch" >&2
+            exit 1
+          }
+          test "$(git show -s --format=%P HEAD)" = "$EXPECTED_BASE $EXPECTED_HEAD" || {
+            echo "Stacked PR parent identities mismatch" >&2
+            exit 1
+          }
           merge_tree="$(git rev-parse --verify "${EXPECTED_MERGE}^{tree}")"
           head_tree="$(git rev-parse --verify "${EXPECTED_HEAD}^{tree}")"
-          test "$merge_tree" = "$head_tree"
+          test "$merge_tree" = "$head_tree" || {
+            echo "Stacked PR merge/head tree mismatch" >&2
+            exit 1
+          }
           printf 'stacked_source_binding base=%s head=%s merge=%s tree=%s\n' \
             "$EXPECTED_BASE" "$EXPECTED_HEAD" "$actual_merge" "$merge_tree"
 
