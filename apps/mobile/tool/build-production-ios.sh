@@ -429,6 +429,15 @@ fail_unreviewed_resource_path() {
   fi
   if [[ "$relative_resource" == Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist ]]; then
     printf 'unreviewed_privacy_bundle_info_sha256=%s\n' "$(sha256_file "$candidate")" >&2
+    # Opt-in hosted diagnostic only. Original rejection below is unconditional.
+    # Unknown/noncanonical metadata produces hash-only unavailable evidence.
+    if [[ "${SETTLEORA_PACKAGE_FAILURE_CAPTURE:-}" == hosted_v1 &&
+          "$mode" == unsigned && "$artifact_class" == release-candidate ]]; then
+      if ! python3 "$tool_root/tools/ocr-models/package-failure-capture.py" \
+        --platform=ios --source-sha="$source_sha" --repo-root="${source_git_root:-$repo_root}"; then
+        printf '%s\n' 'bounded_package_failure_capture_unavailable' >&2
+      fi
+    fi
   fi
   if [[ "$resource_class" == framework ]]; then
     framework_component=${relative_resource#Frameworks/}
