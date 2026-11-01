@@ -1,0 +1,352 @@
+"""Synthetic package-capture contracts: no SDK, build, device or signaling.
+
+Imports the helper directly from source; no project aggregator/provider import.
+Only explicit shell-function tests spawn /bin/bash with a minimal environment;
+python3/hash helpers are inert shell functions, no timeout/kill/cleanup wrapper.
+"""
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import plistlib
+import subprocess
+import tempfile
+import types
+import unittest
+from unittest.mock import patch
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[3]
+HELPER = ROOT / "tools/ocr-models/package-failure-capture.py"
+module = types.ModuleType("package_failure_capture_under_test")
+exec(compile(HELPER.read_bytes(), str(HELPER), "exec"), module.__dict__)
+PRIVATE = b"PRIVATE_OCR_secret@example.invalid_4111111111111111"
+
+
+def context(platform="ios"):
+    return {"sourceSha": "a" * 40, "sourceTree": "b" * 40,
+            "sourceTreeFingerprint": "c" * 64, "catalogSha256": "d" * 64,
+            "workflowSha": "e" * 40,
+            "workflowRef": module.REPOSITORY + "/" + module.WORKFLOW + "@refs/heads/fixture",
+            "runId": "123", "runAttempt": "1", "job": platform + "-native-acceptance"}
+
+
+def public_values():
+    return {"CFBundleIdentifier": "org.cocoapods.image-picker-ios-privacy",
+            "CFBundleName": "image_picker_ios_privacy", "CFBundlePackageType": "BNDL",
+            "CFBundleInfoDictionaryVersion": "6.0", "DTXcode": "1640",
+            "DTSDKName": "iphoneos18.5", "CFBundleSupportedPlatforms": ["iPhoneOS"]}
+
+
+class CaptureContractTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.relative = "ios-candidate-package/apps/mobile/build/ios/iphoneos/Runner.app/" + module.PRIVACY_PATH
+        self.plist = self.root / self.relative
+        self.plist.parent.mkdir(parents=True)
+
+    def ios(self, data):
+        self.plist.write_bytes(data)
+        result = module.capture("ios", self.root, context())
+        with zipfile.ZipFile(self.root / "ios-package-failure-evidence.zip") as archive:
+            names = archive.namelist()
+            metadata = json.loads(archive.read("provenance.json"))
+            payload = archive.read("Info.plist") if "Info.plist" in names else None
+        return result, metadata, payload, names
+
+    def test_exact_xml_bytes_and_source_context_retained_without_acceptance(self):
+        raw = plistlib.dumps(public_values())
+        result, metadata, payload, names = self.ios(raw)
+        self.assertEqual(names, ["provenance.json", "Info.plist"])
+        self.assertEqual(payload, raw)
+        self.assertEqual(metadata["file"], {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+        self.assertEqual(metadata["context"], context())
+        self.assertFalse(metadata["accepted"])
+        self.assertEqual(metadata["bindingKind"], "hosted_workflow_observation_not_attestation")
+        self.assertNotIn(str(self.root), json.dumps(metadata))
+        self.assertEqual(result["status"], "observed")
+        self.assertEqual((self.root / "ios-package-failure-evidence.zip").stat().st_mode & 0o777, 0o600)
+        self.assertTrue((self.root / "ios-package-failure-evidence.zip.partial").exists())
+
+    def test_exact_binary_bytes_retained(self):
+        raw = plistlib.dumps(public_values(), fmt=plistlib.FMT_BINARY)
+        self.assertEqual(self.ios(raw)[2], raw)
+
+    def test_unknown_value_keeps_only_hash_and_fixed_reason(self):
+        values = public_values(); values["CFBundleName"] = PRIVATE.decode()
+        raw = plistlib.dumps(values)
+        _, metadata, payload, names = self.ios(raw)
+        self.assertIsNone(payload)
+        self.assertEqual(names, ["provenance.json"])
+        self.assertEqual(metadata["status"], "unavailable")
+        self.assertEqual(metadata["reason"], "unclassified_or_noncanonical_plist")
+        self.assertEqual(metadata["file"]["sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertNotIn(PRIVATE, (self.root / "ios-package-failure-evidence.zip").read_bytes())
+
+    def test_unknown_key_is_not_exported(self):
+        values = public_values(); values["private"] = PRIVATE.decode()
+        self.assertIsNone(self.ios(plistlib.dumps(values))[2])
+
+    def test_comments_cannot_hide_private_bytes(self):
+        raw = plistlib.dumps(public_values()).replace(b"<dict>", b"<!--" + PRIVATE + b"--><dict>")
+        self.assertIsNone(self.ios(raw)[2])
+        self.assertNotIn(PRIVATE, (self.root / "ios-package-failure-evidence.zip").read_bytes())
+
+    def test_trailing_bytes_are_not_retained(self):
+        self.assertIsNone(self.ios(plistlib.dumps(public_values(), fmt=plistlib.FMT_BINARY) + PRIVATE)[2])
+
+    def test_malformed_bytes_are_not_retained(self):
+        result, _, payload, _ = self.ios(PRIVATE)
+        self.assertIsNone(payload); self.assertEqual(result["status"], "unavailable")
+
+    def test_oversize_plist_yields_no_content(self):
+        result, _, payload, _ = self.ios(b"x" * (module.MAX_PLIST + 1))
+        self.assertIsNone(payload); self.assertNotIn("file", result)
+
+    def test_symlink_file_is_not_read(self):
+        other = self.root / "other"; other.write_bytes(PRIVATE); self.plist.symlink_to(other)
+        result = module.capture("ios", self.root, context())
+        self.assertNotIn("file", result)
+
+    def test_symlink_parent_is_not_read(self):
+        parent = self.plist.parent; parent.rmdir(); other = self.root / "other"; other.mkdir()
+        (other / "Info.plist").write_bytes(PRIVATE); parent.symlink_to(other, target_is_directory=True)
+        self.assertNotIn("file", module.capture("ios", self.root, context()))
+
+    def test_hardlinked_file_is_not_read(self):
+        self.plist.write_bytes(PRIVATE); os.link(self.plist, self.root / "alias")
+        self.assertNotIn("file", module.capture("ios", self.root, context()))
+
+    def test_android_hashes_but_never_exports_apk_payload(self):
+        raw = b"synthetic APK not executable " + PRIVATE
+        (self.root / "settleora-verified-production.apk").write_bytes(raw)
+        result = module.capture("android", self.root, context("android"))
+        evidence = (self.root / "android-package-failure-capture.json").read_bytes()
+        self.assertEqual(result["file"], {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+        self.assertFalse(result["contentRetained"]); self.assertFalse(result["accepted"])
+        self.assertEqual(result["verification"], "not_granted_by_capture")
+        self.assertNotIn(PRIVATE, evidence)
+        self.assertLess(len(evidence), module.MAX_JSON)
+        self.assertEqual(result["context"]["sourceTreeFingerprint"], "c" * 64)
+
+    def test_missing_android_file_yields_fixed_unavailable(self):
+        result = module.capture("android", self.root, context("android"))
+        self.assertEqual(result["reason"], "missing_unsafe_or_changed_file")
+        self.assertFalse(result["accepted"])
+
+    def test_android_oversize_sparse_file_is_not_read(self):
+        with (self.root / "settleora-verified-production.apk").open("wb") as output:
+            output.truncate(module.MAX_APK + 1)
+        self.assertNotIn("file", module.capture("android", self.root, context("android")))
+
+    def test_existing_complete_evidence_is_never_overwritten(self):
+        self.plist.write_bytes(plistlib.dumps(public_values()))
+        module.capture("ios", self.root, context()); original = (self.root / "ios-package-failure-evidence.zip").read_bytes()
+        with self.assertRaises(FileExistsError):module.capture("ios", self.root, context())
+        self.assertEqual((self.root / "ios-package-failure-evidence.zip").read_bytes(), original)
+
+    def test_replaced_partial_cannot_become_complete_evidence(self):
+        original_link = os.link
+        def replace_then_link(source, destination, **kwargs):
+            Path(source).unlink()
+            Path(source).write_bytes(PRIVATE)
+            return original_link(source, destination, **kwargs)
+        ready = []
+        with patch.object(module.os, "link", side_effect=replace_then_link):
+            with self.assertRaises(ValueError):module.capture_and_mark("ios", self.root, context(), lambda: ready.append(True))
+        self.assertTrue((self.root / "ios-package-failure-evidence.zip").exists())
+        self.assertEqual(ready, [])
+
+    def test_changed_written_bytes_cannot_become_complete_evidence(self):
+        original_link = os.link
+        def change_then_link(source, destination, **kwargs):
+            Path(source).write_bytes(PRIVATE)
+            return original_link(source, destination, **kwargs)
+        ready = []
+        with patch.object(module.os, "link", side_effect=change_then_link):
+            with self.assertRaises(ValueError):module.capture_and_mark("ios", self.root, context(), lambda: ready.append(True))
+        self.assertTrue((self.root / "ios-package-failure-evidence.zip").exists())
+        self.assertEqual(ready, [])
+
+    def test_replacement_final_evidence_is_preserved_on_failed_handoff(self):
+        original_link = os.link
+        def replace_final(source, destination, **kwargs):
+            result = original_link(source, destination, **kwargs)
+            Path(destination).unlink()
+            Path(destination).write_bytes(PRIVATE)
+            return result
+        with patch.object(module.os, "link", side_effect=replace_final):
+            with self.assertRaises(ValueError):module.capture("ios", self.root, context())
+        self.assertEqual((self.root / "ios-package-failure-evidence.zip").read_bytes(), PRIVATE)
+
+    def test_replacement_partial_is_preserved_after_verified_handoff(self):
+        original_link = os.link
+        def replace_partial_after_link(source, destination, **kwargs):
+            result = original_link(source, destination, **kwargs)
+            Path(source).unlink()
+            Path(source).write_bytes(PRIVATE)
+            return result
+        with patch.object(module.os, "link", side_effect=replace_partial_after_link):
+            module.capture("ios", self.root, context())
+        self.assertEqual((self.root / "ios-package-failure-evidence.zip.partial").read_bytes(), PRIVATE)
+        with zipfile.ZipFile(self.root / "ios-package-failure-evidence.zip") as archive:
+            self.assertEqual(archive.namelist(), ["provenance.json"])
+
+    def test_incomplete_output_is_not_selected_as_complete(self):
+        with patch.object(module.os, "link", side_effect=OSError("synthetic failure")):
+            with self.assertRaises(OSError):module.capture("ios", self.root, context())
+        self.assertFalse((self.root / "ios-package-failure-evidence.zip").exists())
+        self.assertTrue((self.root / "ios-package-failure-evidence.zip.partial").exists())
+
+    def test_only_complete_capture_marks_upload_ready(self):
+        ready = []
+        module.capture_and_mark("ios", self.root, context(), lambda: ready.append(True))
+        self.assertEqual(ready, [True])  # Safe unavailable metadata is complete evidence too.
+
+    def test_existing_evidence_never_marks_a_new_upload_ready(self):
+        module.capture("ios", self.root, context())
+        ready = []
+        with self.assertRaises(FileExistsError):
+            module.capture_and_mark("ios", self.root, context(), lambda: ready.append(True))
+        self.assertEqual(ready, [])
+
+    def test_step_output_marker_is_fixed_and_appended(self):
+        parent = self.root / "_runner_file_commands"; parent.mkdir()
+        output = parent / "set_output_00000000-0000-0000-0000-000000000000"
+        output.write_text("existing=true\n")
+        module.append_ready(self.root, output)
+        self.assertEqual(output.read_text(), "existing=true\n\npackage_failure_capture_ready=true\n")
+
+    def test_step_output_rejects_aliases_and_other_paths(self):
+        parent = self.root / "_runner_file_commands"; parent.mkdir()
+        output = parent / "set_output_00000000-0000-0000-0000-000000000000"
+        other = self.root / "other"; other.write_bytes(PRIVATE); output.symlink_to(other)
+        with self.assertRaises(ValueError):module.append_ready(self.root, output)
+        self.assertEqual(other.read_bytes(), PRIVATE)
+        with self.assertRaises(ValueError):module.append_ready(self.root, other)
+
+    def test_cross_platform_context_cannot_write(self):
+        with self.assertRaises(ValueError):module.capture("ios", self.root, context("android"))
+        self.assertFalse((self.root / "ios-package-failure-evidence.zip").exists())
+
+    def test_arbitrary_context_string_cannot_leak(self):
+        c = context(); c["runId"] = PRIVATE.decode()
+        with self.assertRaises(ValueError):module.capture("ios", self.root, c)
+        self.assertFalse((self.root / "ios-package-failure-evidence.zip").exists())
+
+    def test_extra_context_fields_are_rejected(self):
+        c = context(); c["raw"] = PRIVATE.decode()
+        with self.assertRaises(ValueError):module.capture("ios", self.root, c)
+
+    def test_canonical_counter_metadata_has_tight_limits(self):
+        for key, value in [("runId", "1" * 21), ("runAttempt", "1000"), ("sourceSha", "A" * 40),
+                           ("workflowRef", "private://" + PRIVATE.decode())]:
+            with self.subTest(key=key):
+                c = context(); c[key] = value
+                with self.assertRaises(ValueError):module.validate_context(c, "ios")
+
+    def test_all_public_metadata_classes_are_bounded(self):
+        values = public_values(); values.update({"CFBundleVersion": "1", "MinimumOSVersion": "15.0",
+            "DTPlatformBuild": "22F76", "DTSDKBuild": "22F76", "DTXcodeBuild": "16F6",
+            "BuildMachineOSBuild": "24F74", "UIDeviceFamily": [1, 2], "LSRequiresIPhoneOS": True})
+        self.assertTrue(module.public_plist(plistlib.dumps(values)))
+        values["UIDeviceFamily"] = [True]
+        with self.assertRaises(ValueError):module.public_plist(plistlib.dumps(values))
+
+    def test_source_fingerprint_excludes_only_the_inventory_record(self):
+        a = b"100644 blob " + b"a" * 40 + b"\tREADME.md\0"
+        b = b"100644 blob " + b"b" * 40 + b"\t" + module.INVENTORY.encode() + b"\0"
+        self.assertEqual(module.source_fingerprint(a + b), hashlib.sha256(a).hexdigest())
+        for malformed in (a, a + b + a, a + b[:-1], a + b.replace(b"100644", b"160000")):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(ValueError):module.source_fingerprint(malformed)
+
+    def test_git_output_bound_drains_without_signals_or_early_close(self):
+        stream = io.BytesIO(PRIVATE * 10000)
+        class Child:
+            stdout = stream
+            waited = False
+            def wait(self):self.waited = True; return 0
+        child = Child(); observed = []
+        def launch(argv, **kwargs):observed.append((argv, kwargs)); return child
+        with self.assertRaises(ValueError):module.read_git(self.root, ["show", "a" * 40], 8, launch)
+        self.assertEqual(stream.tell(), len(PRIVATE) * 10000)
+        self.assertFalse(stream.closed)
+        self.assertTrue(child.waited)
+        self.assertEqual(observed[0][0][:4], ["/usr/bin/git", "--no-optional-locks", "-C", str(self.root)])
+        self.assertNotIn("timeout", observed[0][1])
+        self.assertNotIn("shell", observed[0][1])
+
+    def test_git_exact_bound_succeeds_and_failed_child_is_rejected(self):
+        class Child:
+            def __init__(self, data, code):self.stdout = io.BytesIO(data); self.code = code
+            def wait(self):return self.code
+        self.assertEqual(module.read_git(self.root, ["fixture"], 8, lambda *a, **k: Child(b"12345678", 0)), b"12345678")
+        with self.assertRaises(ValueError):module.read_git(self.root, ["fixture"], 8, lambda *a, **k: Child(b"123", 1))
+
+    def test_context_reads_exact_git_head_and_rejects_mutable_source(self):
+        repo = self.root / "repo"; (repo / "apps/mobile/assets/receipt_ocr_models").mkdir(parents=True)
+        (repo / "apps/mobile/assets/receipt_ocr_models/catalog.json").write_bytes(PRIVATE)
+        listing = b"100644 blob " + b"a" * 40 + b"\tREADME.md\0" + b"100644 blob " + b"b" * 40 + b"\t" + module.INVENTORY.encode() + b"\0"
+        env = {"GITHUB_ACTIONS": "true", "CI": "true", "SETTLEORA_PACKAGE_FAILURE_CAPTURE": "hosted_v1",
+               "GITHUB_REPOSITORY": module.REPOSITORY, "CAPTURE_WORKFLOW_SHA": "e" * 40,
+               "CAPTURE_WORKFLOW_REF": context()["workflowRef"], "GITHUB_RUN_ID": "123",
+               "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "ios-native-acceptance"}
+        def git(*args):
+            if args == ("rev-parse", "HEAD"):return b"a" * 40 + b"\n"
+            if args[0] == "status":return b""
+            if args[0] == "show":return b"{}"  # Exact Git object, distinct from disk bytes.
+            if args[0] == "rev-parse":return b"b" * 40 + b"\n"
+            return listing
+        c = module.collect_context(repo, "a" * 40, env, git); module.validate_context(c, "ios")
+        self.assertEqual(c["catalogSha256"], hashlib.sha256(b"{}").hexdigest())
+        with self.assertRaises(ValueError):module.collect_context(repo, "f" * 40, env, git)
+        with self.assertRaises(ValueError):module.collect_context(repo, "a" * 40, {}, git)
+        with self.assertRaises(ValueError):module.collect_context(repo, "a" * 40, env, lambda *a: b" M private" if a[0] == "status" else git(*a))
+
+    def test_workflow_capture_selectors_are_exact_and_acceptance_stays_required(self):
+        workflow = (ROOT / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()
+        self.assertEqual(workflow.count("--require-complete=true"), 2)
+        self.assertEqual(workflow.count("timeout-minutes: 180"), 2)
+        self.assertEqual(workflow.count("timeout-minutes: 360"), 2)
+        self.assertIn("${{ runner.temp }}/android-package-failure-capture.json", workflow)
+        self.assertIn("${{ runner.temp }}/ios-package-failure-evidence.zip", workflow)
+        self.assertNotIn("${{ runner.temp }}/**", workflow)
+        self.assertIn("steps.package_comparison.outputs.package_failure_capture_ready == 'true'", workflow)
+        self.assertIn("steps.package.outputs.package_failure_capture_ready == 'true'", workflow)
+        self.assertEqual(workflow.count("path: ${{ runner.temp }}/ios-package-failure-evidence.zip"), 1)
+        self.assertEqual(workflow.count("path: ${{ runner.temp }}/android-package-failure-capture.json"), 1)
+        self.assertIn("if: ${{ !cancelled() && steps.package.outcome == 'failure' }}", workflow)
+        self.assertLess(workflow.index("python3 tools/ocr-models/package-failure-capture.py"),
+                        workflow.index("python3 tools/ocr-models/android-build-provenance-evidence.py"))
+        self.assertEqual(workflow.count('run: test "${{ steps.acceptance.outputs.status }}" = "0"'), 2)
+
+    def test_wrapper_capture_never_turns_rejection_into_success(self):
+        script = (ROOT / "apps/mobile/tool/build-production-ios.sh").read_text()
+        body = script.split("fail_unreviewed_resource_path() {", 1)[1].split("\nis_reviewed_pre_native_baseline_resource()", 1)[0]
+        function = "fail_unreviewed_resource_path() {" + body
+        for enabled, mode, artifact_class, capture_status, called in [
+                ("hosted_v1", "unsigned", "release-candidate", 0, True),
+                ("hosted_v1", "unsigned", "release-candidate", 1, True),
+                ("", "unsigned", "release-candidate", 0, False),
+                ("hosted_v1", "signed", "release-candidate", 0, False),
+                ("hosted_v1", "unsigned", "size-measurement", 0, False)]:
+            with self.subTest(enabled=enabled, mode=mode, capture_status=capture_status):
+                setup = "set -eu\nsha256_file(){ printf '%064d' 0; }\nshasum(){ printf '%064d -\\n' 0; }\nfail(){ printf 'ORIGINAL_REJECT\\n'; exit 1; }\n"
+                setup += f"python3(){{ printf 'CAPTURE_CALLED\\n'; return {capture_status}; }}\n"
+                setup += function + "\nrelative_resource='" + module.PRIVACY_PATH + "'\ncandidate=fixture\n"
+                setup += f"mode={mode}\nartifact_class={artifact_class}\ntool_root=fixture\nsource_git_root=fixture\nrepo_root=fixture\nsource_sha=fixture\nfail_unreviewed_resource_path\n"
+                env = {"PATH": "/usr/bin:/bin", "HOME": str(self.root), "TMPDIR": str(self.root),
+                       "SETTLEORA_PACKAGE_FAILURE_CAPTURE": enabled}
+                result = subprocess.run(["/bin/bash", "-c", setup], env=env, cwd=self.root,
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("ORIGINAL_REJECT", result.stdout)
+                self.assertEqual("CAPTURE_CALLED" in result.stdout, called)
+                if capture_status == 1 and called:self.assertIn("bounded_package_failure_capture_unavailable", result.stderr)
+
+
+if __name__ == "__main__":unittest.main()
