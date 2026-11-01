@@ -12620,13 +12620,8 @@ String _normalizeOcrLine(String value) {
     RegExp(r'(?<=\d)\u060c(?=\d)'),
     (_) => ',',
   );
-  normalized = normalized.replaceFirstMapped(
-    // Keep the complete printed amount together before moving a trailing
-    // AED marker. A permissive prefix used to swallow comma decimals and
-    // leave only the fractional digits as the apparent amount.
-    RegExp(r'^(.*?)\s+(-?\d+(?:[.,]\d+)*)\s*(د\.?إ)$'),
-    (match) => '${match.group(1)} ${match.group(3)} ${match.group(2)}',
-  );
+  // The item and amount grammars already accept trailing AED markers. Moving
+  // one can split a grouping or manufacture ownership of adjacent digits.
   return normalized.trim();
 }
 
@@ -12962,9 +12957,11 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
   if (amount == null) return null;
   var before = line.substring(0, amount.start);
   final after = line.substring(amount.end);
+  var consumedLeadingPlus = false;
   // A single printed plus has the same value; a conflicting sign does not.
   if (before.endsWith('+') && !amount.group(0)!.startsWith('-')) {
     before = before.substring(0, before.length - 1);
+    consumedLeadingPlus = true;
   }
   final prefixCurrency = _amountPrefixCurrencyPattern.firstMatch(before);
   final suffixCurrency = _amountSuffixCurrencyPattern.firstMatch(after);
@@ -12995,7 +12992,104 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
       RegExp(r"^[A-Za-z0-9.,'’/+\-]").hasMatch(after)) {
     return null;
   }
+  if (_hasUnownedArabicSuffixGroups(
+    line,
+    amount.start,
+    amount.end,
+    consumedLeadingPlus: consumedLeadingPlus,
+  )) {
+    return null;
+  }
   return amount;
+}
+
+bool _hasUnownedArabicSuffixGroups(
+  String line,
+  int amountStart,
+  int amountEnd, {
+  bool consumedLeadingPlus = false,
+}) {
+  // Inspect the whole adjacent numeric run, including malformed groups. A
+  // shorter valid tail cannot establish either an amount or its ownership.
+  // The caller supplies its actual selected span. Stop at that span's end:
+  // punctuation after it is a boundary, not part of its numeric grouping.
+  final numericRun = RegExp(
+    r"[+\-\d][\d\s.,'’+\-]*$",
+  ).firstMatch(line.substring(0, amountEnd));
+  if (numericRun == null || numericRun.start > amountStart) return false;
+  var printed = numericRun.group(0)!;
+  if (!RegExp(r'\d\s+\d').hasMatch(printed)) return false;
+
+  // This is rejection-only evidence, after the caller's admission checks.
+  // Arbitrary punctuation can delimit a scalar amount; do not maintain a
+  // narrower punctuation list here. Currency chains and existing operator
+  // words may connect the marker, but another number or unrelated word may not.
+  final suffix = line.substring(amountEnd);
+  final connection = RegExp(
+    '^(?:[^\\p{L}\\p{N}]|$_signCurrencyTokenPattern|'
+    r'(?:and|plus|or|vs\.?|versus|to)\b)*$',
+    caseSensitive: false,
+    unicode: true,
+  );
+  final marker = _printedCurrencyMarkerMatches(suffix)
+      .where(
+        (marker) =>
+            const {'د.إ', 'دإ'}.contains(marker.group(1)) &&
+            connection.hasMatch(suffix.substring(0, marker.start)),
+      )
+      .firstOrNull;
+  if (marker == null) return false;
+  if (RegExp(r'[+−-]').hasMatch(suffix.substring(0, marker.start))) return true;
+  // Only the scalar selector can authorize its single attached leading plus.
+  // The stricter item grammar does not acquire that admission as a side effect.
+  if (consumedLeadingPlus &&
+      numericRun.start == amountStart - 1 &&
+      printed.startsWith('+')) {
+    printed = printed.substring(1);
+  }
+  if (!_hasValidAmountGrouping(printed)) return true;
+  final prefix = line.substring(0, numericRun.start).trimRight();
+  if (prefix.isEmpty || _amountPrefixCurrencyPattern.hasMatch(prefix)) {
+    return false;
+  }
+  final label = prefix.replaceFirst(RegExp(r'\s*[:：]\s*$'), '').toLowerCase();
+  if ([
+    'subtotal',
+    'sub total',
+    'sub-total',
+    ..._englishTotalLabels,
+    ..._localizedSubtotalLabels,
+    ..._localizedReceiptAdjustmentLabels,
+    ..._localizedTotalLabels,
+  ].any((known) => known.toLowerCase() == label)) {
+    return false;
+  }
+  // Promotion's standalone-money grammar does not admit a rate qualifier;
+  // qualified coupons use the separate, existing negative-discount grammar.
+  if (printed.startsWith('-')) {
+    final promotion = _negativePromotionLabelPattern.firstMatch(label);
+    if (promotion != null && promotion.end == label.length) return false;
+  }
+  // Only actual field-role grammars can own this prefix. Potential adjustment
+  // words remain review evidence. Do not let a trailing role ignore the prefix
+  // or let punctuation cleanup erase an unrelated Unicode product name.
+  final leadingSource = line.substring(0, amountEnd).toLowerCase();
+  return ![
+    _englishSubtotalLabelPattern,
+    _englishTaxLabelPattern,
+    _englishServiceChargeLabelPattern,
+    _englishActualTipLabelPattern,
+    _englishShippingLabelPattern,
+    _englishDiscountLabelPattern,
+    _englishTotalLabelPattern,
+    if (printed.startsWith('-')) _negativeQualifiedDiscountLabelPattern,
+  ].any(
+    (pattern) => _hasEnglishReceiptLabel(
+      leadingSource,
+      pattern,
+      preserveUnicodeWords: true,
+    ),
+  );
 }
 
 String? _selectedMonetaryCurrencyCell(String line) {
@@ -15305,6 +15399,17 @@ bool _isDateOrTimeOnlyLine(String normalized) {
 }
 
 bool _hasTraceableItemAmountToken(String line, String amountToken) {
+  // A bare number before an Arabic suffix price may belong to the product or
+  // quantity. Only an independently bounded layout cell can recover that row.
+  final amountStart = line.lastIndexOf(amountToken);
+  if (amountStart < 0 ||
+      _hasUnownedArabicSuffixGroups(
+        line,
+        amountStart,
+        amountStart + amountToken.length,
+      )) {
+    return false;
+  }
   // Flattened columns can end in an administrative date. Its year (or day)
   // is not an item price, even when another column contains descriptive copy.
   // A separate amount cell can still be recovered by the layout fallback.
@@ -15379,11 +15484,47 @@ final _joinedSummaryLabelPattern = RegExp(
   caseSensitive: false,
 );
 
+// Share the exact admitted English field labels with numeric ownership checks.
+// Potential adjustment vocabulary is deliberately broader than these roles.
+final _englishSubtotalLabelPattern = RegExp(
+  r'\bsub[\s-]?total\b',
+  caseSensitive: false,
+);
+final _englishTaxLabelPattern = RegExp(
+  r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax(?:es)?|sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
+  caseSensitive: false,
+);
+final _englishServiceChargeLabelPattern = RegExp(
+  r'\bservices?\s*(charges?|fees?)?\b\.?',
+  caseSensitive: false,
+);
+final _englishActualTipLabelPattern = RegExp(
+  r'\b(?:actual\s+tips?|gratuity|gratuities|tips?)\b\.?',
+  caseSensitive: false,
+);
+final _englishShippingLabelPattern = RegExp(
+  r'\b(shipping|delivery)(?:\s+(?:fees?|charges?)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fees?|charges?))?)?\b',
+  caseSensitive: false,
+);
+final _englishDiscountLabelPattern = RegExp(
+  r'\b(discounts?|coupons?|rebates?)\b\.?',
+  caseSensitive: false,
+);
+final _negativePromotionLabelPattern = RegExp(
+  r'^(?:promotion|promo)\b',
+  caseSensitive: false,
+);
+final _negativeQualifiedDiscountLabelPattern = RegExp(
+  r'\b(?:(?:store|loyalty|member|promo(?:tional)?|voucher|reward|basket|order)\s+(?:coupon|discount)|promo\s+code)\b',
+  caseSensitive: false,
+);
+final _englishTotalLabelPattern = RegExp(
+  '\\b(${_englishTotalLabels.map((label) => label.replaceAll(' ', r'\s+')).join('|')})\\b',
+  caseSensitive: false,
+);
+
 bool _hasSubtotalLabel(String line, String normalized) {
-  return _hasEnglishReceiptLabel(
-        normalized,
-        RegExp(r'\bsub[\s-]?total\b', caseSensitive: false),
-      ) ||
+  return _hasEnglishReceiptLabel(normalized, _englishSubtotalLabelPattern) ||
       _hasJapaneseReceiptLabel(line, const ['小計']) ||
       _hasLocalizedReceiptLabel(line, _localizedSubtotalLabels);
 }
@@ -15414,13 +15555,7 @@ bool _hasTaxLabel(
   // complete included-tax grammar above may assign that meaning. Qualified
   // rows outside it stay unresolved instead of becoming additive tax.
   if (_hasQualifiedNonAdditiveTaxTreatment(normalized)) return false;
-  return _hasEnglishReceiptLabel(
-        normalized,
-        RegExp(
-          r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax(?:es)?|sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
-          caseSensitive: false,
-        ),
-      ) ||
+  return _hasEnglishReceiptLabel(normalized, _englishTaxLabelPattern) ||
       (_isPostSubtotalAdjustmentLine(
             line,
             allowDescriptiveTaxLabel: allowDescriptiveTaxLabel,
@@ -15537,10 +15672,7 @@ bool _hasServiceChargeLabel(String line, String normalized) {
   ).firstMatch(line);
   return _portugueseServiceAmountLinePattern.hasMatch(line) ||
       (joinedRate != null && _isBoundedSummaryAmount(joinedRate.group(1)!)) ||
-      _hasEnglishReceiptLabel(
-        normalized,
-        RegExp(r'\bservices?\s*(charges?|fees?)?\b\.?', caseSensitive: false),
-      ) ||
+      _hasEnglishReceiptLabel(normalized, _englishServiceChargeLabelPattern) ||
       _hasJapaneseReceiptLabel(line, const ['サービス料']) ||
       _hasLocalizedReceiptLabel(line, const [
         '服務費',
@@ -15555,10 +15687,7 @@ bool _hasServiceChargeLabel(String line, String normalized) {
 
 bool _hasActualTipChargeLabel(String line, String normalized) {
   if (_isSuggestedTipLine(normalized)) return false;
-  final labelPattern = RegExp(
-    r'\b(?:actual\s+tips?|gratuity|gratuities|tips?)\b\.?',
-    caseSensitive: false,
-  );
+  final labelPattern = _englishActualTipLabelPattern;
   return _hasEnglishReceiptLabel(normalized, labelPattern) ||
       _hasEnglishReceiptLabel(
         _withoutBoundedExplicitCurrencyCode(line).toLowerCase(),
@@ -15887,10 +16016,7 @@ bool _hasShippingLabel(
   String normalized, {
   bool allowParenthesizedMethod = false,
 }) {
-  final labelPattern = RegExp(
-    r'\b(shipping|delivery)(?:\s+(?:fees?|charges?)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fees?|charges?))?)?\b',
-    caseSensitive: false,
-  );
+  final labelPattern = _englishShippingLabelPattern;
   return _hasEnglishReceiptLabel(normalized, labelPattern) ||
       (allowParenthesizedMethod &&
           _hasEnglishReceiptLabel(
@@ -15948,22 +16074,16 @@ bool _hasQualifiedDiscountTreatment(String label) =>
         ).hasMatch(label));
 
 bool _hasDiscountLabel(String line, String normalized) {
-  return _hasEnglishReceiptLabel(
-        normalized,
-        RegExp(r'\b(discounts?|coupons?|rebates?)\b\.?', caseSensitive: false),
-      ) ||
+  return _hasEnglishReceiptLabel(normalized, _englishDiscountLabelPattern) ||
       (_lastAmountInLine(line)?.startsWith('-') == true &&
           _isLabeledStandaloneMoneyLine(
             line,
-            RegExp(r'^(?:promotion|promo)\b', caseSensitive: false),
+            _negativePromotionLabelPattern,
           )) ||
       (_lastAmountInLine(line)?.startsWith('-') == true &&
           _hasEnglishReceiptLabel(
             normalized,
-            RegExp(
-              r'\b(?:(?:store|loyalty|member|promo(?:tional)?|voucher|reward|basket|order)\s+(?:coupon|discount)|promo\s+code)\b',
-              caseSensitive: false,
-            ),
+            _negativeQualifiedDiscountLabelPattern,
           )) ||
       _hasJapaneseReceiptLabel(line, const ['割引', '値引']);
 }
@@ -16076,13 +16196,7 @@ final _completeTotalLabelPattern = RegExp(
 
 bool _hasTotalLabel(String line, String normalized) {
   return _includedTaxTotalLinePattern.hasMatch(line) ||
-      _hasEnglishReceiptLabel(
-        normalized,
-        RegExp(
-          '\\b(${_englishTotalLabels.map((label) => label.replaceAll(' ', r'\s+')).join('|')})\\b',
-          caseSensitive: false,
-        ),
-      ) ||
+      _hasEnglishReceiptLabel(normalized, _englishTotalLabelPattern) ||
       _hasJapaneseReceiptLabel(line, const ['合計']) ||
       _hasLocalizedReceiptLabel(line, _localizedTotalLabels);
 }
@@ -16187,7 +16301,11 @@ bool _hasCompleteLabeledCurrencyCells(
   return cells > 0;
 }
 
-bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
+bool _hasEnglishReceiptLabel(
+  String normalized,
+  RegExp labelPattern, {
+  bool preserveUnicodeWords = false,
+}) {
   final label = labelPattern.firstMatch(normalized);
   if (label == null) {
     return false;
@@ -16216,7 +16334,12 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
         ),
         ' ',
       )
-      .replaceAll(RegExp(r'[^\w\s%.\-]'), ' ')
+      .replaceAll(
+        preserveUnicodeWords
+            ? RegExp(r'[^\p{L}\p{M}\p{N}_\s%.\-]', unicode: true)
+            : RegExp(r'[^\w\s%.\-]'),
+        ' ',
+      )
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 
