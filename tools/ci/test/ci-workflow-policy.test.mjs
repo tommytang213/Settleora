@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
+import { aggregateGateDecision } from '../scaffold-validation-changes.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -57,6 +59,7 @@ test('scaffold orchestration preserves the stable fail-closed aggregate', () => 
     'main',
     'ai/integration',
     'test/1301-native-ocr-acceptance-20260918-0038',
+    'ai/task/1324-included-tax-contract-on-1308-20261002',
   ]);
   assert.deepEqual(Object.keys(scaffold.on).sort(), ['pull_request', 'push']);
   assert.deepEqual(scaffold.on.push.branches, ['main', 'feat/**', 'fix/**', 'chore/**', 'docs/**']);
@@ -158,6 +161,151 @@ test('full and mobile validation commands remain unweakened', () => {
     packageJson.scripts['validate:mobile'],
     `npm run validate:ocr-models && node tools/doctor-validation.mjs --mobile && cd apps/mobile && ${sharedMobileReleaseGate}`,
   );
+});
+
+test('stack source binding preserves merge validation and the exact owned target', () => {
+  const scaffold = workflow('scaffold-validation.yml');
+  const mobile = scaffold.jobs['mobile-validation'];
+  const checkout = stepsFor(mobile).find((step) => step.uses?.startsWith('actions/checkout@'));
+  assert.equal(checkout.with.ref, undefined);
+  assert.equal(checkout.with['fetch-depth'], 2);
+  assert.equal(checkout.with['persist-credentials'], false);
+  const binding = stepsFor(mobile).find((step) => step.name === 'Verify stacked PR source binding');
+  assert.equal(binding.if, "${{ github.event.pull_request.base.ref == 'ai/task/1324-included-tax-contract-on-1308-20261002' }}");
+  assert.equal(binding.shell, 'bash');
+  assert.deepEqual(binding.env, {
+    EXPECTED_BASE: '${{ github.event.pull_request.base.sha }}',
+    EXPECTED_HEAD: '${{ github.event.pull_request.head.sha }}',
+    EXPECTED_MERGE: '${{ github.sha }}',
+  });
+  assert.ok(stepsFor(mobile).indexOf(binding) < stepsFor(mobile).findIndex((step) => step.run === 'npm run validate:mobile'));
+  assert.doesNotMatch(binding.run, /\$\{\{|eval\s|git fetch|git checkout|continue-on-error|\|\|\s*true/);
+  assert.equal(workflow('mobile-ocr-native-acceptance.yml').on.pull_request.branches.includes('ai/task/1324-included-tax-contract-on-1308-20261002'), false);
+  const publishing = workflow('api-image-ghcr.yml');
+  assert.equal(publishing.on.pull_request, undefined);
+  assert.deepEqual(publishing.on.push, { branches: ['main'], tags: ['v*'] });
+  assert.deepEqual(workflow('mobile-ocr-native-acceptance.yml').on.pull_request.branches, ['main']);
+});
+
+test('routing amendment leaves push skips and PR aggregate enforcement intact', () => {
+  const push = {
+    EVENT_NAME: 'push', CLASSIFY_RESULT: 'success',
+    RUN_FULL_VALIDATION: 'true', RUN_MOBILE_VALIDATION: 'true',
+    RUN_IOS_VALIDATION: 'true', RUN_WEB_USER_VALIDATION: 'true',
+    FULL_RESULT: 'success', MOBILE_RESULT: 'skipped',
+    IOS_RESULT: 'skipped', WEB_USER_RESULT: 'skipped',
+  };
+  assert.equal(aggregateGateDecision(push).ok, true);
+  for (const key of ['MOBILE_RESULT', 'IOS_RESULT', 'WEB_USER_RESULT']) {
+    assert.equal(aggregateGateDecision({ ...push, [key]: 'success' }).ok, false);
+  }
+  assert.equal(aggregateGateDecision({ ...push, EVENT_NAME: 'pull_request' }).ok, false);
+  assert.equal(aggregateGateDecision({
+    ...push, EVENT_NAME: 'pull_request', MOBILE_RESULT: 'success',
+    IOS_RESULT: 'success', WEB_USER_RESULT: 'success',
+  }).ok, true);
+});
+
+function stackedSourceFixture(t, { advanceBase = false } = {}) {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-stack-source-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = {
+    PATH: process.env.PATH,
+    HOME: root,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_AUTHOR_NAME: 'Synthetic fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Synthetic fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    GIT_AUTHOR_DATE: '2026-10-29T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-29T00:00:00Z',
+  };
+  const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git('init', '--initial-branch=base');
+  writeFileSync(path.join(root, 'source.txt'), 'base\n');
+  git('add', 'source.txt'); git('commit', '--no-gpg-sign', '-m', 'base');
+  git('checkout', '-b', 'candidate');
+  writeFileSync(path.join(root, 'source.txt'), 'reviewed candidate\n');
+  git('commit', '--no-gpg-sign', '-am', 'candidate');
+  const head = git('rev-parse', 'HEAD');
+  git('checkout', 'base');
+  if (advanceBase) {
+    writeFileSync(path.join(root, 'base-only.txt'), 'unreviewed base addition\n');
+    git('add', 'base-only.txt'); git('commit', '--no-gpg-sign', '-m', 'advance base');
+  }
+  const base = git('rev-parse', 'HEAD');
+  git('merge', '--no-ff', '--no-gpg-sign', '-m', 'synthetic PR merge', 'candidate');
+  const merge = git('rev-parse', 'HEAD');
+  return { root, env, git, identities: { EXPECTED_BASE: base, EXPECTED_HEAD: head, EXPECTED_MERGE: merge } };
+}
+
+function runStackBinding(fixture, overrides = {}, cwd = fixture.root) {
+  const script = stepsFor(workflow('scaffold-validation.yml').jobs['mobile-validation'])
+    .find((step) => step.name === 'Verify stacked PR source binding').run;
+  const env = { ...fixture.env, ...fixture.identities, ...overrides };
+  for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key];
+  const result = spawnSync('bash', ['-c', script], { cwd, env, encoding: 'utf8', timeout: 10_000 });
+  if (result.error) throw result.error;
+  assert.equal(result.signal, null, 'binding script must exit normally');
+  assert.equal(Number.isInteger(result.status), true, 'binding script must produce an exit code');
+  return result;
+}
+
+test('stack source binding accepts an exact merge/head tree and records its identities', (t) => {
+  const fixture = stackedSourceFixture(t);
+  const result = runStackBinding(fixture);
+  assert.equal(result.status, 0, result.stderr);
+  for (const sha of Object.values(fixture.identities)) assert.ok(result.stdout.includes(sha));
+  assert.ok(result.stdout.includes(fixture.git('rev-parse', 'HEAD^{tree}')));
+  assert.equal(fixture.git('rev-parse', 'HEAD'), fixture.identities.EXPECTED_MERGE);
+});
+
+test('stack source binding succeeds with the workflow depth-two checkout and both parents', (t) => {
+  const fixture = stackedSourceFixture(t);
+  const shallow = path.join(fixture.root, 'depth-two');
+  fixture.git('clone', '--no-local', '--depth=2', '--branch=base', fixture.root, shallow);
+  const git = (...args) => execFileSync('git', ['-C', shallow, ...args], { env: fixture.env, encoding: 'utf8' }).trim();
+  assert.equal(git('rev-parse', '--is-shallow-repository'), 'true');
+  for (const sha of Object.values(fixture.identities)) assert.equal(git('cat-file', '-t', sha), 'commit');
+  const result = runStackBinding(fixture, {}, shallow);
+  assert.equal(result.status, 0, result.stderr);
+  for (const sha of Object.values(fixture.identities)) assert.ok(result.stdout.includes(sha));
+});
+
+test('binding harness propagates process-start errors instead of counting a rejection', (t) => {
+  const fixture = stackedSourceFixture(t);
+  assert.throws(() => runStackBinding(fixture, { PATH: path.join(fixture.root, 'unavailable-bin') }), { code: 'ENOENT' });
+});
+
+test('stack source binding rejects missing, malformed, zero and unavailable identities', (t) => {
+  const fixture = stackedSourceFixture(t);
+  for (const key of Object.keys(fixture.identities)) {
+    for (const value of [undefined, '', '0'.repeat(40), 'a'.repeat(39), 'A'.repeat(40), '--upload-pack=bad', '$(touch unexpected)', 'f'.repeat(40)]) {
+      const result = runStackBinding(fixture, { [key]: value });
+      assert.notEqual(result.status, 0, `${key}/${value}`);
+    }
+  }
+  assert.equal(readdirSync(fixture.root).includes('unexpected'), false);
+});
+
+test('stack source binding rejects a wrong checkout merge and wrong parent identities', (t) => {
+  const fixture = stackedSourceFixture(t);
+  for (const overrides of [
+    { EXPECTED_MERGE: fixture.identities.EXPECTED_HEAD },
+    { EXPECTED_BASE: fixture.identities.EXPECTED_HEAD },
+    { EXPECTED_HEAD: fixture.identities.EXPECTED_BASE },
+  ]) assert.notEqual(runStackBinding(fixture, overrides).status, 0);
+});
+
+test('stack source binding rejects a merge with valid parents but unequal full trees', (t) => {
+  const fixture = stackedSourceFixture(t, { advanceBase: true });
+  assert.notEqual(fixture.git('rev-parse', 'HEAD^{tree}'), fixture.git('rev-parse', `${fixture.identities.EXPECTED_HEAD}^{tree}`));
+  assert.notEqual(runStackBinding(fixture).status, 0);
+});
+
+test('stack source binding fails closed when shallow checkout lacks parent objects', (t) => {
+  const fixture = stackedSourceFixture(t);
+  const shallow = path.join(fixture.root, 'shallow');
+  fixture.git('clone', '--no-local', '--depth=1', '--branch=base', fixture.root, shallow);
+  assert.notEqual(runStackBinding(fixture, {}, shallow).status, 0);
 });
 
 test('required scaffold classifier runs the fail-closed release identity suite exactly once', () => {

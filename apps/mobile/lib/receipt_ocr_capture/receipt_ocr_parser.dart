@@ -71,7 +71,9 @@ bool _isEmailOnlyMetadataLine(String line) => RegExp(
 ).hasMatch(line);
 
 class ReceiptOcrParser {
-  const ReceiptOcrParser();
+  const ReceiptOcrParser({this.collectDiagnostics = false});
+
+  final bool collectDiagnostics;
 
   ReceiptOcrPreview parse(
     String recognizedText, {
@@ -79,11 +81,34 @@ class ReceiptOcrParser {
     List<ReceiptOcrBlockEvidence> blocks = const [],
     ReceiptOcrRunEvidence? runEvidence,
   }) {
+    final diagnostics = collectDiagnostics
+        ? ReceiptOcrPredicateCounter()
+        : null;
     final sourceLines = recognizedText
         .split(RegExp(r'\r?\n'))
         .where((line) => line.trim().isNotEmpty)
         .toList(growable: false);
     final lines = sourceLines.map(_normalizeOcrLine).toList(growable: false);
+    if (diagnostics != null) {
+      // Observation-only replays. Their selected dates are deliberately ignored.
+      // Failure of optional observation must not turn provider success into failure.
+      try {
+        _detectDate(
+          sourceLines,
+          selectTransactionDate: true,
+          diagnostics: diagnostics,
+          diagnosticStage: ReceiptOcrDateStage.original,
+        );
+        _detectDate(
+          lines,
+          selectTransactionDate: true,
+          diagnostics: diagnostics,
+          diagnosticStage: ReceiptOcrDateStage.normalized,
+        );
+      } catch (_) {
+        diagnostics.invalidate();
+      }
+    }
     final detachedAmountSignRows = <int>{
       for (var index = 0; index < sourceLines.length; index++)
         if (_hasDetachedAmountSign(sourceLines[index]) &&
@@ -92,8 +117,9 @@ class ReceiptOcrParser {
     };
     final warnings = <String>[];
     if (lines.isEmpty) {
-      return const ReceiptOcrPreview(
-        warnings: ['No readable receipt text was found.'],
+      return ReceiptOcrPreview(
+        warnings: const ['No readable receipt text was found.'],
+        parserDiagnostics: diagnostics?.freeze(),
       );
     }
 
@@ -274,12 +300,27 @@ class ReceiptOcrParser {
       merchantDetection?.lineIndices ?? const {},
     );
     final ownedActivityEvidenceRows = <int>{};
-    final ownedActivityFeeRows = _corroboratedActivityFeeRows(
+    final closedParkingSession = _closedParkingSessionFee(
       lines,
+      layoutRows,
+      merchant,
+      merchantDetection?.lineIndices ?? const {},
       currency,
-      ownedEvidenceRows: ownedActivityEvidenceRows,
-      unresolvedEvidenceRows: ambiguousChargeRows,
+      _detectDate(itemLines, selectTransactionDate: true),
+      hasLayout: blocks.isNotEmpty,
     );
+    if (closedParkingSession != null) {
+      ownedActivityEvidenceRows.addAll(closedParkingSession.metadataRows);
+    }
+    final ownedActivityFeeRows = <int>{
+      ..._corroboratedActivityFeeRows(
+        lines,
+        currency,
+        ownedEvidenceRows: ownedActivityEvidenceRows,
+        unresolvedEvidenceRows: ambiguousChargeRows,
+      ),
+      if (closedParkingSession != null) closedParkingSession.feeRow,
+    };
     final amounts = _extractLabeledAmounts(
       lines,
       currency,
@@ -333,6 +374,7 @@ class ReceiptOcrParser {
     final extractedItems = _extractItems(
       itemLines,
       currency,
+      diagnostics: diagnostics,
       selectedTotal: amounts.total,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       mixedMerchantRows: {
@@ -465,6 +507,9 @@ class ReceiptOcrParser {
     final selectedTotal =
         amounts.total ??
         (contactColumnTotals.length == 1 ? contactColumnTotals.single : null) ??
+        // A closed parking panel cannot account for an extra unpriced product.
+        // Keep the existing unresolved-row proof and warnings conservative.
+        (unresolvedItemLines == 0 ? closedParkingSession?.total : null) ??
         _boundedDccChargedTotal(
           lines,
           itemCandidates,
@@ -584,6 +629,8 @@ class ReceiptOcrParser {
       receiptDate: _detectDate(
         itemLines,
         selectTransactionDate: true,
+        diagnostics: diagnostics,
+        diagnosticStage: ReceiptOcrDateStage.projected,
         onAmbiguousReceiptDate: () => warnings.add(
           'Conflicting receipt dates were detected. Review the receipt date.',
         ),
@@ -667,6 +714,7 @@ class ReceiptOcrParser {
       }),
       blocks: blocks,
       runEvidence: runEvidence,
+      parserDiagnostics: diagnostics?.freeze(),
     );
   }
 
@@ -1071,6 +1119,8 @@ class ReceiptOcrParser {
     bool selectTransactionDate = false,
     void Function()? onAmbiguousReceiptDate,
     void Function()? onStayOnlyDate,
+    ReceiptOcrPredicateCounter? diagnostics,
+    ReceiptOcrDateStage diagnosticStage = ReceiptOcrDateStage.projected,
   }) {
     // Split only fully owned original calendar rows. Keep the original row
     // position for scoring and allow wrapped roles only on its first field.
@@ -1083,6 +1133,7 @@ class ReceiptOcrParser {
           (text: field, sourceIndex: index, firstInRow: fieldIndex == 0),
     ];
     ({String date, int score})? best;
+    var bestRole = ReceiptOcrDatePredicate.selectedOther;
     final explicitReceiptDates = <String>{};
     // Values owned by the same primary date role must corroborate. Keep
     // different roles separate: an order date need not equal a receipt date.
@@ -1129,8 +1180,15 @@ class ReceiptOcrParser {
       );
       int? ownedStayDateEnd;
       void consider(String? date, int dateStart, int dateEnd) {
+        diagnostics?.date(
+          diagnosticStage,
+          date == null
+              ? ReceiptOcrDatePredicate.invalidCandidate
+              : ReceiptOcrDatePredicate.validCandidate,
+        );
         var score = positionScore;
         var secondaryDate = false;
+        var primaryDate = false;
         final labels =
             <({int start, bool secondary, bool stay})>[
                 ...primaryLabel
@@ -1161,6 +1219,10 @@ class ReceiptOcrParser {
         if (labels.isNotEmpty) {
           final nearest = labels.last;
           if (date != null && selectTransactionDate && nearest.stay) {
+            diagnostics?.date(
+              diagnosticStage,
+              ReceiptOcrDatePredicate.stayExcluded,
+            );
             sawStayDate = true;
             ownedStayDateEnd = dateEnd;
             return;
@@ -1183,6 +1245,7 @@ class ReceiptOcrParser {
                 .firstMatch(lower.substring(nearest.start, dateStart))
                 ?.group(1);
             if (role != null) {
+              primaryDate = true;
               (primaryRoleDates[role] ??= <String>{}).add(date);
             }
           }
@@ -1208,6 +1271,10 @@ class ReceiptOcrParser {
             ).hasMatch(lower.substring(0, dateStart))) {
           // A wrapped range endpoint inherits its immediately preceding stay
           // label. A new transaction label still establishes its own role.
+          diagnostics?.date(
+            diagnosticStage,
+            ReceiptOcrDatePredicate.stayExcluded,
+          );
           sawStayDate = true;
           return;
         } else if (field.firstInRow &&
@@ -1228,6 +1295,10 @@ class ReceiptOcrParser {
           if (date != null &&
               selectTransactionDate &&
               standaloneStayLabel.hasMatch(previous)) {
+            diagnostics?.date(
+              diagnosticStage,
+              ReceiptOcrDatePredicate.stayExcluded,
+            );
             sawStayDate = true;
             ownedStayDateEnd = dateEnd;
             return;
@@ -1242,6 +1313,7 @@ class ReceiptOcrParser {
               line.substring(0, dateStart).trim().isEmpty) {
             final role = directPrimaryDateLabel.firstMatch(previous)?.group(1);
             if (role != null) {
+              primaryDate = true;
               (primaryRoleDates[role] ??= <String>{}).add(date);
             }
           }
@@ -1257,7 +1329,22 @@ class ReceiptOcrParser {
         if (date != null && date == labeledDate && !secondaryDate) {
           labeledCalendarDates.add(date);
         }
+        if (date != null) {
+          diagnostics?.date(
+            diagnosticStage,
+            secondaryDate
+                ? ReceiptOcrDatePredicate.secondaryRole
+                : (primaryDate
+                      ? ReceiptOcrDatePredicate.primaryRole
+                      : ReceiptOcrDatePredicate.otherRole),
+          );
+        }
         if (date != null && (best == null || score > best!.score)) {
+          bestRole = secondaryDate
+              ? ReceiptOcrDatePredicate.selectedSecondary
+              : primaryDate
+              ? ReceiptOcrDatePredicate.selectedPrimary
+              : ReceiptOcrDatePredicate.selectedOther;
           best = (date: date, score: score);
         }
       }
@@ -1269,6 +1356,7 @@ class ReceiptOcrParser {
           _middleDotCalendarDatePattern,
         ).firstMatch(line);
         if (middleDot != null) {
+          diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.middleDot);
           consider(labeledDate, middleDot.start, middleDot.end);
         }
       }
@@ -1278,6 +1366,7 @@ class ReceiptOcrParser {
         caseSensitive: false,
       ).allMatches(line);
       for (final month in monthMatches) {
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.namedMonth);
         consider(_dateFromNamedMonthMatch(month), month.start, month.end);
       }
       final eastAsianMatches = RegExp(
@@ -1289,6 +1378,7 @@ class ReceiptOcrParser {
           int.parse(eastAsian.group(2)!),
           int.parse(eastAsian.group(3)!),
         );
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.eastAsian);
         consider(formatted, eastAsian.start, eastAsian.end);
       }
 
@@ -1299,6 +1389,7 @@ class ReceiptOcrParser {
           int.parse(iso.group(2)!),
           int.parse(iso.group(3)!),
         );
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.yearFirst);
         consider(formatted, iso.start, iso.end);
       }
 
@@ -1312,6 +1403,7 @@ class ReceiptOcrParser {
         final formatted = first > 12
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.slash);
         consider(formatted, slash.start, slash.end);
       }
 
@@ -1326,6 +1418,7 @@ class ReceiptOcrParser {
         final formatted = first > 12 || (separator == '.' && second <= 12)
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
+        diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.separated);
         consider(formatted, separatedDate.start, separatedDate.end);
       }
       // A wrapped endpoint can cross one complete separator-only row. Other
@@ -1344,11 +1437,28 @@ class ReceiptOcrParser {
     }
     if (primaryRoleDates.values.any((dates) => dates.length > 1) ||
         {...explicitReceiptDates, ...labeledCalendarDates}.length > 1) {
+      diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.noSelection);
+      diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.conflict);
       onAmbiguousReceiptDate?.call();
       return null;
     }
     final result = explicitReceiptDates.singleOrNull ?? best?.date;
+    diagnostics?.date(
+      diagnosticStage,
+      result == null
+          ? ReceiptOcrDatePredicate.noSelection
+          : ReceiptOcrDatePredicate.selected,
+    );
+    if (result != null) {
+      diagnostics?.date(
+        diagnosticStage,
+        explicitReceiptDates.length == 1
+            ? ReceiptOcrDatePredicate.selectedPrimary
+            : bestRole,
+      );
+    }
     if (result == null && sawStayDate) {
+      diagnostics?.date(diagnosticStage, ReceiptOcrDatePredicate.stayOnly);
       onStayOnlyDate?.call();
     }
     return result;
@@ -3566,6 +3676,7 @@ class ReceiptOcrParser {
   _extractItems(
     List<String> lines,
     String? currency, {
+    ReceiptOcrPredicateCounter? diagnostics,
     String? selectedTotal,
     Set<int> merchantLineIndices = const {},
     Set<int> mixedMerchantRows = const {},
@@ -3595,7 +3706,11 @@ class ReceiptOcrParser {
     final ambiguousLayoutItemRows = <int>{};
     final contactLayoutItemRows = <int>{};
     var afterSubtotal = false;
-    final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
+    final leadingQuantityRows = _leadingQuantityColumnRows(
+      lines,
+      layoutRows,
+      diagnostics: diagnostics,
+    );
     final hasFuelMeasurementLayout =
         lines.any(
           (line) => RegExp(
@@ -9571,6 +9686,58 @@ bool _isCenteredPostTotalFooter(
   return true;
 }
 
+// Existing bounded qualifier vocabulary shared with currency metadata.
+const _paymentCurrencyMetadataQualifierPattern =
+    r'(?:amount|currency|conversion|reference|rate|charged|cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)';
+
+// Shared existing whole payment-label grammar; callers still prove their
+// complete bounded monetary suffix independently.
+final _boundedPaymentMetadataLabel = RegExp(
+  r'^(?:charged\s+(?:to\s+)?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
+  r'(?:gift|prepaid)[ -]?card|payment\s+(?:coupon|information|summary)|remittance|deposit\s+paid|paid\s+deposit|'
+  r'cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express|'
+  r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)'
+  r'(?:(?:\s+|\s*[:：]\s*)(?:tendered|paid|received|charged|payment|tender|amount|total|due))*(?=\s|[:：]|$)',
+  caseSensitive: false,
+);
+
+bool _isBoundedCourtesyPaymentContextLine(String line) {
+  if (_isBoundedPaymentIdentityLine(line)) return true;
+  final text = line.trim();
+  final paymentPrefix = RegExp(
+    r'^(?:payment|tender)\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (paymentPrefix != null) {
+    final remainder = text.substring(paymentPrefix.end).trimLeft();
+    if (_hasCurrencyMetadataShape(remainder)) {
+      final qualifiers = RegExp(
+        '^(?:[:#=\\-]\\s*)?'
+        '(?:$_paymentCurrencyMetadataQualifierPattern(?:\\s*[:#=\\-]\\s*|\\s+)){0,3}',
+        caseSensitive: false,
+      ).firstMatch(remainder);
+      if (qualifiers != null &&
+          _isBoundedPaymentAmount(remainder.substring(qualifiers.end).trim())) {
+        return true;
+      }
+    }
+  }
+  final label = _boundedPaymentMetadataLabel.firstMatch(text);
+  if (label == null) return false;
+  // Only a whole existing payment label and one bounded monetary cell prove
+  // context; broad payment prefixes and permissive standalone rows do not.
+  return _isBoundedPaymentAmount(
+    text.substring(label.end).replaceFirst(RegExp(r'^\s*[:：]\s*'), '').trim(),
+  );
+}
+
+bool _isBoundedCourtesyApprovalIdentifierLine(String line) => RegExp(
+  r'^(?:approval|auth(?:orization)?)\b\s*'
+  r'(?:(?:code|number|no\.?)\s*)?[:#=-]?\s*'
+  r'(?=[a-z0-9-]{0,11}\d)[a-z0-9](?:[a-z0-9-]{0,10}[a-z0-9])?$',
+  caseSensitive: false,
+).hasMatch(line.trim());
+
 bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   List<String> lines,
   int lastPricedTotal,
@@ -9578,17 +9745,41 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   Set<int> ownedSummaryAmountRows = const {},
 }) {
   var sawPayment = false;
+  var sawBoundedPayment = false;
+  var hasUnboundedPaymentRow = false;
+  var usedLabeledMetadata = false;
   for (var index = lastPricedTotal + 1; index < lines.length; index++) {
     // Geometry already assigned this entire row to the printed total. It
     // still contributes its original points to the footer's vertical bounds.
     if (ownedSummaryAmountRows.contains(index)) continue;
+    final isPayment = _isPaymentMetadataLine(lines[index]);
+    if (isPayment) {
+      final bounded = _isBoundedCourtesyPaymentContextLine(lines[index]);
+      sawBoundedPayment = sawBoundedPayment || bounded;
+      // Keep evidence from the entire window, including after a clock or a
+      // later valid payment. A broad prefix cannot erase a product warning.
+      // Whole approval identifiers are auxiliary metadata, not evidence that
+      // a payment occurred. They cannot establish sawBoundedPayment alone.
+      hasUnboundedPaymentRow =
+          hasUnboundedPaymentRow ||
+          (!bounded && !_isBoundedCourtesyApprovalIdentifierLine(lines[index]));
+    }
     if (!_lineHasAmount(lines[index])) continue;
     if (index >= courtesyIndex) return false;
-    if (_isPaymentMetadataLine(lines[index])) {
+    if (isPayment) {
       sawPayment = true;
       continue;
     }
+    // Reuse whole-row metadata ownership from item extraction. A labeled
+    // clock/date after a proven payment is not another monetary cell. Prefixes
+    // with extra prices, prose or invalid values still fail these validators.
     if (sawPayment && _isDateOrTimeOnlyLine(lines[index].toLowerCase())) {
+      continue;
+    }
+    if (sawBoundedPayment &&
+        (_isCompleteClockMetadataLine(lines[index]) ||
+            _isCompleteOriginalCalendarMetadataRow(lines[index]))) {
+      usedLabeledMetadata = true;
       continue;
     }
     if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {
@@ -9616,7 +9807,9 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
     }
     return false;
   }
-  return true;
+  // Leave legacy bare-clock/no-clock behavior unchanged. The new labeled
+  // exemption requires positive ownership of every payment-like row.
+  return !usedLabeledMetadata || !hasUnboundedPaymentRow;
 }
 
 bool _isBareInvoiceBuyerHeading(String text) => RegExp(
@@ -11374,14 +11567,7 @@ bool _isOwnedAdjacentFinancialAmount(
   }
   // Payment metadata has permissive legacy prefix checks. Do not use those
   // checks alone to excuse unexplained money on a different OCR row.
-  final paymentLabel = RegExp(
-    r'^(?:charged\s+(?:to\s+)?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
-    r'(?:gift|prepaid)[ -]?card|payment\s+(?:coupon|information|summary)|remittance|deposit\s+paid|paid\s+deposit|'
-    r'cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express|'
-    r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)'
-    r'(?:(?:\s+|\s*[:：]\s*)(?:tendered|paid|received|charged|payment|tender|amount|total|due))*(?=\s|[:：]|$)',
-    caseSensitive: false,
-  ).firstMatch(label);
+  final paymentLabel = _boundedPaymentMetadataLabel.firstMatch(label);
   if (paymentLabel == null) return false;
   final remainder = label
       .substring(paymentLabel.end)
@@ -13208,6 +13394,199 @@ bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {
   return _isStandaloneAmountRow(remainder);
 }
 
+// A FEE-only parking ticket can print a complete paid session without a Total
+// label. Require the whole dated time/duration/fee/identity panel, not merely
+// a merchant word, a lone fee, or arithmetic that happens to balance.
+// A printed summary remains independent financial evidence even when its
+// amount cannot be extracted. Word boundaries avoid treating merchant-name
+// prefixes such as TotalEnergies as an English summary label. Existing Latin
+// localized labels also require letter/mark boundaries; CJK and other existing
+// non-Latin label matching remains unchanged.
+final _parkingPrintedSummaryLabelPattern = RegExp(
+  '(?:'
+  '(?<![\\p{L}\\p{M}0-9_])(?:${[..._englishTotalLabels, 'subtotal', 'sub total', 'sub-total'].map((label) => RegExp.escape(label).replaceAll(' ', r'\s+')).join('|')})(?![\\p{L}\\p{M}0-9_])'
+  '|(?<![\\p{L}\\p{M}])(?:${[..._localizedTotalLabels, ..._localizedSubtotalLabels].where((label) => RegExp(r'[A-Za-z]').hasMatch(label)).map(RegExp.escape).join('|')})(?![\\p{L}\\p{M}])'
+  '|(?:${[..._localizedTotalLabels, ..._localizedSubtotalLabels, '合計'].where((label) => !RegExp(r'[A-Za-z]').hasMatch(label)).map(RegExp.escape).join('|')}))',
+  caseSensitive: false,
+  unicode: true,
+);
+
+({int feeRow, String total, Set<int> metadataRows})? _closedParkingSessionFee(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  String? merchant,
+  Set<int> merchantRows,
+  String? currency,
+  String? receiptDate, {
+  required bool hasLayout,
+}) {
+  if (currency == null ||
+      receiptDate == null ||
+      merchant == null ||
+      merchantRows.isEmpty ||
+      !RegExp(r'\bparking\b', caseSensitive: false).hasMatch(merchant) ||
+      RegExp(r'[\d\p{Sc}]', unicode: true).hasMatch(merchant) ||
+      lines.length < 9 ||
+      lines.any(
+        (line) =>
+            _hasTotalLabel(line, line.toLowerCase()) ||
+            _hasSubtotalLabel(line, line.toLowerCase()) ||
+            _parkingPrintedSummaryLabelPattern.hasMatch(line),
+      )) {
+    return null;
+  }
+  final start = lines.length - 8;
+  if (merchantRows.any((index) => index >= start) ||
+      _labeledCalendarDate(lines[start]) != receiptDate ||
+      !_isCompleteClockMetadataLine(lines[start + 1]) ||
+      !_isCompleteClockMetadataLine(lines[start + 2])) {
+    return null;
+  }
+  int? clock(String line, String role) {
+    final match = RegExp(
+      '^time\\s+$role\\s*[:：]\\s*'
+      r'(\d{1,2}):([0-5]\d)(?::([0-5]\d))?\s*(am|pm)?$',
+      caseSensitive: false,
+    ).firstMatch(line.trim());
+    if (match == null) return null;
+    var hour = int.parse(match[1]!);
+    final period = match[4]?.toLowerCase();
+    if (period == null) {
+      if (hour > 23) return null;
+    } else {
+      if (hour < 1 || hour > 12) return null;
+      hour = hour % 12 + (period == 'pm' ? 12 : 0);
+    }
+    return hour * 3600 + int.parse(match[2]!) * 60 + int.parse(match[3] ?? '0');
+  }
+
+  final entry = clock(lines[start + 1], 'in');
+  final exit = clock(lines[start + 2], 'out');
+  final duration = RegExp(
+    r'^duration\s*[:：]\s*(\d{1,2}):([0-5]\d):([0-5]\d)$',
+    caseSensitive: false,
+  ).firstMatch(lines[start + 3].trim());
+  if (entry == null || exit == null || exit <= entry || duration == null) {
+    return null;
+  }
+  final elapsed =
+      int.parse(duration[1]!) * 3600 +
+      int.parse(duration[2]!) * 60 +
+      int.parse(duration[3]!);
+  if (elapsed != exit - entry) return null;
+
+  final feeRow = start + 4;
+  final fee = RegExp(
+    r'^fee\s*[:：]\s*(.+)$',
+    caseSensitive: false,
+  ).firstMatch(lines[feeRow].trim());
+  if (fee == null || !_isBoundedPaymentAmount(fee[1]!)) return null;
+  final denomination = _currencyAdjacentToSelectedAmount(fee[1]!, currency);
+  final amount = _lastAmountInLine(fee[1]!, currency: currency);
+  if (!denomination.hasExplicitEvidence ||
+      denomination.currency != currency ||
+      amount == null ||
+      (_ocrAmountMinorUnits(amount, currency) ?? BigInt.zero) <= BigInt.zero ||
+      !_isBoundedPaymentIdentityLine(
+        lines[start + 5],
+        allowAmount: false,
+        requireMaskedCard: true,
+      ) ||
+      !_isBoundedCourtesyApprovalIdentifierLine(lines[start + 6]) ||
+      !_isReceiptCourtesyLine(lines[start + 7]) ||
+      _lineHasAmount(lines[start + 7])) {
+    return null;
+  }
+  // This fallback proves only the merchant and the complete paid session.
+  // Any extra header row has no positive role in that proof, even if generic
+  // item accounting classifies it as an address or leaves it unpriced.
+  for (var index = 0; index < start; index++) {
+    if (!merchantRows.contains(index)) return null;
+  }
+  if (hasLayout) {
+    if (rows.length != lines.length ||
+        _receiptRolePanelHasCompetingCells(rows, start, 8)) {
+      return null;
+    }
+    if (!_parkingSessionFieldAssociations(rows.sublist(start))) return null;
+    final boxes = rows.skip(start).map(_receiptRoleBox).toList();
+    if (boxes.any((box) => box == null)) return null;
+    // Every complete field, including a one-block fee, must belong to the
+    // same printed panel. Vertical row order alone cannot associate a field
+    // from a neighboring column. Require a common horizontal band; split
+    // fields still need the stronger independent label/value proof above.
+    if (!_parkingSessionSharesBand(
+      boxes.whereType<_ReceiptRoleBox>().toList(),
+    )) {
+      return null;
+    }
+    for (var index = 1; index < boxes.length; index++) {
+      if (!_receiptRoleFollows(boxes[index - 1]!, boxes[index]!)) return null;
+    }
+  }
+  return (
+    feeRow: feeRow,
+    total: amount,
+    metadataRows: {
+      for (var index = start; index < lines.length; index++)
+        if (index != feeRow) index,
+    },
+  );
+}
+
+// A provider row ID is not a label/value association. A complete source block
+// owns its field; split fields additionally need the same independently printed
+// date/time/duration columns. Column intersection is scale independent and does
+// not invent a maximum label-to-value gap.
+bool _parkingSessionFieldAssociations(
+  List<List<ReceiptOcrBlockEvidence>> panel,
+) {
+  final labels = [
+    RegExp(r'^date\s*[:：]$', caseSensitive: false),
+    RegExp(r'^time\s+in\s*[:：]$', caseSensitive: false),
+    RegExp(r'^time\s+out\s*[:：]$', caseSensitive: false),
+    RegExp(r'^duration\s*[:：]$', caseSensitive: false),
+    RegExp(r'^fee\s*[:：]$', caseSensitive: false),
+    RegExp(r'^paid\s+with\s*[:：]$', caseSensitive: false),
+    RegExp(r'^(?:auth|authorization|approval)\s*[:：]$', caseSensitive: false),
+  ];
+  final pairs = <({_ReceiptRoleBox label, _ReceiptRoleBox value})>[];
+  var temporalAnchors = 0;
+  for (var index = 0; index < panel.length; index++) {
+    final row = panel[index];
+    if (row.length == 1) continue;
+    // The courtesy row has no independent label/value role. Extra cells and
+    // partial labels cannot be rescued by the grammar of a joined row.
+    if (index >= labels.length ||
+        !_receiptRoleColumns(row) ||
+        !labels[index].hasMatch(_normalizeOcrLine(row.first.text).trim())) {
+      return false;
+    }
+    pairs.add((
+      label: _receiptRoleBox([row.first])!,
+      value: _receiptRoleBox([row.last])!,
+    ));
+    if (index < 4) temporalAnchors++;
+  }
+  if (pairs.isEmpty) return true;
+  if (pairs.length < 3 || temporalAnchors < 2) return false;
+  return _parkingSessionSharesBand(pairs.map((pair) => pair.label).toList()) &&
+      _parkingSessionSharesBand(pairs.map((pair) => pair.value).toList());
+}
+
+// Use positive overlap, not proximity across a gap. As in the existing
+// same-row vertical proof, require half of the narrowest field/column width;
+// incidental edge intersection does not establish a shared printed band.
+bool _parkingSessionSharesBand(List<_ReceiptRoleBox> boxes) {
+  if (boxes.isEmpty) return false;
+  final left = boxes.map((box) => box.left).reduce((a, b) => a > b ? a : b);
+  final right = boxes.map((box) => box.right).reduce((a, b) => a < b ? a : b);
+  final width = boxes
+      .map((box) => box.right - box.left)
+      .reduce((a, b) => a < b ? a : b);
+  return width > 0 && right - left >= width / 2;
+}
+
 // A fee is not merchandise merely because it has a price or balances a total.
 // Only the closed activity below owns these named, already priced item rows.
 // Unknown fees, missing activity evidence and contradictory money stay in review.
@@ -13374,7 +13753,11 @@ bool _isExplicitNonItemFeeLine(String line) => _isLabeledStandaloneMoneyLine(
   ),
 );
 
-bool _isBoundedPaymentIdentityLine(String line, {bool allowAmount = true}) {
+bool _isBoundedPaymentIdentityLine(
+  String line, {
+  bool allowAmount = true,
+  bool requireMaskedCard = false,
+}) {
   final normalized = line.toLowerCase().trim();
   // A masked last-four identifier is payment evidence, not a second item
   // amount. Require the whole row: arbitrary product suffixes, extra prices,
@@ -13392,12 +13775,13 @@ bool _isBoundedPaymentIdentityLine(String line, {bool allowAmount = true}) {
       return true;
     }
   }
-  if (RegExp(
-    r'^approved\s+auth(?:orization)?(?=\s|[:#])\s*'
-    r'(?:(?:code|number|no\.?)\s*)?[:#]?\s*'
-    r'(?=[a-z0-9]{0,11}\d)[a-z0-9]{4,12}$',
-    caseSensitive: false,
-  ).hasMatch(normalized)) {
+  if (!requireMaskedCard &&
+      RegExp(
+        r'^approved\s+auth(?:orization)?(?=\s|[:#])\s*'
+        r'(?:(?:code|number|no\.?)\s*)?[:#]?\s*'
+        r'(?=[a-z0-9]{0,11}\d)[a-z0-9]{4,12}$',
+        caseSensitive: false,
+      ).hasMatch(normalized)) {
     return true;
   }
   return false;
@@ -13721,8 +14105,7 @@ String? _boundedDccChargedTotal(
 }
 
 bool _hasCurrencyMetadataShape(String remainder) {
-  const qualifierPattern =
-      r'(?:amount|currency|conversion|reference|rate|charged|cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)';
+  const qualifierPattern = _paymentCurrencyMetadataQualifierPattern;
   final currencyPattern = '(?:$_currencyTokenPattern)';
   final amountPattern = '(?:$_amountTokenPattern)';
   return RegExp(
@@ -15304,8 +15687,9 @@ double _blockCenterX(ReceiptOcrBlockEvidence block) {
 
 Set<int> _leadingQuantityColumnRows(
   List<String> lines,
-  List<List<ReceiptOcrBlockEvidence>> layoutRows,
-) {
+  List<List<ReceiptOcrBlockEvidence>> layoutRows, {
+  ReceiptOcrPredicateCounter? diagnostics,
+}) {
   final accepted = <int>{};
   final run = <({int index, double centerX})>[];
   void finishRun() {
@@ -15320,6 +15704,15 @@ Set<int> _leadingQuantityColumnRows(
           index,
     ];
     final headerIndex = headerIndices.lastOrNull;
+    if (run.isEmpty) return;
+    void countRun(ReceiptOcrQuantityPredicate predicate) {
+      for (final _ in run) {
+        diagnostics?.quantity(predicate);
+      }
+    }
+
+    if (headerIndex != null) countRun(ReceiptOcrQuantityPredicate.headingFound);
+    var headingGeometry = false;
     var ownedByQuantityHeading = false;
     if (headerIndex != null && headerIndex < layoutRows.length) {
       final headings = layoutRows[headerIndex].where(
@@ -15344,7 +15737,33 @@ Set<int> _leadingQuantityColumnRows(
                 .singleOrNull
           : null;
       final heading = quantityHeading ?? combinedHeading;
+      if (diagnostics != null) {
+        final itemHeading = headings
+            .where(
+              (block) => RegExp(
+                r'^\s*(?:item|description|product)\s*$',
+                caseSensitive: false,
+              ).hasMatch(block.text),
+            )
+            .singleOrNull;
+        if (itemHeading != null &&
+            run.every(
+              (entry) =>
+                  entry.centerX >=
+                      itemHeading.points
+                          .map((p) => p.x)
+                          .reduce((a, b) => a < b ? a : b) &&
+                  entry.centerX <=
+                      itemHeading.points
+                          .map((p) => p.x)
+                          .reduce((a, b) => a > b ? a : b),
+            )) {
+          countRun(ReceiptOcrQuantityPredicate.underItemHeading);
+        }
+      }
       if (heading != null) {
+        headingGeometry = true;
+        countRun(ReceiptOcrQuantityPredicate.headingGeometry);
         final left = heading.points
             .map((point) => point.x)
             .reduce((a, b) => a < b ? a : b);
@@ -15360,11 +15779,27 @@ Set<int> _leadingQuantityColumnRows(
         );
       }
     }
-    if (ownedByQuantityHeading &&
+    final aligned =
         run.isNotEmpty &&
         run.map((entry) => entry.centerX).reduce((a, b) => a < b ? a : b) +
                 12 >=
-            run.map((entry) => entry.centerX).reduce((a, b) => a > b ? a : b)) {
+            run.map((entry) => entry.centerX).reduce((a, b) => a > b ? a : b);
+    if (ownedByQuantityHeading) {
+      countRun(ReceiptOcrQuantityPredicate.underQuantityHeading);
+    }
+    if (aligned) countRun(ReceiptOcrQuantityPredicate.alignedRun);
+    countRun(
+      headerIndex == null
+          ? ReceiptOcrQuantityPredicate.failHeading
+          : !headingGeometry
+          ? ReceiptOcrQuantityPredicate.failHeadingGeometry
+          : !ownedByQuantityHeading
+          ? ReceiptOcrQuantityPredicate.failHeadingOwnership
+          : !aligned
+          ? ReceiptOcrQuantityPredicate.failRunAlignment
+          : ReceiptOcrQuantityPredicate.accepted,
+    );
+    if (ownedByQuantityHeading && aligned) {
       accepted.addAll(run.map((entry) => entry.index));
     }
     run.clear();
@@ -15376,12 +15811,34 @@ Set<int> _leadingQuantityColumnRows(
     final row = index < layoutRows.length
         ? layoutRows[index]
         : const <ReceiptOcrBlockEvidence>[];
-    if (match == null ||
-        !_isPricedItemLine(line) ||
-        row.length < 3 ||
-        row.first.text.trim() != match.group(1) ||
-        row.first.points.length != 4 ||
-        row[1].points.length != 4) {
+    if (match == null) {
+      finishRun();
+      continue;
+    }
+    diagnostics?.quantity(ReceiptOcrQuantityPredicate.candidate);
+    ReceiptOcrQuantityPredicate? failure;
+    if (!_isPricedItemLine(line)) {
+      failure = ReceiptOcrQuantityPredicate.failPricedRow;
+    } else {
+      diagnostics?.quantity(ReceiptOcrQuantityPredicate.pricedRow);
+      if (row.length < 3) {
+        failure = ReceiptOcrQuantityPredicate.failRowMatch;
+      } else {
+        diagnostics?.quantity(ReceiptOcrQuantityPredicate.rowMatched);
+        if (row.first.text.trim() != match.group(1)) {
+          failure = ReceiptOcrQuantityPredicate.failDigitCell;
+        } else {
+          diagnostics?.quantity(ReceiptOcrQuantityPredicate.separateDigitCell);
+          if (row.first.points.length != 4 || row[1].points.length != 4) {
+            failure = ReceiptOcrQuantityPredicate.failGeometry;
+          } else {
+            diagnostics?.quantity(ReceiptOcrQuantityPredicate.geometryPresent);
+          }
+        }
+      }
+    }
+    if (failure != null) {
+      diagnostics?.quantity(failure);
       finishRun();
       continue;
     }
@@ -15394,9 +15851,11 @@ Set<int> _leadingQuantityColumnRows(
         .map((point) => point.x)
         .reduce((a, b) => a < b ? a : b);
     if (quantityRight >= descriptionLeft) {
+      diagnostics?.quantity(ReceiptOcrQuantityPredicate.failSeparatedCells);
       finishRun();
       continue;
     }
+    diagnostics?.quantity(ReceiptOcrQuantityPredicate.separatedCells);
     final quantityLeft = quantityPoints
         .map((point) => point.x)
         .reduce((a, b) => a < b ? a : b);
