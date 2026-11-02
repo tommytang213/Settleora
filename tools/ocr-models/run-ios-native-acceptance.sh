@@ -10,6 +10,26 @@ debug_config=""
 network_config_backup=""
 runner_project=""
 runner_project_backup=""
+ios_phase_observations=0
+observe_ios_phase() {
+  local observed_phase="${1:-}"
+  case "$observed_phase" in
+    debug_source|debug_projection|flutter_capture_enter|flutter_capture_return|\
+    post_test_link_enter|post_test_link_return|acceptance_outputs_written|\
+    cleanup_enter|debug_restore_enter|debug_restore_return|\
+    project_restore_enter|project_restore_return|simulator_cleanup_enter|\
+    simulator_unset_isolation_enter|simulator_unset_isolation_return|\
+    simulator_unset_constructor_enter|simulator_unset_constructor_return|\
+    simulator_read_isolation_enter|simulator_read_isolation_return|\
+    simulator_read_constructor_enter|simulator_read_constructor_return|\
+    simulator_cleanup_return|cleanup_return|failure_report_enter|final_exit) ;;
+    *) return 0 ;;
+  esac
+  # A diagnostic write cannot change the existing status, trap or cleanup path.
+  if test "$ios_phase_observations" -ge 32; then return 0; fi
+  ios_phase_observations=$((ios_phase_observations + 1))
+  printf 'ios_capture_phase=%s\n' "$observed_phase" >&2 || :
+}
 read_simulator_environment() {
   local variable="$1"
   local value=""
@@ -24,20 +44,26 @@ read_simulator_environment() {
 }
 report_failure_phase() {
   status=$?
+  observe_ios_phase cleanup_enter
   cleanup_status=0
   if "$network_link_configured"; then
+    observe_ios_phase debug_restore_enter
     if ! cp -p "$network_config_backup" "$debug_config" ||
         ! cmp -s "$network_config_backup" "$debug_config"; then
       cleanup_status=98
     fi
+    observe_ios_phase debug_restore_return
   fi
   if "$network_project_configured"; then
+    observe_ios_phase project_restore_enter
     if ! cp -p "$runner_project_backup" "$runner_project" ||
         ! cmp -s "$runner_project_backup" "$runner_project"; then
       cleanup_status=98
     fi
+    observe_ios_phase project_restore_return
   fi
   if "$network_environment_configured"; then
+    observe_ios_phase simulator_cleanup_enter
     unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION || cleanup_status=98
     unset SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE || cleanup_status=98
     unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED || cleanup_status=98
@@ -46,36 +72,48 @@ report_failure_phase() {
         test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED:-}"; then
       cleanup_status=98
     fi
+    observe_ios_phase simulator_unset_isolation_enter
     if ! xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION >/dev/null 2>&1; then
       cleanup_status=98
     fi
+    observe_ios_phase simulator_unset_isolation_return
+    observe_ios_phase simulator_unset_constructor_enter
     if ! xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED >/dev/null 2>&1; then
       cleanup_status=98
     fi
+    observe_ios_phase simulator_unset_constructor_return
     persistent_isolation=""
     persistent_constructor=""
+    observe_ios_phase simulator_read_isolation_enter
     if ! persistent_isolation=$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION); then
       cleanup_status=98
     fi
+    observe_ios_phase simulator_read_isolation_return
+    observe_ios_phase simulator_read_constructor_enter
     if ! persistent_constructor=$(read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED); then
       cleanup_status=98
     fi
+    observe_ios_phase simulator_read_constructor_return
     if test -n "$persistent_isolation" ||
         test -n "$persistent_constructor"; then
       cleanup_status=98
     fi
+    observe_ios_phase simulator_cleanup_return
   fi
+  observe_ios_phase cleanup_return
   if test "$cleanup_status" -ne 0; then
     status=$cleanup_status
     phase=cleanup_network_isolation
   fi
   if test "$status" -ne 0; then
+    observe_ios_phase failure_report_enter
     printf 'ios_native_acceptance_failure_phase=%s\n' "$phase" >&2
     if test -n "${GITHUB_OUTPUT:-}"; then
       echo "status=$status" >> "$GITHUB_OUTPUT"
       echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"
     fi
   fi
+  observe_ios_phase final_exit
   trap - EXIT
   exit "$status"
 }
@@ -168,7 +206,8 @@ debug_config_sha=$(shasum -a 256 "$debug_config" | cut -d ' ' -f 1)
 case "$debug_config_sha" in
   # Tracked one-line config, or exact CocoaPods 1.17.0 projection observed in
   # Xcode 16.4 job 108190884239 before the acceptance link modification.
-  a82d7765b37116ee4821d2cd1d65942febf8032353757ffb0826eabde785b4a6|690b8a8b1ae15ddd29b241429963e971bbc6720ab22f154cf8cf6b085b6d4925) ;;
+  a82d7765b37116ee4821d2cd1d65942febf8032353757ffb0826eabde785b4a6) observe_ios_phase debug_source ;;
+  690b8a8b1ae15ddd29b241429963e971bbc6720ab22f154cf8cf6b085b6d4925) observe_ios_phase debug_projection ;;
   *) printf 'debug_link_config_sha256=%s\n' "$debug_config_sha" >&2; exit 98 ;;
 esac
 phase=verify_network_link_path
@@ -356,18 +395,23 @@ phase=verify_simulator_interposer_install_name
 test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
 phase=execute_flutter_test
 status=0
+observe_ios_phase flutter_capture_enter
 node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
   --stdout="$RUNNER_TEMP/ios-acceptance.log" \
   --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
   --max-bytes=33554432 \
   --platform=ios \
   --device="$device" || status=$?
+observe_ios_phase flutter_capture_return
 phase=verify_simulator_interposer_link_after_test
+observe_ios_phase post_test_link_enter
 test -f "$simulator_executable"
 test -f "$simulator_interposer"
 test -f "$simulator_link_image"
 xcrun otool -L "$simulator_link_image" | grep -F "$network_deny_in_app (" >/dev/null
+observe_ios_phase post_test_link_return
 echo "status=$status" >> "$GITHUB_OUTPUT"
 echo "failure_phase=" >> "$GITHUB_OUTPUT"
+observe_ios_phase acceptance_outputs_written
 phase=complete
 exit 0
