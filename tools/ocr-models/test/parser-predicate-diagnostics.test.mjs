@@ -4,20 +4,32 @@ import { readFileSync } from "node:fs";
 import * as evidence from "../native-acceptance-evidence.mjs";
 import { boundedParserDiagnostics } from "../native-acceptance-evidence.mjs";
 const valid = () => ({schemaVersion:1,status:"observed",quantity:Array(evidence.parserDiagnosticQuantityCount).fill(0),dates:Array.from({length:evidence.parserDiagnosticDateStageCount},()=>Array(evidence.parserDiagnosticDateCount).fill(0))});
-test("bounded parser tuples are copied and retain no unknown field",()=>{
- const input=valid(); input.quantity[0]=256;
+test("valid bounded parser tuples are copied",()=>{
+ const input=valid(); input.quantity[0]=256; input.dates[0][0]=256;
  const result=boundedParserDiagnostics(input);
- assert.deepEqual(result,input); input.quantity[0]=3; assert.equal(result.quantity[0],256);
+ assert.deepEqual(result,input);
+ input.quantity[0]=3; input.dates[0][0]=4;
+ assert.equal(result.quantity[0],256); assert.equal(result.dates[0][0],256);
 });
-for(const mutate of [v=>v.raw="PRIVATE_SENTINEL",v=>v.quantity[0]="PRIVATE_SENTINEL",
- v=>v.quantity[0]=-1,v=>v.quantity[0]=257,v=>v.quantity.push(0),
- v=>v.dates[0].push(0),v=>v.dates.push([]),v=>v.status="PRIVATE_SENTINEL",
- v=>v.schemaVersion=2,v=>v.dates[0][0]=NaN,v=>v.dates[0][0]=1.5]) {
- test("malformed observation is unavailable without echo",()=>{
+for(const [name,mutate,containsPrivateText=false] of [
+ ["unknown top-level field",v=>v.raw="PRIVATE_SENTINEL",true],
+ ["quantity string",v=>v.quantity[0]="PRIVATE_SENTINEL",true],
+ ["negative quantity",v=>v.quantity[0]=-1],
+ ["oversized quantity",v=>v.quantity[0]=257],
+ ["quantity tuple length",v=>v.quantity.push(0)],
+ ["date row length",v=>v.dates[0].push(0)],
+ ["date stage count",v=>v.dates.push([])],
+ ["unknown status",v=>v.status="PRIVATE_SENTINEL",true],
+ ["unsupported schema version",v=>v.schemaVersion=2],
+ ["nonfinite date count",v=>v.dates[0][0]=NaN],
+ ["fractional date count",v=>v.dates[0][0]=1.5],
+]) {
+ test(`${name} is rejected as invalid`,()=>{
   const input=valid(); mutate(input);
+  if(containsPrivateText) assert.ok(JSON.stringify(input).includes("PRIVATE_SENTINEL"),"private-text fixture witness missing");
   const result=boundedParserDiagnostics(input);
   assert.deepEqual(result,{schemaVersion:1,status:"invalid"});
-  assert.ok(!JSON.stringify(result).includes("PRIVATE_SENTINEL"));
+  if(containsPrivateText) assert.ok(!JSON.stringify(result).includes("PRIVATE_SENTINEL"));
  });
 }
 test("old absent observations remain explicitly unavailable",()=>{

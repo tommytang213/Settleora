@@ -409,12 +409,11 @@ void main() {
     'a competing cell cannot acquire parking panel ownership from its row ID',
     () {
       expect(
-        _parkingPreview(
-          beforeSession: ['Gift'],
-          geometryIssue: 'competing',
-        ).total,
-        isNull,
+        _parkingPreview().total,
+        '18.00',
+        reason: 'competing-cell fixture requires an accepted geometry control',
       );
+      expect(_parkingPreview(geometryIssue: 'competing').total, isNull);
     },
   );
   for (final scale in [0.5, 1.0, 3.0]) {
@@ -762,7 +761,8 @@ ReceiptOcrPreview _parkingPreview({
         summaryBlock(rows[i], i, 20, 20.0 + i * 55, 480, 30, slope: 0),
   ];
   if (geometryIssue != null && blocks.length > 5) {
-    final target = geometryIssue == 'competing' ? 1 : 5;
+    // Keep the header owned while moving its merchant cell into the session.
+    final target = geometryIssue == 'competing' ? 0 : 5;
     final original = blocks[target];
     blocks[target] = ReceiptOcrBlockEvidence(
       text: geometryIssue == 'inconsistent' ? 'Other USD 2.00' : original.text,

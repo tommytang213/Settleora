@@ -28,12 +28,78 @@ MAX_ZIP = 64 * 1024
 PRIVACY_PATH = "Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist"
 INVENTORY = "tools/ocr-models/android-production-entry-inventory.mjs"
 IOS_LOCK = "apps/mobile/ios/Podfile.lock"
+IOS_DEBUG = "apps/mobile/ios/Flutter/Debug.xcconfig"
+IOS_DEBUG_SOURCE = b'#include "Generated.xcconfig"\n'
+IOS_DEBUG_PREFIX = b'#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"\n'
+IOS_DEBUG_SOURCE_SHA256 = "a82d7765b37116ee4821d2cd1d65942febf8032353757ffb0826eabde785b4a6"
+IOS_DEBUG_PROJECTED_SHA256 = "690b8a8b1ae15ddd29b241429963e971bbc6720ab22f154cf8cf6b085b6d4925"
+IOS_COMBINED_STATE = "verified_ios_test_lock_and_debug_projection"
+IOS_COMBINED_STATUS = b" M " + IOS_DEBUG.encode() + b"\0 M " + IOS_LOCK.encode() + b"\0"
 IOS_LOCK_VERIFIER = "tools/ocr-models/verify-ios-test-podfile-lock.mjs"
 WORKFLOW = ".github/workflows/mobile-ocr-native-acceptance.yml"
 REPOSITORY = "tommytang213/Settleora"
 CONTEXT_KEYS = {"sourceSha", "sourceTree", "sourceTreeFingerprint", "catalogSha256",
                 "workflowSha", "workflowRef", "runId", "runAttempt", "job",
                 "workspaceState", "workspaceLockSha256"}
+CAPTURE_PHASE_LIMIT = 32
+CAPTURE_PHASES = frozenset({
+    "arguments", "hosted_environment", "repository_identity", "source_head",
+    "workspace_status", "workspace_clean", "workspace_rejected_other_state",
+    "workspace_lock_projection", "workspace_projection_verify",
+    "workspace_projection_recheck", "catalog", "source_tree", "source_fingerprint",
+    "source_recheck", "workspace_recheck", "output_root_selector",
+    "context_contract", "output_root_contract", "candidate_file", "plist_classification",
+    "evidence_encoding", "output_publication", "output_published", "ready_marker",
+    "ready_marker_appended", "complete",
+})
+
+
+class CapturePhaseDiagnostics:
+    """Fixed, best-effort observations; never evidence or acceptance authority."""
+
+    def __init__(self, write):
+        self._write = write
+        self._phase = "arguments"
+        self._attempts = 0
+        self._failed = False
+
+    def _emit(self, prefix, phase):
+        # Count before invoking the writer, including failures or reentrant calls.
+        self._attempts += 1
+        try:
+            self._write(prefix + phase + "\n")
+        except Exception:
+            pass
+
+    def phase(self, phase):
+        if type(phase) is not str or phase not in CAPTURE_PHASES or self._failed:
+            return
+        self._phase = phase
+        # Reserve one attempt for the terminal failure phase, even at the cap.
+        if self._attempts < CAPTURE_PHASE_LIMIT - 1:
+            self._emit("package_capture_phase=", phase)
+
+    def failure(self):
+        if self._failed:
+            return
+        self._failed = True
+        self._emit("package_capture_failure_phase=", self._phase)
+
+
+def diagnostic_phase(diagnostics, phase):
+    try:
+        if diagnostics is not None:
+            diagnostics.phase(phase)
+    except Exception:
+        pass
+
+
+def diagnostic_failure(diagnostics):
+    try:
+        if diagnostics is not None:
+            diagnostics.failure()
+    except Exception:
+        pass
 
 # Invoke the existing exported pure function, not its path-sensitive CLI main.
 # Node's built-in data-module import consumes the exact committed bytes supplied
@@ -61,7 +127,15 @@ def identity(s):
     return (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
 
 
-def open_owned(root, relative, limit):
+def projection_identity(s):
+    # Internal drift evidence only; never serialized into public provenance.
+    return (s.st_dev, s.st_ino, s.st_mode, s.st_uid, s.st_gid, s.st_nlink,
+            s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+
+
+def open_owned(root, relative, limit, *, identity_sink=None):
+    require(identity_sink is None or type(identity_sink) is list)
+    observed_identity = identity if identity_sink is None else projection_identity
     require(root.is_absolute() and root.resolve() == root)
     require(root.lstat().st_uid == os.getuid() and stat.S_ISDIR(root.lstat().st_mode))
     parts = Path(relative).parts
@@ -77,7 +151,7 @@ def open_owned(root, relative, limit):
             and before.st_nlink == 1 and 0 < before.st_size <= limit)
     fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW)
     try:
-        require(identity(os.fstat(fd)) == identity(before))
+        require(observed_identity(os.fstat(fd)) == observed_identity(before))
         digest = hashlib.sha256()
         content = bytearray() if limit <= MAX_PLIST else None
         total = 0
@@ -87,8 +161,10 @@ def open_owned(root, relative, limit):
             digest.update(chunk)
             if content is not None:
                 content.extend(chunk)
-        require(total == before.st_size and identity(os.fstat(fd)) == identity(before)
-                and identity(p.lstat()) == identity(before))
+        require(total == before.st_size and observed_identity(os.fstat(fd)) == observed_identity(before)
+                and observed_identity(p.lstat()) == observed_identity(before))
+        if identity_sink is not None:
+            identity_sink.append(observed_identity(before))
         return {"bytes": total, "sha256": digest.hexdigest()}, bytes(content) if content is not None else None
     finally:
         os.close(fd)
@@ -115,7 +191,9 @@ def source_fingerprint(listing):
 
 
 def validate_context(context, platform):
-    require(type(context) is dict and set(context) == CONTEXT_KEYS)
+    require(type(context) is dict)
+    combined = context.get("workspaceState") == IOS_COMBINED_STATE
+    require(set(context) == (CONTEXT_KEYS | {"workspaceDebugSha256"} if combined else CONTEXT_KEYS))
     require(platform in ("android", "ios"))
     for key in ("sourceSha", "sourceTree", "workflowSha"):
         require(type(context[key]) is str and re.fullmatch(r"[0-9a-f]{40}", context[key]))
@@ -130,9 +208,13 @@ def validate_context(context, platform):
     if context["workspaceState"] == "clean":
         require(context["workspaceLockSha256"] is None)
     else:
-        require(platform == "ios" and context["workspaceState"] == "verified_ios_test_lock_projection"
+        require(platform == "ios"
+                and context["workspaceState"] in ("verified_ios_test_lock_projection", IOS_COMBINED_STATE)
                 and type(context["workspaceLockSha256"]) is str
                 and re.fullmatch(r"[0-9a-f]{64}", context["workspaceLockSha256"]))
+        if combined:
+            require(type(context["workspaceDebugSha256"]) is str
+                    and context["workspaceDebugSha256"] == IOS_DEBUG_PROJECTED_SHA256)
 
 
 def read_git(repo, args, limit, popen=subprocess.Popen):
@@ -153,20 +235,7 @@ def read_git(repo, args, limit, popen=subprocess.Popen):
     return bytes(data)
 
 
-def workspace_context(repo, source_sha, env, git):
-    status = git("status", "--porcelain", "-z", "--untracked-files=no")
-    if status == b"":
-        return {"workspaceState": "clean", "workspaceLockSha256": None}
-    # Only the existing, exact test-only projection is admissible. Never restore
-    # a dirty path or exempt arbitrary CocoaPods changes from source binding.
-    require(env.get("GITHUB_JOB") == "ios-native-acceptance"
-            and status == b" M " + IOS_LOCK.encode() + b"\0")
-    production = git("show", source_sha + ":" + IOS_LOCK)
-    require(type(production) is bytes and 0 < len(production) <= MAX_PLIST)
-    expected_verifier = git("show", source_sha + ":" + IOS_LOCK_VERIFIER)
-    _, verifier = open_owned(repo, IOS_LOCK_VERIFIER, MAX_PLIST)
-    require(verifier == expected_verifier)
-    before, projected = open_owned(repo, IOS_LOCK, MAX_PLIST)
+def verify_lock_projection(expected_verifier, production, projected, diagnostics):
     # Existing export uses pure string projection. Its CLI main deliberately is
     # not entered: import.meta.url would otherwise resolve a repository path.
     payload = json.dumps({key: base64.b64encode(value).decode("ascii")
@@ -176,35 +245,132 @@ def workspace_context(repo, source_sha, env, git):
     require(len(payload) <= 6 * MAX_PLIST)
     node = shutil.which("node", path=os.environ.get("PATH", os.defpath))
     require(node is not None and Path(node).is_absolute())
+    diagnostic_phase(diagnostics, "workspace_projection_verify")
     verified = subprocess.run([node, "--input-type=module", "--eval", PROJECTION_BRIDGE],
                               input=payload, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                               env={"PATH": os.environ.get("PATH", os.defpath), "LANG": "C", "LC_ALL": "C"},
                               check=False)
     require(verified.returncode == 0)
+
+
+def check_combined_workspace(source_sha, git):
+    require(git("rev-parse", "HEAD").decode("ascii").strip() == source_sha)
+    require(git("status", "--porcelain", "-z", "--untracked-files=no") == IOS_COMBINED_STATUS)
+
+
+def combined_projection_snapshot(repo, source_sha, git):
+    # Bounded drift evidence, not a filesystem snapshot or package attestation.
+    # Untracked build outputs retain the existing status handling.
+    check_combined_workspace(source_sha, git)
+    baselines = {}
+    for path in (IOS_DEBUG, IOS_LOCK, IOS_LOCK_VERIFIER):
+        raw = git("show", source_sha + ":" + path)
+        require(type(raw) is bytes and 0 < len(raw) <= MAX_PLIST)
+        baselines[path] = raw
+    require(baselines[IOS_DEBUG] == IOS_DEBUG_SOURCE
+            and sha(baselines[IOS_DEBUG]) == IOS_DEBUG_SOURCE_SHA256)
+    # Bind modes and index identities to the actual immutable baseline bytes,
+    # not merely to a plausible-looking ls-tree record.
+    blobs = {path: hashlib.sha1(b"blob " + str(len(baselines[path])).encode("ascii")
+                               + b"\0" + baselines[path]).hexdigest()
+             for path in (IOS_DEBUG, IOS_LOCK)}
+    source_entries = b"".join(
+        b"100644 blob " + blobs[path].encode("ascii") + b"\t" + path.encode("ascii") + b"\0"
+        for path in (IOS_DEBUG, IOS_LOCK))
+    index_entries = b"".join(
+        b"100644 " + blobs[path].encode("ascii") + b" 0\t" + path.encode("ascii") + b"\0"
+        for path in (IOS_DEBUG, IOS_LOCK))
+    require(git("ls-tree", "-z", source_sha, "--", IOS_DEBUG, IOS_LOCK) == source_entries)
+    require(git("ls-files", "--stage", "-z", "--", IOS_DEBUG, IOS_LOCK) == index_entries)
+    _, verifier = open_owned(repo, IOS_LOCK_VERIFIER, MAX_PLIST)
+    require(verifier == baselines[IOS_LOCK_VERIFIER])
+    files = {}
+    for path in (IOS_DEBUG, IOS_LOCK):
+        identities = []
+        observation, raw = open_owned(repo, path, MAX_PLIST, identity_sink=identities)
+        require(len(identities) == 1)
+        file_identity = identities[0]
+        require(stat.S_ISREG(file_identity[2]) and not file_identity[2] & 0o111)
+        files[path] = (observation, raw, file_identity)
+    debug_observation, debug, _ = files[IOS_DEBUG]
+    require(debug == IOS_DEBUG_PREFIX + baselines[IOS_DEBUG]
+            and debug_observation["sha256"] == IOS_DEBUG_PROJECTED_SHA256)
+    check_combined_workspace(source_sha, git)
+    # Identities and captured source bytes remain private throughout the caller.
+    return {"baselines": baselines, "sourceEntries": source_entries,
+            "indexEntries": index_entries, "files": files}
+
+
+def workspace_observation(repo, source_sha, env, git, diagnostics=None):
+    diagnostic_phase(diagnostics, "workspace_status")
+    status = git("status", "--porcelain", "-z", "--untracked-files=no")
+    if status == b"":
+        diagnostic_phase(diagnostics, "workspace_clean")
+        return {"workspaceState": "clean", "workspaceLockSha256": None}, None
+    combined = (env.get("GITHUB_JOB") == "ios-native-acceptance" and status == IOS_COMBINED_STATUS)
+    # Admit only the existing lock projection or the exact source-bound pair.
+    # Never restore a dirty path or exempt arbitrary CocoaPods changes.
+    allowed = (env.get("GITHUB_JOB") == "ios-native-acceptance"
+               and status == b" M " + IOS_LOCK.encode() + b"\0")
+    diagnostic_phase(diagnostics, "workspace_lock_projection" if allowed or combined
+                     else "workspace_rejected_other_state")
+    require(allowed or combined)
+    if combined:
+        before = combined_projection_snapshot(repo, source_sha, git)
+        verify_lock_projection(before["baselines"][IOS_LOCK_VERIFIER],
+                               before["baselines"][IOS_LOCK], before["files"][IOS_LOCK][1], diagnostics)
+        diagnostic_phase(diagnostics, "workspace_projection_recheck")
+        after = combined_projection_snapshot(repo, source_sha, git)
+        require(before == after)
+        return {"workspaceState": IOS_COMBINED_STATE,
+                "workspaceLockSha256": before["files"][IOS_LOCK][0]["sha256"],
+                "workspaceDebugSha256": before["files"][IOS_DEBUG][0]["sha256"]}, before
+    production = git("show", source_sha + ":" + IOS_LOCK)
+    require(type(production) is bytes and 0 < len(production) <= MAX_PLIST)
+    expected_verifier = git("show", source_sha + ":" + IOS_LOCK_VERIFIER)
+    _, verifier = open_owned(repo, IOS_LOCK_VERIFIER, MAX_PLIST)
+    require(verifier == expected_verifier)
+    before, projected = open_owned(repo, IOS_LOCK, MAX_PLIST)
+    verify_lock_projection(expected_verifier, production, projected, diagnostics)
+    diagnostic_phase(diagnostics, "workspace_projection_recheck")
     after, _ = open_owned(repo, IOS_LOCK, MAX_PLIST)
     require(before == after)
     return {"workspaceState": "verified_ios_test_lock_projection",
-            "workspaceLockSha256": before["sha256"]}
+            "workspaceLockSha256": before["sha256"]}, None
 
 
-def collect_context(repo, source_sha, env, git=None):
+def workspace_context(repo, source_sha, env, git, diagnostics=None):
+    # Preserve the public dictionary return; filesystem identities stay private.
+    context, _ = workspace_observation(repo, source_sha, env, git, diagnostics)
+    return context
+
+
+def collect_context(repo, source_sha, env, git=None, diagnostics=None):
+    diagnostic_phase(diagnostics, "hosted_environment")
     require(env.get("GITHUB_ACTIONS") == "true" and env.get("CI") == "true"
             and env.get("SETTLEORA_PACKAGE_FAILURE_CAPTURE") == "hosted_v1"
             and env.get("GITHUB_REPOSITORY") == REPOSITORY)
+    diagnostic_phase(diagnostics, "repository_identity")
     require(repo.is_absolute() and repo.resolve() == repo)
     if git is None:
         def git(*args):
             limit = MAX_PLIST if args[0] == "show" else (32 * 1024 * 1024 if args[0] == "ls-tree" else 16 * 1024)
             return read_git(repo, args, limit)
+    diagnostic_phase(diagnostics, "source_head")
     require(re.fullmatch(r"[0-9a-f]{40}", source_sha or ""))
     require(git("rev-parse", "HEAD").decode("ascii").strip() == source_sha)
-    workspace = workspace_context(repo, source_sha, env, git)
+    workspace, workspace_proof = workspace_observation(repo, source_sha, env, git, diagnostics=diagnostics)
     # Bind the catalog to the named immutable Git object, not a mutable path.
+    diagnostic_phase(diagnostics, "catalog")
     catalog = git("show", source_sha + ":apps/mobile/assets/receipt_ocr_models/catalog.json")
     require(isinstance(catalog, bytes) and 0 < len(catalog) <= MAX_PLIST)
+    diagnostic_phase(diagnostics, "source_tree")
+    source_tree = git("rev-parse", source_sha + "^{tree}").decode("ascii").strip()
+    diagnostic_phase(diagnostics, "source_fingerprint")
+    fingerprint = source_fingerprint(git("ls-tree", "-r", "-z", "--full-tree", source_sha))
     context = {"sourceSha": source_sha,
-               "sourceTree": git("rev-parse", source_sha + "^{tree}").decode("ascii").strip(),
-               "sourceTreeFingerprint": source_fingerprint(git("ls-tree", "-r", "-z", "--full-tree", source_sha)),
+               "sourceTree": source_tree,
+               "sourceTreeFingerprint": fingerprint,
                "catalogSha256": sha(catalog),
                "workflowSha": env.get("CAPTURE_WORKFLOW_SHA"),
                "workflowRef": env.get("CAPTURE_WORKFLOW_REF"),
@@ -212,8 +378,14 @@ def collect_context(repo, source_sha, env, git=None):
                "job": env.get("GITHUB_JOB")}
     context.update(workspace)
     # Drift detection only: no atomic source-to-package snapshot/attestation claim.
+    diagnostic_phase(diagnostics, "source_recheck")
     require(git("rev-parse", "HEAD").decode("ascii").strip() == source_sha)
-    require(workspace_context(repo, source_sha, env, git) == workspace)
+    diagnostic_phase(diagnostics, "workspace_recheck")
+    rechecked, rechecked_proof = workspace_observation(repo, source_sha, env, git, diagnostics=diagnostics)
+    require(rechecked == workspace and rechecked_proof == workspace_proof)
+    if workspace_proof is not None:
+        # The last check still detects drift only; it does not establish atomicity.
+        check_combined_workspace(source_sha, git)
     return context
 
 
@@ -283,15 +455,19 @@ def atomic_output(root, name, data, limit):
     # Preserve the excluded partial too; never unlink a potentially replaced path.
 
 
-def capture(platform, root, context):
+def capture(platform, root, context, diagnostics=None):
+    diagnostic_phase(diagnostics, "context_contract")
     validate_context(context, platform)
+    diagnostic_phase(diagnostics, "output_root_contract")
     require(root.is_absolute() and root.resolve() == root and stat.S_ISDIR(root.lstat().st_mode)
             and root.lstat().st_uid == os.getuid())
-    evidence = {"schemaVersion": 1, "kind": "package_failure_observation", "platform": platform,
+    version = 2 if context["workspaceState"] == IOS_COMBINED_STATE else 1
+    evidence = {"schemaVersion": version, "kind": "package_failure_observation", "platform": platform,
                 "accepted": False, "bindingKind": "hosted_workflow_observation_not_attestation",
                 "repository": REPOSITORY, "context": context, "status": "unavailable"}
     payload = None
     try:
+        diagnostic_phase(diagnostics, "candidate_file")
         relative = ("settleora-verified-production.apk" if platform == "android" else
                     "ios-candidate-package/apps/mobile/build/ios/iphoneos/Runner.app/" + PRIVACY_PATH)
         observation, raw = open_owned(root, relative, MAX_APK if platform == "android" else MAX_PLIST)
@@ -301,6 +477,7 @@ def capture(platform, root, context):
                             verification="not_granted_by_capture")
         else:
             try:
+                diagnostic_phase(diagnostics, "plist_classification")
                 public_plist(raw)
                 evidence.update(status="observed", contentRetained=True, path=PRIVACY_PATH,
                                 classification="canonical_allowlisted_public_bundle_metadata")
@@ -309,9 +486,11 @@ def capture(platform, root, context):
                 evidence.update(reason="unclassified_or_noncanonical_plist", contentRetained=False)
     except Exception:
         evidence.update(reason="missing_unsafe_or_changed_file", contentRetained=False)
+    diagnostic_phase(diagnostics, "evidence_encoding")
     encoded = (json.dumps(evidence, separators=(",", ":")) + "\n").encode()
     require(len(encoded) <= MAX_JSON)
     if platform == "android":
+        diagnostic_phase(diagnostics, "output_publication")
         atomic_output(root, "android-package-failure-capture.json", encoded, MAX_JSON)
     else:
         stream = io.BytesIO()
@@ -319,7 +498,9 @@ def capture(platform, root, context):
             archive.writestr("provenance.json", encoded)
             if payload is not None:
                 archive.writestr("Info.plist", payload)
+        diagnostic_phase(diagnostics, "output_publication")
         atomic_output(root, "ios-package-failure-evidence.zip", stream.getvalue(), MAX_ZIP)
+    diagnostic_phase(diagnostics, "output_published")
     return evidence
 
 
@@ -344,23 +525,37 @@ def append_ready(root, output_path):
         os.close(fd)
 
 
-def capture_and_mark(platform, root, context, mark_ready):
-    result = capture(platform, root, context)
+def capture_and_mark(platform, root, context, mark_ready, diagnostics=None):
+    result = capture(platform, root, context, diagnostics=diagnostics)
+    diagnostic_phase(diagnostics, "ready_marker")
     mark_ready()  # Only after the complete selected bytes were verified.
+    diagnostic_phase(diagnostics, "ready_marker_appended")
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--platform", choices=("android", "ios"), required=True)
-    parser.add_argument("--source-sha", required=True)
-    parser.add_argument("--repo-root", required=True, type=Path)
-    args = parser.parse_args()
-    context = collect_context(args.repo_root, args.source_sha, os.environ)
-    root = Path(os.environ.get("RUNNER_TEMP", "/nonexistent"))
-    require(str(root) in ("/home/runner/work/_temp", "/Users/runner/work/_temp"))
-    output_path = Path(os.environ.get("GITHUB_OUTPUT", "/nonexistent"))
-    capture_and_mark(args.platform, root, context, lambda: append_ready(root, output_path))
+def main(diagnostics=None):
+    try:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--platform", choices=("android", "ios"), required=True)
+        parser.add_argument("--source-sha", required=True)
+        parser.add_argument("--repo-root", required=True, type=Path)
+        args = parser.parse_args()
+        # Preserve Android and argparse-error output. No new CLI switch or
+        # environment authority is introduced by these iOS observations.
+        if diagnostics is None and args.platform == "ios":
+            diagnostics = CapturePhaseDiagnostics(lambda line: sys.stderr.write(line))
+        diagnostic_phase(diagnostics, "arguments")
+        context = collect_context(args.repo_root, args.source_sha, os.environ, diagnostics=diagnostics)
+        diagnostic_phase(diagnostics, "output_root_selector")
+        root = Path(os.environ.get("RUNNER_TEMP", "/nonexistent"))
+        require(str(root) in ("/home/runner/work/_temp", "/Users/runner/work/_temp"))
+        output_path = Path(os.environ.get("GITHUB_OUTPUT", "/nonexistent"))
+        capture_and_mark(args.platform, root, context, lambda: append_ready(root, output_path),
+                         diagnostics=diagnostics)
+        diagnostic_phase(diagnostics, "complete")
+    except Exception:
+        diagnostic_failure(diagnostics)
+        raise
 
 
 if __name__ == "__main__":

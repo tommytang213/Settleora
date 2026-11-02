@@ -46,6 +46,111 @@ function assertNativeFixtureScoringPolicy(nativeTest, fixtureContract) {
   );
 }
 
+const phaseTestPath = 'tools/ocr-models/test/package-failure-phases.test.py';
+const phaseStep = {
+  name: 'Validate package failure phase contracts',
+  run: 'python3 -I -S -B -X pycache_prefix=/dev/null ' + phaseTestPath + ' -v',
+};
+const isPhaseStep = (step) =>
+  step.name === phaseStep.name ||
+  (typeof step.run === 'string' && step.run.includes(phaseTestPath));
+
+const isSdkSetup = (step) =>
+  typeof step.uses === 'string' &&
+  [
+    'actions/setup-node@',
+    'actions/setup-dotnet@',
+    'subosito/flutter-action@',
+  ].some((prefix) => step.uses.startsWith(prefix));
+
+function assertPackageFailurePhaseWiring(scaffold) {
+  const mobile = scaffold.jobs['mobile-validation'];
+  const steps = stepsFor(mobile);
+  const phases = steps.filter(isPhaseStep);
+  assert.equal(phases.length, 1, 'phase suite must run exactly once');
+  assert.deepEqual(phases[0], phaseStep);
+
+  const bindings = steps.filter(
+    (step) => step.name === 'Verify stacked PR source binding',
+  );
+  assert.equal(bindings.length, 1);
+  const validation = steps.find(
+    (step) => step.run === 'npm run validate:mobile',
+  );
+  assert.ok(validation);
+  assert.ok(steps.indexOf(bindings[0]) < steps.indexOf(phases[0]));
+  assert.ok(steps.indexOf(phases[0]) < steps.indexOf(validation));
+  const firstSdk = steps.findIndex(isSdkSetup);
+  assert.notEqual(firstSdk, -1, 'mobile SDK setup must be present');
+  assert.ok(
+    steps.indexOf(phases[0]) < firstSdk,
+    'phase suite must run before the first SDK setup',
+  );
+}
+
+test('ordinary mobile CI runs the isolated package failure phase suite', () => {
+  assertPackageFailurePhaseWiring(workflow('scaffold-validation.yml'));
+});
+
+test('ordinary mobile CI rejects weakened package failure phase wiring', () => {
+  const control = workflow('scaffold-validation.yml');
+  const mobile = control.jobs['mobile-validation'];
+  mobile.steps = stepsFor(mobile).filter((step) => !isPhaseStep(step));
+  const bindingIndex = mobile.steps.findIndex(
+    (step) => step.name === 'Verify stacked PR source binding',
+  );
+  assert.notEqual(bindingIndex, -1);
+  mobile.steps.splice(bindingIndex + 1, 0, { ...phaseStep });
+  assert.doesNotThrow(() => assertPackageFailurePhaseWiring(control));
+
+  const variants = [
+    ['missing step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 1)],
+    ['duplicate step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 0, { ...step })],
+    ['missing isolation flag', (_, step) =>
+      step.run = step.run.replace(' -S ', ' ')],
+    ['broad discovery', (_, step) =>
+      step.run = 'python3 -m unittest discover'],
+    ['masked failure', (_, step) => step.run += ' || true'],
+    ['background execution', (_, step) => step.run += ' &'],
+    ['conditional skip', (_, step) => step.if = 'false'],
+    ['tolerated failure', (_, step) => step['continue-on-error'] = true],
+    ['environment override', (_, step) =>
+      step.env = { PYTHONPATH: '/synthetic-fixture' }],
+    ['directory override', (_, step) =>
+      step['working-directory'] = 'apps/mobile'],
+    ['before source binding', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      const index = job.steps.findIndex(
+        (item) => item.name === 'Verify stacked PR source binding',
+      );
+      job.steps.splice(index, 0, step);
+    }],
+    ['after first SDK setup', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      const firstSdk = job.steps.findIndex(isSdkSetup);
+      assert.notEqual(firstSdk, -1);
+      job.steps.splice(firstSdk + 1, 0, step);
+    }],
+    ['after mobile validation', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      job.steps.push(step);
+    }],
+  ];
+
+  for (const [label, mutate] of variants) {
+    const candidate = structuredClone(control);
+    const job = candidate.jobs['mobile-validation'];
+    mutate(job, job.steps.find(isPhaseStep));
+    assert.throws(
+      () => assertPackageFailurePhaseWiring(candidate),
+      { code: 'ERR_ASSERTION' },
+      label,
+    );
+  }
+});
+
 test('required-check budget documents every classifier lane', () => {
   const policy = read('docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md');
   assert.match(policy, /docs-only, full, mobile, iOS, and user-web routing decisions/);

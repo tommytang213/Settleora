@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { closeSync, constants, createWriteStream, fchmodSync, openSync } from "node:fs";
+import { closeSync, constants, createWriteStream, fchmodSync, openSync, writeSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createCapturePhaseDiagnostics } from "./capture-phase-diagnostics.mjs";
 
 export function parseArgs(values) {
   const allowedOptions = new Set(["stdout", "stderr", "max-bytes", "platform", "device"]);
@@ -74,8 +75,10 @@ function openCaptureFile(filePath) {
   return descriptor;
 }
 
-function boundedSink(stream, descriptor, maxBytes, onOverflow) {
+function boundedSink(stream, descriptor, maxBytes, onOverflow, diagnostics, channel) {
   const output = createWriteStream(null, { fd: descriptor, autoClose: true });
+  diagnostics.observeInput(stream, channel);
+  diagnostics.observeSink(output, channel);
   let bytes = 0;
   stream.on("data", (chunk) => {
     const remaining = maxBytes - bytes;
@@ -133,7 +136,7 @@ async function terminateProcessGroup(pid) {
   // bounded termination proof.
 }
 
-export async function runBoundedProcess({ stdoutPath, stderrPath, maxBytes, executable, args }) {
+async function captureProcess({ stdoutPath, stderrPath, maxBytes, executable, args }, diagnostics) {
   let overflow = false;
   let interrupted = false;
   let child;
@@ -166,8 +169,9 @@ export async function runBoundedProcess({ stdoutPath, stderrPath, maxBytes, exec
     closeSync(stderrDescriptor);
     throw error;
   }
-  const stdoutDone = boundedSink(child.stdout, stdoutDescriptor, maxBytes, failClosed);
-  const stderrDone = boundedSink(child.stderr, stderrDescriptor, maxBytes, failClosed);
+  diagnostics.observeChild(child);
+  const stdoutDone = boundedSink(child.stdout, stdoutDescriptor, maxBytes, failClosed, diagnostics, "stdout");
+  const stderrDone = boundedSink(child.stderr, stderrDescriptor, maxBytes, failClosed, diagnostics, "stderr");
   const forwardSignal = () => {
     interrupted = true;
     requestTermination();
@@ -192,10 +196,27 @@ export async function runBoundedProcess({ stdoutPath, stderrPath, maxBytes, exec
   return outcome.code;
 }
 
+export async function runBoundedProcess(options, diagnosticWriter) {
+  // Existing library callers remain silent unless they supply a writer.
+  const diagnostics = createCapturePhaseDiagnostics(diagnosticWriter);
+  diagnostics.emit("capture_enter");
+  try {
+    const status = await captureProcess(options, diagnostics);
+    diagnostics.emit("capture_return");
+    return status;
+  } catch (error) {
+    diagnostics.emit("capture_failure");
+    throw error;
+  }
+}
+
 async function main() {
   const { stdoutPath, stderrPath, maxBytes, platform, device } = parseArgs(process.argv.slice(2));
   const command = buildFlutterCommand(device, platform);
-  return runBoundedProcess({ stdoutPath, stderrPath, maxBytes, ...command });
+  // Synchronous iOS-only writes keep diagnostic I/O errors in the observer's
+  // best-effort boundary without stderr error handlers, promises or CLI options.
+  const diagnosticWriter = platform === "ios" ? (line) => { writeSync(2, line); } : undefined;
+  return runBoundedProcess({ stdoutPath, stderrPath, maxBytes, ...command }, diagnosticWriter);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

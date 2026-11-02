@@ -160,6 +160,9 @@ jobs:
           printf 'stacked_source_binding base=%s head=%s merge=%s tree=%s\n' \
             "$EXPECTED_BASE" "$EXPECTED_HEAD" "$actual_merge" "$merge_tree"
 
+      - name: Validate package failure phase contracts
+        run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-phases.test.py -v
+
       - name: Setup Node
         # Pinned from actions/setup-node@v6.
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
