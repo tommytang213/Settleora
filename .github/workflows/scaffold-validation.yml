@@ -170,6 +170,9 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Validate package failure capture contracts
+        run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-capture.test.py -v
+
       - name: Setup .NET
         # Pinned from actions/setup-dotnet@v5.
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1

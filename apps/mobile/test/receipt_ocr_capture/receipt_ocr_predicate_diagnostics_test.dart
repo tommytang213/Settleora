@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import '../../integration_test/support/receipt_ocr_fixture_contract.dart';
+import '../support/summary_role_receipt.dart';
 
 Object semantic(ReceiptOcrPreview p) => [
   p.merchant,
@@ -86,6 +87,126 @@ ReceiptOcrBlockEvidence block(
       : const [],
 );
 void main() {
+  const parkingDateRows = [
+    'Harbor Parking',
+    'DATE: 2025-04-12',
+    'TIME IN: 09:14 AM',
+    'TIME OUT: 01:37 PM',
+    'DURATION: 4:23:00',
+    'FEE: USD 18.00',
+    'PAID WITH: Visa ••••• 9191',
+    'AUTH: 774210',
+    'THANK YOU!',
+  ];
+  for (final layout in [false, true]) {
+    for (final scenario
+        in <({String name, List<String> rows, String? total, String? date})>[
+          (
+            name: 'closed',
+            rows: parkingDateRows,
+            total: '18.00',
+            date: '2025-04-12',
+          ),
+          (
+            name: 'non-parking',
+            rows: ['Corner Market', ...parkingDateRows.skip(1)],
+            total: null,
+            date: '2025-04-12',
+          ),
+          (
+            name: 'short',
+            rows: [
+              for (final (index, row) in parkingDateRows.indexed)
+                if (index != 7) row,
+            ],
+            total: null,
+            date: '2025-04-12',
+          ),
+          (
+            name: 'printed-total',
+            rows: [...parkingDateRows, 'Total USD 20.00'],
+            total: '20.00',
+            date: '2025-04-12',
+          ),
+          (
+            name: 'conflicting-date',
+            rows: [
+              parkingDateRows.first,
+              'DATE: 2025-04-13',
+              ...parkingDateRows.skip(1),
+            ],
+            total: null,
+            date: null,
+          ),
+          (
+            name: 'invalid-date',
+            rows: [
+              parkingDateRows.first,
+              'DATE: 2025-02-30',
+              ...parkingDateRows.skip(2),
+            ],
+            total: null,
+            date: null,
+          ),
+        ]) {
+      test('parking date invariance ${scenario.name} $layout', () {
+        final blocks = <ReceiptOcrBlockEvidence>[
+          if (layout)
+            for (var index = 0; index < scenario.rows.length; index++)
+              summaryBlock(
+                scenario.rows[index],
+                index,
+                20,
+                20.0 + index * 55,
+                480,
+                30,
+                slope: 0,
+              ),
+        ];
+        final text = scenario.rows.join('\n');
+        final disabled = const ReceiptOcrParser().parse(
+          text,
+          blocks: blocks,
+          fallbackCurrency: 'USD',
+        );
+        final enabled = const ReceiptOcrParser(
+          collectDiagnostics: true,
+        ).parse(text, blocks: blocks, fallbackCurrency: 'USD');
+        expect(semantic(enabled), semantic(disabled));
+        expect(disabled.parserDiagnostics, isNull);
+        expect(enabled.total, scenario.total);
+        expect(enabled.receiptDate, scenario.date);
+        final dates = enabled.parserDiagnostics!.dates;
+        expect(dates, hasLength(3));
+        expect(dates[1], dates[0]);
+        expect(dates[2], dates[0]);
+        final conflict = scenario.name == 'conflicting-date';
+        final invalid = scenario.name == 'invalid-date';
+        for (final stage in dates) {
+          expect(
+            stage[ReceiptOcrDatePredicate.selected.index],
+            scenario.date == null ? 0 : 1,
+          );
+          expect(
+            stage[ReceiptOcrDatePredicate.noSelection.index],
+            scenario.date == null ? 1 : 0,
+          );
+          expect(
+            stage[ReceiptOcrDatePredicate.conflict.index],
+            conflict ? 1 : 0,
+          );
+          expect(
+            stage[ReceiptOcrDatePredicate.validCandidate.index],
+            conflict ? 2 : (invalid ? 0 : 1),
+          );
+          expect(
+            stage[ReceiptOcrDatePredicate.invalidCandidate.index],
+            invalid ? 1 : 0,
+          );
+        }
+      });
+    }
+  }
   for (final heading in [false, true]) {
     for (final shape in ['separate', 'merged', 'partial', 'crossed']) {
       test('diagnostic semantic equality $heading $shape', () {

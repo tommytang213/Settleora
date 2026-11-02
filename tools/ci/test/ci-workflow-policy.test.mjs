@@ -151,6 +151,115 @@ test('ordinary mobile CI rejects weakened package failure phase wiring', () => {
   }
 });
 
+const captureTestPath = 'tools/ocr-models/test/package-failure-capture.test.py';
+const captureStep = {
+  name: 'Validate package failure capture contracts',
+  run: 'python3 -I -S -B -X pycache_prefix=/dev/null ' + captureTestPath + ' -v',
+};
+const isCaptureStep = (step) =>
+  step.name === captureStep.name ||
+  (typeof step.run === 'string' && step.run.includes(captureTestPath));
+const isNodeSetup = (step) =>
+  typeof step.uses === 'string' && step.uses.startsWith('actions/setup-node@');
+
+function assertPackageFailureCaptureWiring(scaffold) {
+  // The mocked phase suite must retain its earlier, pre-SDK position.
+  assertPackageFailurePhaseWiring(scaffold);
+  const steps = stepsFor(scaffold.jobs['mobile-validation']);
+  const captures = steps.filter(isCaptureStep);
+  assert.equal(captures.length, 1, 'capture suite must run exactly once');
+  assert.deepEqual(captures[0], captureStep);
+  const nodes = steps.filter(isNodeSetup);
+  assert.equal(nodes.length, 1, 'capture suite requires one Node setup');
+  assert.equal(nodes[0].uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
+  assert.equal(nodes[0].with?.['node-version'], '22');
+  assert.equal(nodes[0].if, undefined);
+  assert.equal(nodes[0]['continue-on-error'], undefined);
+  const binding = steps.find(
+    (step) => step.name === 'Verify stacked PR source binding',
+  );
+  const validation = steps.find(
+    (step) => step.run === 'npm run validate:mobile',
+  );
+  assert.ok(steps.indexOf(binding) < steps.indexOf(captures[0]));
+  assert.ok(
+    steps.indexOf(nodes[0]) < steps.indexOf(captures[0]),
+    'capture suite must run after Node setup',
+  );
+  assert.ok(
+    steps.indexOf(captures[0]) < steps.indexOf(validation),
+    'capture suite must run before mobile validation',
+  );
+}
+
+test('ordinary mobile CI runs the package failure capture contract suite', () => {
+  assertPackageFailureCaptureWiring(workflow('scaffold-validation.yml'));
+});
+
+test('ordinary mobile CI rejects weakened package failure capture wiring', () => {
+  const control = workflow('scaffold-validation.yml');
+  const mobile = control.jobs['mobile-validation'];
+  mobile.steps = stepsFor(mobile).filter((step) => !isCaptureStep(step));
+  const nodeIndex = mobile.steps.findIndex(isNodeSetup);
+  assert.notEqual(nodeIndex, -1);
+  mobile.steps.splice(nodeIndex + 1, 0, { ...captureStep });
+  assert.doesNotThrow(() => assertPackageFailureCaptureWiring(control));
+
+  const variants = [
+    ['missing step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 1)],
+    ['duplicate step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 0, { ...step })],
+    ['missing isolation flag', (_, step) =>
+      step.run = step.run.replace(' -S ', ' ')],
+    ['wrong suite', (_, step) =>
+      step.run = step.run.replace(captureTestPath, 'tools/ocr-models/test/another-contract.test.py')],
+    ['selected subset', (_, step) => step.run += ' CaptureContractTest'],
+    ['masked failure', (_, step) => step.run += ' || true'],
+    ['background execution', (_, step) => step.run += ' &'],
+    ['conditional skip', (_, step) => step.if = 'false'],
+    ['tolerated failure', (_, step) => step['continue-on-error'] = true],
+    ['environment override', (_, step) =>
+      step.env = { PYTHONPATH: '/synthetic-fixture' }],
+    ['directory override', (_, step) =>
+      step['working-directory'] = 'apps/mobile'],
+    ['before source binding', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      const index = job.steps.findIndex(
+        (item) => item.name === 'Verify stacked PR source binding',
+      );
+      job.steps.splice(index, 0, step);
+    }],
+    ['before Node setup', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      job.steps.splice(job.steps.findIndex(isNodeSetup), 0, step);
+    }],
+    ['after mobile validation', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      job.steps.push(step);
+    }],
+    ['missing Node setup', (job) =>
+      job.steps.splice(job.steps.findIndex(isNodeSetup), 1)],
+    ['conditional Node setup', (job) =>
+      job.steps.find(isNodeSetup).if = 'false'],
+    ['wrong Node version', (job) =>
+      job.steps.find(isNodeSetup).with['node-version'] = '20'],
+    ['unpinned Node setup', (job) =>
+      job.steps.find(isNodeSetup).uses = 'actions/setup-node@v6'],
+  ];
+
+  for (const [label, mutate] of variants) {
+    const candidate = structuredClone(control);
+    const job = candidate.jobs['mobile-validation'];
+    mutate(job, job.steps.find(isCaptureStep));
+    assert.throws(
+      () => assertPackageFailureCaptureWiring(candidate),
+      { code: 'ERR_ASSERTION' },
+      label,
+    );
+  }
+});
+
 test('required-check budget documents every classifier lane', () => {
   const policy = read('docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md');
   assert.match(policy, /docs-only, full, mobile, iOS, and user-web routing decisions/);

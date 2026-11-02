@@ -148,6 +148,93 @@ void main() {
     }
   });
 
+  for (final description in [
+    'قهوة x2',
+    'قهوة No5',
+    'قهوة iPhone15',
+    'قهوة 商品2',
+    'قهوة Cafe\u03012',
+    'قهوة ²2',
+  ]) {
+    test('existing AED placements retain literal $description', () {
+      for (final money in ['د.إ ١٢٫٥٠', 'دإ ١٢٫٥٠', '12.50 AED']) {
+        _expectAmount(
+          _receipt(money, description: description),
+          '12.50',
+          description: description,
+        );
+      }
+    });
+
+    for (final marker in ['د.إ', 'دإ']) {
+      test('Arabic suffix $marker retains literal $description', () {
+        final prefix = _receipt('$marker ١٢٫٥٠', description: description);
+        final latin = _receipt('12.50 AED', description: description);
+        final suffix = _receipt('١٢٫٥٠ $marker', description: description);
+
+        _expectAmount(prefix, '12.50', description: description);
+        _expectAmount(latin, '12.50', description: description);
+        _expectAmount(suffix, '12.50', description: description);
+        _expectSameReviewState(suffix, prefix);
+        _expectSameReviewState(suffix, latin);
+      });
+    }
+  }
+
+  for (final marker in ['د.إ', 'دإ']) {
+    for (final joined in ['é1', '商品1', 'é\u03011', '²1']) {
+      test(
+        'Arabic suffix $marker does not skip inside selected $joined grouping',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'Market\nSubtotal $joined 234.50 $marker',
+          );
+          expect(preview.subtotal, isNull);
+          expect(preview.adjustmentsComplete, isFalse);
+        },
+      );
+    }
+
+    for (final description in [
+      'قهوة x-2',
+      'قهوة x+2',
+      'قهوة No.5',
+      'قهوة v1.2',
+    ]) {
+      test(
+        'Arabic suffix $marker keeps punctuation ambiguity in $description',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'متجر دبي\n$description ١٢٫٥٠ $marker',
+          );
+          expect(preview.items, isEmpty);
+          expect(preview.adjustmentsComplete, isFalse);
+        },
+      );
+    }
+
+    for (final row in ['قهوة 2 123', 'قهوة x2 2 123', 'قهوة x2 12 34 567.50']) {
+      test(
+        'Arabic suffix $marker preserves standalone-group rejection for $row',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'متجر دبي\n$row $marker',
+          );
+          expect(preview.items, isEmpty);
+          expect(preview.adjustmentsComplete, isFalse);
+        },
+      );
+    }
+
+    test('Arabic suffix $marker cannot select an extra bare numeric tail', () {
+      final preview = const ReceiptOcrParser().parse(
+        'متجر دبي\nالمجموع الفرعي 1 234.50 9 $marker',
+      );
+      expect(preview.subtotal, isNull);
+      expect(preview.adjustmentsComplete, isFalse);
+    });
+  }
+
   test('Arabic suffix does not repair malformed printed grouping', () {
     for (final printed in ['١٢,٣٤٫٥٦', '١,٢٣,٤٥٫٦٧', "١٢'٣٤٫٥٦"]) {
       final preview = const ReceiptOcrParser().parse(

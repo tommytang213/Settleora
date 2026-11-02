@@ -789,12 +789,19 @@ export function boundedParserDiagnostics(value) {
   if (["unavailable", "invalid"].includes(value.status)) {
     return keys === "schemaVersion,status" ? { schemaVersion: 1, status: value.status } : invalid;
   }
-  const counts = (v, n) => Array.isArray(v) && v.length === n &&
-    v.every((c) => Number.isSafeInteger(c) && c >= 0 && c <= 256);
+  const tuple = (v, n, valid) => {
+    if (!Array.isArray(v) || v.length !== n) return false;
+    for (let i = 0; i < n; i++) {
+      if (!Object.hasOwn(v, i) || !valid(v[i])) return false;
+    }
+    return true;
+  };
+  const counts = (v, n) => tuple(v, n,
+    (c) => Number.isSafeInteger(c) && c >= 0 && c <= 256);
   if (value.status !== "observed" || keys !== "dates,quantity,schemaVersion,status" ||
-      !counts(value.quantity, parserDiagnosticQuantityCount) || !Array.isArray(value.dates) ||
-      value.dates.length !== parserDiagnosticDateStageCount ||
-      !value.dates.every((v) => counts(v, parserDiagnosticDateCount))) return invalid;
+      !counts(value.quantity, parserDiagnosticQuantityCount) ||
+      !tuple(value.dates, parserDiagnosticDateStageCount,
+        (v) => counts(v, parserDiagnosticDateCount))) return invalid;
   return { schemaVersion: 1, status: "observed", quantity: [...value.quantity],
     dates: value.dates.map((v) => [...v]) };
 }

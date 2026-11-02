@@ -54,6 +54,12 @@ CAPTURE_PHASES = frozenset({
 })
 
 
+def write_capture_phase(line):
+    # _emit contains descriptor, encoding and write failures. Bypass buffering
+    # so failed diagnostics cannot be retried by interpreter shutdown flushing.
+    os.write(sys.stderr.fileno(), line.encode("ascii"))
+
+
 class CapturePhaseDiagnostics:
     """Fixed, best-effort observations; never evidence or acceptance authority."""
 
@@ -543,7 +549,7 @@ def main(diagnostics=None):
         # Preserve Android and argparse-error output. No new CLI switch or
         # environment authority is introduced by these iOS observations.
         if diagnostics is None and args.platform == "ios":
-            diagnostics = CapturePhaseDiagnostics(lambda line: sys.stderr.write(line))
+            diagnostics = CapturePhaseDiagnostics(write_capture_phase)
         diagnostic_phase(diagnostics, "arguments")
         context = collect_context(args.repo_root, args.source_sha, os.environ, diagnostics=diagnostics)
         diagnostic_phase(diagnostics, "output_root_selector")

@@ -310,7 +310,7 @@ class ReceiptOcrParser {
       merchant,
       merchantDetection?.lineIndices ?? const {},
       currency,
-      _detectDate(itemLines, selectTransactionDate: true),
+      () => _detectDate(itemLines, selectTransactionDate: true),
       hasLayout: blocks.isNotEmpty,
     );
     if (closedParkingSession != null) {
@@ -13024,10 +13024,24 @@ bool _hasUnownedArabicSuffixGroups(
   // shorter valid tail cannot establish either an amount or its ownership.
   // The caller supplies its actual selected span. Stop at that span's end:
   // punctuation after it is a boundary, not part of its numeric grouping.
-  final numericRun = RegExp(
+  final amountSource = line.substring(0, amountEnd);
+  final wholeNumericRun = RegExp(
     r"[+\-\d][\d\s.,'’+\-]*$",
-  ).firstMatch(line.substring(0, amountEnd));
-  if (numericRun == null || numericRun.start > amountStart) return false;
+  ).firstMatch(amountSource);
+  if (wholeNumericRun == null || wholeNumericRun.start > amountStart) {
+    return false;
+  }
+  // Digits joined to description letters, marks or numbers are not separate
+  // amount groups. Keep the original run if the boundary search would enter
+  // the caller's selected span and hide a malformed or unowned grouping.
+  final boundedNumericRun = RegExp(
+    r"(?<![\p{L}\p{M}\p{N}])[+\-\d][\d\s.,'’+\-]*$",
+    unicode: true,
+  ).firstMatch(amountSource);
+  final numericRun =
+      boundedNumericRun != null && boundedNumericRun.start <= amountStart
+      ? boundedNumericRun
+      : wholeNumericRun;
   var printed = numericRun.group(0)!;
   if (!RegExp(r'\d\s+\d').hasMatch(printed)) return false;
 
@@ -13522,11 +13536,10 @@ final _parkingPrintedSummaryLabelPattern = RegExp(
   String? merchant,
   Set<int> merchantRows,
   String? currency,
-  String? receiptDate, {
+  String? Function() detectReceiptDate, {
   required bool hasLayout,
 }) {
   if (currency == null ||
-      receiptDate == null ||
       merchant == null ||
       merchantRows.isEmpty ||
       !RegExp(r'\bparking\b', caseSensitive: false).hasMatch(merchant) ||
@@ -13541,7 +13554,11 @@ final _parkingPrintedSummaryLabelPattern = RegExp(
     return null;
   }
   final start = lines.length - 8;
-  if (merchantRows.any((index) => index >= start) ||
+  if (merchantRows.any((index) => index >= start)) {
+    return null;
+  }
+  final receiptDate = detectReceiptDate();
+  if (receiptDate == null ||
       _labeledCalendarDate(lines[start]) != receiptDate ||
       !_isCompleteClockMetadataLine(lines[start + 1]) ||
       !_isCompleteClockMetadataLine(lines[start + 2])) {

@@ -37,6 +37,78 @@ test("old absent observations remain explicitly unavailable",()=>{
   {schemaVersion:1,status:"unavailable"});
 });
 
+for (const bound of [0, 256]) {
+ test(`dense parser tuples accept every count at ${bound}`, () => {
+  const input = valid();
+  input.quantity.fill(bound);
+  for (const row of input.dates) row.fill(bound);
+  assert.deepEqual(boundedParserDiagnostics(input), input);
+ });
+}
+
+// Direct callers can supply sparse arrays; JSON transport cannot encode holes.
+for (const [name, select] of [
+ ["quantity", input => input.quantity],
+ ["date row", input => input.dates[0]],
+ ["date stages", input => input.dates],
+]) {
+ for (const [position, indexFor] of [
+  ["first", () => 0],
+  ["middle", length => Math.floor(length / 2)],
+  ["last", length => length - 1],
+ ]) {
+  test(`${name} rejects a ${position} hole`, () => {
+   const input = valid();
+   const tuple = select(input);
+   const index = indexFor(tuple.length);
+   delete tuple[index];
+   assert.equal(Object.hasOwn(tuple, index), false);
+   assert.deepEqual(boundedParserDiagnostics(input), {schemaVersion:1,status:"invalid"});
+  });
+ }
+ test(`${name} rejects an entirely sparse tuple`, () => {
+  const input = valid();
+  const tuple = select(input);
+  for (let index = 0; index < tuple.length; index++) delete tuple[index];
+  assert.equal(Object.keys(tuple).length, 0);
+  assert.deepEqual(boundedParserDiagnostics(input), {schemaVersion:1,status:"invalid"});
+ });
+ test(`${name} rejects an inherited index despite a valid value`, () => {
+  const input = valid();
+  const tuple = select(input);
+  const index = Math.floor(tuple.length / 2);
+  const inherited = tuple[index];
+  delete tuple[index];
+  Object.setPrototypeOf(tuple, Object.create(Array.prototype, {
+   [index]: {value: inherited, configurable: true},
+  }));
+  assert.equal(Object.hasOwn(tuple, index), false);
+  assert.equal(tuple[index], inherited);
+  assert.deepEqual(boundedParserDiagnostics(input), {schemaVersion:1,status:"invalid"});
+ });
+ for (const [label, value] of [["undefined", undefined], ["null", null]]) {
+  test(`${name} rejects an own ${label} entry`, () => {
+   const input = valid();
+   const tuple = select(input);
+   tuple[0] = value;
+   assert.equal(Object.hasOwn(tuple, 0), true);
+   assert.deepEqual(boundedParserDiagnostics(input), {schemaVersion:1,status:"invalid"});
+  });
+ }
+ for (const mode of ["hole", "undefined"]) {
+  test(`${name} JSON transport converts ${mode} to rejected null`, () => {
+   const input = valid();
+   const tuple = select(input);
+   if (mode === "hole") delete tuple[0];
+   else tuple[0] = undefined;
+   const transported = JSON.parse(JSON.stringify(input));
+   assert.equal(Object.hasOwn(select(transported), 0), true);
+   assert.equal(select(transported)[0], null);
+   assert.deepEqual(boundedParserDiagnostics(transported), {schemaVersion:1,status:"invalid"});
+  });
+ }
+}
+
 // Wire-v1 positions and dimensions must fail a test when producer enums drift.
 test("collector dimensions match the committed Dart predicate enums", () => {
  const source=readFileSync(new URL("../../../apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",import.meta.url),"utf8");

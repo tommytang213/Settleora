@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCapturePhaseDiagnostics } from "./capture-phase-diagnostics.mjs";
+import { captureBoundedStream } from "./bounded-stream-sink.mjs";
 
 export function parseArgs(values) {
   const allowedOptions = new Set(["stdout", "stderr", "max-bytes", "platform", "device"]);
@@ -79,23 +80,7 @@ function boundedSink(stream, descriptor, maxBytes, onOverflow, diagnostics, chan
   const output = createWriteStream(null, { fd: descriptor, autoClose: true });
   diagnostics.observeInput(stream, channel);
   diagnostics.observeSink(output, channel);
-  let bytes = 0;
-  stream.on("data", (chunk) => {
-    const remaining = maxBytes - bytes;
-    if (remaining > 0) {
-      const retained = chunk.subarray(0, remaining);
-      bytes += retained.length;
-      if (!output.write(retained)) {
-        stream.pause();
-        output.once("drain", () => stream.resume());
-      }
-    }
-    if (chunk.length > remaining) onOverflow();
-  });
-  stream.on("end", () => output.end());
-  stream.on("error", onOverflow);
-  output.on("error", onOverflow);
-  return new Promise((resolve) => output.on("close", resolve));
+  return captureBoundedStream(stream, output, maxBytes, onOverflow);
 }
 
 function processGroupExists(pid) {

@@ -1,8 +1,9 @@
 """Synthetic package-capture contracts: no SDK, build, device or signaling.
 
 Imports the helper directly from source; no project aggregator/provider import.
-Only explicit shell-function tests spawn /bin/bash with a minimal environment;
-python3/hash helpers are inert shell functions, no timeout/kill/cleanup wrapper.
+Explicit shell-function tests spawn /bin/bash with inert python3/hash functions.
+The stderr regression spawns finite isolated Python children using only the
+source observer and fixed output; no timeout/kill/cleanup wrapper is used.
 """
 import hashlib
 import io
@@ -11,6 +12,7 @@ import os
 from pathlib import Path
 import plistlib
 import subprocess
+import sys
 import tempfile
 import importlib.util
 import unittest
@@ -437,6 +439,96 @@ class CaptureContractTest(unittest.TestCase):
                 self.assertIn("ORIGINAL_REJECT", result.stdout)
                 self.assertEqual("CAPTURE_CALLED" in result.stdout, called)
                 if capture_status == 1 and called:self.assertIn("bounded_package_failure_capture_unavailable", result.stderr)
+
+
+class CapturePhaseStderrProcessTest(unittest.TestCase):
+    def test_real_stderr_failure_preserves_exit_status_and_fixed_output(self):
+        if not Path("/dev/full").is_char_device():
+            self.skipTest("requires the /dev/full failing stderr device")
+        child_source = r"""
+import importlib.util
+import subprocess
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location("package_capture_stderr_child", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+with patch.object(subprocess, "Popen", side_effect=AssertionError("unexpected child process")), \
+        patch.object(subprocess, "run", side_effect=AssertionError("unexpected child process")):
+    spec.loader.exec_module(module)
+observer_class = module.CapturePhaseDiagnostics
+writers = []
+class WriterSelected(Exception):
+    pass
+def select_writer(write):
+    writers.append(write)
+    raise WriterSelected()
+parser = SimpleNamespace(add_argument=lambda *args, **kwargs: None,
+                         parse_args=lambda: SimpleNamespace(platform="ios"))
+# Capture the actual production writer before argument parsing, context reads
+# or filesystem operations. Only this private sentinel is caught.
+with patch.object(module.argparse, "ArgumentParser", return_value=parser), \
+        patch.object(module, "CapturePhaseDiagnostics", side_effect=select_writer):
+    try:
+        module.main()
+    except WriterSelected:
+        pass
+assert len(writers) == 1
+status = int(sys.argv[3])
+if sys.argv[2] == "1":
+    observer = observer_class(writers[0])
+    observer.phase("arguments")
+    if status:
+        observer.failure()
+    else:
+        observer.phase("complete")
+sys.stdout.write('{"result":"preserved"}\n')
+raise SystemExit(status)
+"""
+        command = [sys.executable, "-I", "-S", "-B", "-X", "pycache_prefix=/dev/null",
+                   "-c", child_source, str(HELPER)]
+        for status in (0, 7):
+            for failing_stderr, enabled in ((False, True), (True, False), (True, True)):
+                failing = open("/dev/full", "wb", buffering=0)
+                child = None
+                try:
+                    child = subprocess.Popen(
+                        [*command, "1" if enabled else "0", str(status)],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=failing if failing_stderr else subprocess.PIPE,
+                        env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
+                        cwd=ROOT)
+                    try:
+                        stdout, stderr = child.communicate()
+                    except BaseException:
+                        # Retain ownership and expose the PID before waiting.
+                        # No termination, retry launch or early cleanup follows.
+                        self.pending_stderr_child = (child.pid, child, failing)
+                        try:
+                            os.write(2, (
+                                "package_capture_stderr_child_pending_pid="
+                                + str(child.pid) + "\n").encode("ascii"))
+                        except Exception:
+                            pass
+                        child.wait()
+                        raise
+                finally:
+                    # Close descriptors only after known ordinary termination,
+                    # or when process construction returned no child handle.
+                    if child is None or child.returncode is not None:
+                        if child is not None:
+                            child.stdout.close()
+                            if child.stderr is not None:
+                                child.stderr.close()
+                        failing.close()
+                with self.subTest(status=status, failing_stderr=failing_stderr, enabled=enabled):
+                    self.assertEqual(stdout, b'{"result":"preserved"}\n')
+                    self.assertEqual(child.returncode, status)
+                    if not failing_stderr:
+                        terminal = (b"package_capture_failure_phase=arguments\n" if status else
+                                    b"package_capture_phase=complete\n")
+                        self.assertEqual(stderr, b"package_capture_phase=arguments\n" + terminal)
 
 
 if __name__ == "__main__":unittest.main()

@@ -66,6 +66,9 @@ class PhaseContractTest(unittest.TestCase):
             module, "atomic_output", side_effect=self.fake_publish))
         self.ready = self.stack.enter_context(patch.object(
             module, "append_ready", side_effect=lambda *args: self.ready_calls.append(args)))
+        self.real_phase_writer = module.write_capture_phase
+        self.phase_writer = self.stack.enter_context(patch.object(
+            module, "write_capture_phase", side_effect=lambda line: self.log.write(line)))
         self.stack.enter_context(patch.object(Path, "resolve", lambda path: path))
         self.stack.enter_context(patch.object(Path, "lstat", return_value=SimpleNamespace(
             st_mode=stat.S_IFDIR | 0o700, st_uid=os.getuid())))
@@ -280,6 +283,7 @@ class PhaseContractTest(unittest.TestCase):
 
     def test_main_success_keeps_evidence_and_ready_handoff_unchanged(self):
         self.assertIsNone(self.main())
+        self.phase_writer.assert_called()
         self.assertEqual(len(self.outputs), 1)
         self.assertEqual(len(self.ready_calls), 1)
         metadata = self.metadata()
@@ -760,6 +764,45 @@ class PhaseContractTest(unittest.TestCase):
         terminal = source.split('if __name__ == "__main__":', 1)[1]
         self.assertIn('sys.stderr.write("bounded_package_failure_capture_unavailable\\n")', terminal)
         self.assertIn("sys.exit(1)", terminal)
+
+    def test_raw_phase_writer_uses_one_unbuffered_write_without_retry(self):
+        line = "package_capture_phase=catalog\n"
+        stream = SimpleNamespace(fileno=lambda: 23)
+        for written in (0, 1, len(line)):
+            with self.subTest(written=written):
+                with patch.object(sys, "stderr", stream), \
+                        patch.object(module.os, "write", return_value=written) as write:
+                    self.assertIsNone(self.real_phase_writer(line))
+                write.assert_called_once_with(23, line.encode("ascii"))
+        self.popen.assert_not_called()
+        self.run.assert_not_called()
+
+    def test_raw_phase_writer_io_errors_are_contained_by_observer(self):
+        error = OSError(PRIVATE)
+        stream = SimpleNamespace(fileno=lambda: 23)
+        with patch.object(sys, "stderr", stream), \
+                patch.object(module.os, "write", side_effect=error) as write:
+            with self.assertRaises(OSError) as raised:
+                self.real_phase_writer("package_capture_phase=arguments\n")
+            self.assertIs(raised.exception, error)
+            diagnostics = module.CapturePhaseDiagnostics(self.real_phase_writer)
+            diagnostics.phase("catalog")
+            diagnostics.failure()
+        self.assertEqual(write.call_count, 3)
+        self.popen.assert_not_called()
+        self.run.assert_not_called()
+
+    def test_raw_phase_writer_missing_descriptors_have_no_fallback(self):
+        for stream in (None, object(), io.StringIO()):
+            with self.subTest(stream_type=type(stream).__name__):
+                with patch.object(sys, "stderr", stream), \
+                        patch.object(module.os, "write") as write:
+                    diagnostics = module.CapturePhaseDiagnostics(self.real_phase_writer)
+                    diagnostics.phase("catalog")
+                    diagnostics.failure()
+                    write.assert_not_called()
+        self.popen.assert_not_called()
+        self.run.assert_not_called()
 
     def test_broken_diagnostic_writers_do_not_change_success_or_original_failure(self):
         def broken_write(line):
