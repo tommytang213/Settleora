@@ -332,6 +332,89 @@ class PhaseContractTest(unittest.TestCase):
                 self.assertEqual(summaries, ["package_capture_workspace=" + summary])
                 self.assertNotIn("private-job", self.log.getvalue())
 
+    def test_workspace_unmerged_pairs_classify_both_known_files_as_conflicts(self):
+        for columns in (b"DD", b"AU", b"UD", b"UA", b"DU", b"AA", b"UU"):
+            for name, offset in ((module.IOS_LOCK, 1), (DEBUG_PATH, 3)):
+                with self.subTest(columns=columns, name=name):
+                    expected = ["simple", "absent", "absent", "absent", "absent", "absent"]
+                    expected[offset:offset + 2] = ["unmerged", "unmerged"]
+                    self.assertEqual(module.classify_workspace_status(
+                        columns + b" " + name.encode() + b"\0"), tuple(expected))
+
+    def test_workspace_conflict_classification_keeps_negative_and_private_inputs_bounded(self):
+        unknown = ("unknown",) * 5
+        for columns in (b"DD", b"AU", b"UD", b"UA", b"DU", b"AA", b"UU"):
+            with self.subTest(columns=columns):
+                status = columns + b" " + PRIVATE.encode() + b"\0"
+                self.assertEqual(module.classify_workspace_status(status),
+                                 ("simple", "absent", "absent", "absent", "absent", "present"))
+                lines = []
+                module.CapturePhaseDiagnostics(lines.append).workspace_rejection(status, True)
+                self.assertEqual(lines, [
+                    "package_capture_workspace=job:match;shape:simple;lock_index:absent;"
+                    "lock_worktree:absent;debug_index:absent;debug_worktree:absent;other:present\n"])
+                self.assertNotIn(PRIVATE, "".join(lines))
+        for name in (module.IOS_LOCK, DEBUG_PATH):
+            path = name.encode()
+            cases = [
+                (b"AA " + path, "malformed"),
+                (b"AA\t" + path + b"\0", "malformed"),
+                (b"AA " + path + b"\0AA " + path + b"\0", "malformed"),
+                (b"AX " + path + b"\0", "unsupported_status"),
+                (b"?? " + path + b"\0", "unsupported_status"),
+                (b"   " + path + b"\0", "unsupported_status"),
+                (b"R  " + path + b"\0" + PRIVATE.encode() + b"\0", "rename_copy"),
+                (b"AA " + path + b"\0" + b"x" * (16 * 1024), "unavailable"),
+            ]
+            for status, shape in cases:
+                with self.subTest(name=name, shape=shape, status=status[:3]):
+                    self.assertEqual(module.classify_workspace_status(status), (shape, *unknown))
+            for columns, classes in ((b"A ", ("added", "unchanged")),
+                                     (b" D", ("unchanged", "deleted")),
+                                     (b"MM", ("modified", "modified"))):
+                with self.subTest(name=name, columns=columns):
+                    expected = ["simple", "absent", "absent", "absent", "absent", "absent"]
+                    offset = 1 if name == module.IOS_LOCK else 3
+                    expected[offset:offset + 2] = classes
+                    self.assertEqual(module.classify_workspace_status(
+                        columns + b" " + path + b"\0"), tuple(expected))
+
+    def test_workspace_conflicts_keep_rejection_identity_operations_and_outputs_invariant(self):
+        original = ValueError("original conflict rejection")
+        real_require = module.require
+        def require(value):
+            if not value:
+                raise original
+            return real_require(value)
+        def broken_write(line):
+            raise OSError(PRIVATE)
+        for columns in (b"DD", b"AU", b"UD", b"UA", b"DU", b"AA", b"UU"):
+            for name in (module.IOS_LOCK, DEBUG_PATH):
+                for mode in ("disabled", "enabled", "broken"):
+                    with self.subTest(columns=columns, name=name, mode=mode):
+                        self.reset_observations()
+                        self.status = columns + b" " + name.encode() + b"\0"
+                        observer = (object() if mode == "disabled" else
+                                    module.CapturePhaseDiagnostics(
+                                        self.log.write if mode == "enabled" else broken_write))
+                        with patch.object(module, "require", side_effect=require):
+                            with self.assertRaises(ValueError) as raised:
+                                self.main(diagnostics=observer)
+                        self.assertIs(raised.exception, original)
+                        self.assertEqual(self.git_calls, [
+                            ("rev-parse", "HEAD"),
+                            ("status", "--porcelain", "-z", "--untracked-files=no"),
+                        ])
+                        self.assertEqual(self.outputs, [])
+                        self.assertEqual(self.ready_calls, [])
+                        self.assertNotIn(PRIVATE, self.log.getvalue())
+                        if mode == "enabled":
+                            self.assert_failure_phase("workspace_rejected_other_state")
+                        else:
+                            self.assertEqual(self.log.getvalue(), "")
+        self.popen.assert_not_called()
+        self.run.assert_not_called()
+
     def test_main_context_failure_is_original_exception_and_has_exact_phase(self):
         error = RuntimeError(PRIVATE)
         self.read_git.side_effect = error

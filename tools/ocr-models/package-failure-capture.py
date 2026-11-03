@@ -100,7 +100,10 @@ def classify_workspace_status(status):
             return unknown("malformed")
         seen.add(name)
         if name in known:
-            known[name] = tuple(WORKSPACE_STATUS_BYTES[value] for value in columns)
+            # Unmerged XY pairs describe merge sides, not index/worktree edits.
+            known[name] = (("unmerged", "unmerged")
+                           if columns in (b"DD", b"AU", b"UD", b"UA", b"DU", b"AA", b"UU")
+                           else tuple(WORKSPACE_STATUS_BYTES[value] for value in columns))
         else:
             other = "present"
     lock = known[IOS_LOCK.encode()] or ("absent", "absent")

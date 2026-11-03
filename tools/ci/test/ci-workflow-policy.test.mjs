@@ -456,7 +456,8 @@ function runStackBinding(fixture, overrides = {}, cwd = fixture.root) {
     .find((step) => step.name === 'Verify stacked PR source binding').run;
   const env = { ...fixture.env, ...fixture.identities, ...overrides };
   for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key];
-  const result = spawnSync('bash', ['-c', script], { cwd, env, encoding: 'utf8', timeout: 10_000 });
+  const result = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script],
+    { cwd, env, encoding: 'utf8', timeout: 10_000 });
   if (result.error) throw result.error;
   assert.equal(result.signal, null, 'binding script must exit normally');
   assert.equal(Number.isInteger(result.status), true, 'binding script must produce an exit code');
