@@ -34,6 +34,10 @@ permissions:
   contents: read
 
 env:
+  # Failure diagnostics only; this flag never grants package/native acceptance.
+  SETTLEORA_PACKAGE_FAILURE_CAPTURE: hosted_v1
+  CAPTURE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+  CAPTURE_WORKFLOW_REF: ${{ github.workflow_ref }}
   CANDIDATE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.checkout_ref }}
   EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}
 
@@ -59,6 +63,9 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "22"
+
+      - name: Verify package failure capture contracts
+        run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-capture.test.py -v
 
       - name: Setup Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
@@ -287,8 +294,13 @@ jobs:
           echo "verified_signer_certificate_sha256=$verified_signer_certificate_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Record bounded Android package comparison after failed measurement
+        id: package_comparison
         if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
         run: |
+          if ! python3 tools/ocr-models/package-failure-capture.py \
+            --platform=android --source-sha="$EXPECTED_HEAD" --repo-root="$GITHUB_WORKSPACE"; then
+            printf '%s\n' 'bounded_package_failure_capture_unavailable' >&2
+          fi
           ndk_selected=""
           ndk_installed=""
           linker_version=""
@@ -347,6 +359,15 @@ jobs:
             ${{ runner.temp }}/android-build-provenance.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload verified-complete Android failure observation
+        if: ${{ !cancelled() && steps.package.outcome == 'failure' && steps.package_comparison.outputs.package_failure_capture_ready == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-package-failure-observation-${{ env.EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/android-package-failure-capture.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Build bounded Android evidence
         if: always()
@@ -413,6 +434,9 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "22"
+
+      - name: Verify package failure capture contracts
+        run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-capture.test.py -v
 
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
@@ -607,6 +631,15 @@ jobs:
             ${{ runner.temp }}/ios-release-provenance.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload verified-complete iOS failure observation
+        if: ${{ !cancelled() && steps.package.outcome == 'failure' && steps.package.outputs.package_failure_capture_ready == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ios-package-failure-observation-${{ env.EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/ios-package-failure-evidence.zip
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Enforce iOS acceptance result
         if: always()
