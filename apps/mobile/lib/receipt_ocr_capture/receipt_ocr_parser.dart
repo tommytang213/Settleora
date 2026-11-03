@@ -12698,7 +12698,7 @@ const _ocrRecognizedCurrencyCodes = <String>{
   'VND',
 };
 final _supportedCurrencyCodes = _ocrRecognizedCurrencyCodes;
-final _currencyTokenPattern = [
+final _currencyTokenLiterals = [
   ..._supportedCurrencyCodes,
   r'HK$',
   r'US$',
@@ -12722,7 +12722,10 @@ final _currencyTokenPattern = [
   'Rs',
   'د.إ',
   'دإ',
-].map(RegExp.escape).join('|');
+];
+final _currencyTokenPattern = _currencyTokenLiterals
+    .map(RegExp.escape)
+    .join('|');
 const _amountTokenPattern =
     r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,3})?|\d+(?:[.,'’]\d+)*)";
 final _pricedItemRowPattern = RegExp(
@@ -13014,6 +13017,43 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
   return amount;
 }
 
+final _arabicSuffixConnectionPunctuationPattern = RegExp(
+  r'[^\p{L}\p{N}]',
+  caseSensitive: false,
+  unicode: true,
+);
+final _arabicSuffixConnectionTokenPatterns = <RegExp>[
+  for (final token in [
+    ..._currencyTokenLiterals,
+    ..._knownUnsupportedIsoCurrencyCodes,
+  ])
+    RegExp(RegExp.escape(token), caseSensitive: false, unicode: true),
+  for (final word in const ['and', 'plus', 'or', 'vs', 'vs.', 'versus', 'to'])
+    RegExp('${RegExp.escape(word)}\\b', caseSensitive: false, unicode: true),
+];
+
+bool _hasArabicSuffixConnection(String prefix) {
+  // Currency symbols already belong to the non-letter/non-number class.
+  // Visit each reachable offset once instead of backtracking through duplicate
+  // symbol matches. Keep every token endpoint: a shorter token may be needed
+  // later, and operator boundaries must inspect the original complete prefix.
+  final reachable = List<bool>.filled(prefix.length + 1, false);
+  reachable[0] = true;
+  for (var offset = 0; offset < prefix.length; offset++) {
+    if (!reachable[offset]) continue;
+    final punctuation = _arabicSuffixConnectionPunctuationPattern.matchAsPrefix(
+      prefix,
+      offset,
+    );
+    if (punctuation != null) reachable[punctuation.end] = true;
+    for (final pattern in _arabicSuffixConnectionTokenPatterns) {
+      final token = pattern.matchAsPrefix(prefix, offset);
+      if (token != null) reachable[token.end] = true;
+    }
+  }
+  return reachable.last;
+}
+
 bool _hasUnownedArabicSuffixGroups(
   String line,
   int amountStart,
@@ -13050,17 +13090,11 @@ bool _hasUnownedArabicSuffixGroups(
   // narrower punctuation list here. Currency chains and existing operator
   // words may connect the marker, but another number or unrelated word may not.
   final suffix = line.substring(amountEnd);
-  final connection = RegExp(
-    '^(?:[^\\p{L}\\p{N}]|$_signCurrencyTokenPattern|'
-    r'(?:and|plus|or|vs\.?|versus|to)\b)*$',
-    caseSensitive: false,
-    unicode: true,
-  );
   final marker = _printedCurrencyMarkerMatches(suffix)
       .where(
         (marker) =>
             const {'د.إ', 'دإ'}.contains(marker.group(1)) &&
-            connection.hasMatch(suffix.substring(0, marker.start)),
+            _hasArabicSuffixConnection(suffix.substring(0, marker.start)),
       )
       .firstOrNull;
   if (marker == null) return false;

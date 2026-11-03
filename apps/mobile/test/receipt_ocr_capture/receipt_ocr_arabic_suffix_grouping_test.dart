@@ -790,4 +790,46 @@ void main() {
       expect(preview.taxCurrency, 'AED');
     },
   );
+
+  for (final symbol in [r'$', '€']) {
+    for (final marker in ['د.إ', 'دإ']) {
+      test(
+        'Arabic suffix connector keeps unrelated word after repeated $symbol $marker',
+        () {
+          final control = const ReceiptOcrParser().parse(
+            'Item 1 234.50 X $marker',
+          );
+          // The original parser was characterized only through six symbols.
+          // The larger fixed case exercises the bounded connector traversal;
+          // it is not a wall-clock assertion or an input-length acceptance cap.
+          for (final count in [0, 2, 4, 6, 32]) {
+            final preview = const ReceiptOcrParser().parse(
+              'Item 1 234.50 ${symbol * count} X $marker',
+            );
+            expect(preview.currency, 'AED', reason: 'symbol count $count');
+            expect(
+              preview.currencyProvenance,
+              ReceiptOcrCurrencyProvenance.explicit,
+            );
+            expect(preview.receiptDate, isNull);
+            expect(preview.items, isEmpty);
+            expect(preview.subtotal, isNull);
+            expect(preview.tax, isNull);
+            expect(preview.service, isNull);
+            expect(preview.discount, isNull);
+            expect(preview.total, isNull);
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(preview.incompleteAdjustmentReasons, [
+              ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem,
+            ]);
+            expect(preview.itemLineDecisions, [
+              ReceiptOcrItemLineDecision.unretainedPricedRow,
+            ]);
+            expect(preview.itemSelectionDecisions, isEmpty);
+            _expectSameReviewState(preview, control);
+          }
+        },
+      );
+    }
+  }
 }
