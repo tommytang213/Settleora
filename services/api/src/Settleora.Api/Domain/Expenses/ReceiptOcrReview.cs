@@ -50,5 +50,7 @@ public sealed class ReceiptOcrReview
 
     public ICollection<ReceiptOcrReviewAdjustment> Adjustments { get; } = new List<ReceiptOcrReviewAdjustment>();
 
+    public ICollection<ReceiptOcrReviewHeaderEvidence> HeaderEvidence { get; } = new List<ReceiptOcrReviewHeaderEvidence>();
+
     public ICollection<ReceiptOcrReviewAssignment> Assignments { get; } = new List<ReceiptOcrReviewAssignment>();
 }

@@ -17,6 +17,7 @@ internal sealed record ReceiptOcrReviewSummaryResponse(
     string? MerchantText,
     string? Currency,
     int LineCount,
+    IReadOnlyList<ReceiptOcrReviewHeaderEvidenceResponse> HeaderEvidence,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
@@ -37,6 +38,7 @@ internal sealed record ReceiptOcrReviewResponse(
     string? GrandTotalAmount,
     IReadOnlyList<ReceiptOcrReviewLineResponse> Lines,
     IReadOnlyList<ReceiptOcrReviewAdjustmentResponse> AdjustmentEvidence,
+    IReadOnlyList<ReceiptOcrReviewHeaderEvidenceResponse> HeaderEvidence,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc)
 {
@@ -66,6 +68,8 @@ internal sealed record ReceiptOcrReviewResponse(
                 .ThenBy(adjustment => adjustment.Id)
                 .Select(ReceiptOcrReviewAdjustmentResponse.From)
                 .ToArray(),
+            review.HeaderEvidence.OrderBy(evidence => evidence.Role)
+                .Select(ReceiptOcrReviewHeaderEvidenceResponse.From).ToArray(),
             review.CreatedAtUtc,
             review.UpdatedAtUtc);
     }
@@ -74,6 +78,12 @@ internal sealed record ReceiptOcrReviewResponse(
     {
         return amount?.ToString("0.####", CultureInfo.InvariantCulture);
     }
+}
+
+internal sealed record ReceiptOcrReviewHeaderEvidenceResponse(string Role, string Amount, string Currency)
+{
+    public static ReceiptOcrReviewHeaderEvidenceResponse From(ReceiptOcrReviewHeaderEvidence evidence) =>
+        new(evidence.Role, evidence.Amount.ToString("0.####", CultureInfo.InvariantCulture), evidence.Currency);
 }
 
 internal sealed record ReceiptOcrReviewAdjustmentResponse(

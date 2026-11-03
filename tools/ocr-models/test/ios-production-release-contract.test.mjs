@@ -1,0 +1,1311 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { deflateRawSync } from "node:zlib";
+
+import { hashDirectory } from "../hash-directory.mjs";
+import { verifyIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
+import { inspectOpenedIpa, verifyCanonicalIpa, verifyOpenedIpa } from "../verify-ipa-archive.mjs";
+import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
+import { buildProvenance } from "../write-ios-release-provenance.mjs";
+
+const repoRoot = path.resolve(import.meta.dirname, "../../..");
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+function verifyTestIpa(archivePath) {
+  let fd;
+  try {
+    fd = openSync(archivePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    throw new Error("Unsafe IPA archive: archive cannot be opened as a regular non-symlink file");
+  }
+  return inspectOpenedIpa(fd);
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xedb88320);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0), archiveComment = Buffer.alloc(0) } = {}) {
+  const localParts = [prefix];
+  const centralParts = [];
+  let localOffset = prefix.length;
+  for (const [index, entry] of entries.entries()) {
+    const name = Buffer.from(entry.name);
+    const localName = Buffer.from(entry.localName ?? entry.name);
+    const data = Buffer.from(entry.data ?? "");
+    const method = entry.deflateLevel == null ? 0 : 8;
+    const stored = method === 8 ? deflateRawSync(data, { level: entry.deflateLevel }) : data;
+    const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
+    const centralComment = entry.centralComment ?? Buffer.alloc(0);
+    const localExtra = entry.localExtra ?? Buffer.alloc(0);
+    const dataCrc32 = crc32(data);
+    const directory = entry.directory ?? entry.name.endsWith("/");
+    const mode = entry.mode ?? (directory ? 0o040755 : 0o100644);
+    const flags = entry.flags ?? (entry.dataDescriptor ? 0x808 : 0x800);
+    const descriptor = entry.dataDescriptor ? Buffer.alloc(16) : Buffer.alloc(0);
+    if (entry.dataDescriptor) {
+      descriptor.writeUInt32LE(0x08074b50, 0);
+      descriptor.writeUInt32LE(entry.descriptorCrc32 ?? dataCrc32, 4);
+      descriptor.writeUInt32LE(entry.descriptorCompressedSize ?? stored.length, 8);
+      descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? data.length, 12);
+    }
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(flags, 6);
+    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(entry.localTime ?? 0x0821, 10);
+    local.writeUInt16LE(entry.localDate ?? 0x0221, 12);
+    local.writeUInt32LE(entry.localCrc32 ?? (entry.dataDescriptor ? 0 : dataCrc32), 14);
+    local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : stored.length), 18);
+    local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 22);
+    local.writeUInt16LE(localName.length, 26);
+    local.writeUInt16LE(localExtra.length, 28);
+    localParts.push(local, localName, localExtra, stored, descriptor);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE((3 << 8) | 20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(flags, 8);
+    central.writeUInt16LE(method, 10);
+    central.writeUInt16LE(entry.centralTime ?? 0x0821, 12);
+    central.writeUInt16LE(entry.centralDate ?? 0x0221, 14);
+    central.writeUInt32LE(entry.centralCrc32 ?? dataCrc32, 16);
+    central.writeUInt32LE(stored.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(centralExtra.length, 30);
+    central.writeUInt16LE(centralComment.length, 32);
+    central.writeUInt32LE((mode << 16) >>> 0, 38);
+    central.writeUInt32LE(localOffset, 42);
+    centralParts.push(central, name, centralExtra, centralComment);
+    localOffset += local.length + localName.length + localExtra.length + stored.length + descriptor.length;
+    if (index + 1 < entries.length && gap.length > 0) {
+      localParts.push(gap);
+      localOffset += gap.length;
+    }
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralDirectory.length, 12);
+  eocd.writeUInt32LE(localOffset, 16);
+  eocd.writeUInt16LE(archiveComment.length, 20);
+  return Buffer.concat([...localParts, centralDirectory, eocd, archiveComment]);
+}
+
+function provenanceArgs(root, mode = "signed") {
+  const artifact = mode === "signed" ? path.join(root, "Settleora.ipa") : path.join(root, "Runner.app");
+  const archive = path.join(root, "Runner.xcarchive");
+  if (mode === "signed") writeFileSync(artifact, "signed-ipa");
+  else mkdirSync(artifact);
+  mkdirSync(archive);
+  return new Map(Object.entries({
+    mode,
+    "source-sha": "1".repeat(40),
+    "source-tree": "2".repeat(40),
+    artifact,
+    "artifact-sha256": "3".repeat(64),
+    archive: mode === "signed" ? archive : "",
+    "archive-sha256": mode === "signed" ? "8".repeat(64) : "",
+    "bundle-identifier": "com.tommytang213.settleora",
+    "build-name": "1.0.0",
+    "build-number": "42",
+    "flutter-version": "3.44.8",
+    "xcode-version": "16.4",
+    "cocoapods-version": "1.17.0",
+    "codemagic-cli-tools-version": mode === "signed" ? "0.69.0" : "not-applicable",
+    "pubspec-lock-sha256": "4".repeat(64),
+    "podfile-lock-sha256": "5".repeat(64),
+    "catalog-sha256": "6".repeat(64),
+    "fixture-manifest-sha256": "7".repeat(64),
+  }));
+}
+
+test("directory identity is deterministic and binds safe relative symbolic links", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-directory-hash-"));
+  const rootLink = `${root}-link`;
+  try {
+    mkdirSync(path.join(root, "nested"));
+    writeFileSync(path.join(root, "nested/model.onnx"), "model");
+    const first = hashDirectory(root);
+    const second = hashDirectory(root);
+    assert.match(first, /^[0-9a-f]{64}$/);
+    assert.equal(first, second);
+    writeFileSync(path.join(root, "nested/model.onnx"), "changed");
+    assert.notEqual(hashDirectory(root), first);
+    symlinkSync("model.onnx", path.join(root, "nested/model-link.onnx"));
+    const linked = hashDirectory(root);
+    assert.match(linked, /^[0-9a-f]{64}$/);
+    rmSync(path.join(root, "nested/model-link.onnx"));
+    symlinkSync("../nested/model.onnx", path.join(root, "nested/model-link.onnx"));
+    assert.notEqual(hashDirectory(root), linked);
+    rmSync(path.join(root, "nested/model-link.onnx"));
+    symlinkSync("../../outside", path.join(root, "nested/model-link.onnx"));
+    assert.throws(() => hashDirectory(root), /escaping symbolic link/);
+    symlinkSync(root, rootLink, "dir");
+    assert.throws(() => hashDirectory(rootLink), /root must be a real directory/);
+  } finally {
+    rmSync(rootLink, { force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("signed provenance binds the exact artifact and forbids publication", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-provenance-"));
+  try {
+    const provenance = buildProvenance(provenanceArgs(root));
+    assert.equal(provenance.contract, "settleora-ios-build-once-promote-same-artifact-v1");
+    assert.equal(provenance.promotionPolicy, "promote-this-exact-signed-ipa-without-rebuild");
+    assert.equal(provenance.publicationPerformed, false);
+    assert.equal(provenance.artifact.fileName, "Settleora.ipa");
+    assert.equal(provenance.artifact.sha256, "3".repeat(64));
+    assert.equal(provenance.artifact.archiveSha256, "8".repeat(64));
+    assert.equal(provenance.artifact.buildName, "1.0.0");
+    assert.equal(provenance.artifact.buildNumber, "42");
+    assert.equal(provenance.toolchain.codemagicCliTools, "0.69.0");
+    assert.equal(provenance.verification.codeSignatureVerified, true);
+    assert.equal(provenance.verification.rawOcrEvidenceAbsentFromReviewedResources, true);
+    assert.equal(provenance.verification.compiledAssetContentReviewed, false);
+    assert.equal(Object.hasOwn(provenance.verification, "rawOcrEvidenceAbsent"), false);
+    assert.equal(JSON.stringify(provenance).includes(root), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unsigned structural provenance is explicitly non-promotable", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-unsigned-provenance-"));
+  try {
+    const provenance = buildProvenance(provenanceArgs(root, "unsigned"));
+    assert.equal(provenance.contract, "settleora-ios-unsigned-structural-verification-v1");
+    assert.equal(provenance.promotionPolicy, "not-promotable-unsigned-structural-evidence");
+    assert.equal(provenance.verification.codeSignatureVerified, false);
+    assert.equal(provenance.toolchain.codemagicCliTools, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("signed provenance rejects Codemagic signing-tool drift", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-provenance-toolchain-"));
+  try {
+    const args = provenanceArgs(root);
+    args.set("codemagic-cli-tools-version", "0.70.0");
+    assert.throws(() => buildProvenance(args), /differs from the canonical contract/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before extraction", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-namespace-"));
+  const archive = path.join(root, "Runner.ipa");
+  const harmlessTimestamp = Buffer.from([0x55, 0x54, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]);
+  try {
+    writeFileSync(archive, makeStoredZip([
+      { name: "Payload/" },
+      { name: "Payload/Runner.app/" },
+      {
+        name: "Payload/Runner.app/Info.plist",
+        data: "plist",
+        dataDescriptor: true,
+        centralExtra: harmlessTimestamp,
+        localExtra: harmlessTimestamp,
+      },
+      { name: "SwiftSupport/" },
+      { name: "SwiftSupport/iphoneos/" },
+      { name: "SwiftSupport/iphoneos/libswiftCore.dylib", data: "dylib" },
+    ]));
+    assert.match(verifyTestIpa(archive), /^[0-9a-f]{64}$/);
+    const canonicalIpaDirectory = path.join(root, "build/ios/ipa");
+    const canonicalIpa = path.join(canonicalIpaDirectory, "Runner.ipa");
+    const verifier = path.join(repoRoot, "tools/ocr-models/verify-ipa-archive.mjs");
+    mkdirSync(canonicalIpaDirectory, { recursive: true });
+    writeFileSync(canonicalIpa, readFileSync(archive));
+    const canonicalResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
+    assert.equal(canonicalResult.status, 0);
+    const reviewedDigest = sha256(readFileSync(canonicalIpa));
+    assert.equal(canonicalResult.stdout, `${reviewedDigest}\n`);
+    assert.equal(canonicalResult.stderr, "");
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
+    const oldDirectory = process.cwd();
+    try {
+      process.chdir(root);
+      assert.equal(verifyCanonicalIpa({ reviewedDigests: new Set([reviewedDigest]) }), reviewedDigest);
+    } finally {
+      process.chdir(oldDirectory);
+    }
+    assert.equal(existsSync(path.join(canonicalIpaDirectory, ".settleora-verified-ipa")), false);
+    assert.equal(
+      readFileSync(path.join(root, "build/ios/.settleora-ipa-inspection/Payload/Runner.app/Info.plist"), "utf8"),
+      "plist",
+    );
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
+    const boundedCliError = "canonical_ipa_verification_failed\n";
+    const argumentResult = spawnSync(process.execPath, [verifier, archive], { cwd: root, encoding: "utf8" });
+    assert.notEqual(argumentResult.status, 0);
+    assert.equal(argumentResult.stdout, "");
+    assert.equal(argumentResult.stderr, boundedCliError);
+    writeFileSync(canonicalIpa, "not an ipa");
+    const malformedResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
+    assert.notEqual(malformedResult.status, 0);
+    assert.equal(malformedResult.stdout, "");
+    assert.equal(malformedResult.stderr, boundedCliError);
+    assert.doesNotMatch(malformedResult.stderr, new RegExp(root.replaceAll("/", "\\/")));
+    assert.doesNotMatch(malformedResult.stderr, new RegExp(repoRoot.replaceAll("/", "\\/")));
+    assert.doesNotMatch(malformedResult.stderr, /Error:|\bat\s/);
+    rmSync(canonicalIpa);
+    symlinkSync(archive, canonicalIpa);
+    const canonicalLinkResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
+    assert.notEqual(canonicalLinkResult.status, 0);
+    assert.equal(canonicalLinkResult.stdout, "");
+    assert.equal(canonicalLinkResult.stderr, boundedCliError);
+    rmSync(canonicalIpa);
+    rmSync(canonicalIpaDirectory, { recursive: true });
+    const redirectedIpaDirectory = path.join(root, "redirected-ipa");
+    mkdirSync(redirectedIpaDirectory);
+    writeFileSync(path.join(redirectedIpaDirectory, "Runner.ipa"), readFileSync(archive));
+    symlinkSync(redirectedIpaDirectory, canonicalIpaDirectory, "dir");
+    const canonicalDirectoryLinkResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
+    assert.notEqual(canonicalDirectoryLinkResult.status, 0);
+    assert.equal(canonicalDirectoryLinkResult.stdout, "");
+    assert.equal(canonicalDirectoryLinkResult.stderr, boundedCliError);
+    const archiveLink = path.join(root, "Runner-link.ipa");
+    symlinkSync(archive, archiveLink);
+    assert.throws(() => verifyTestIpa(archiveLink), /regular non-symlink file/);
+    const privateUidGid = Buffer.concat([
+      Buffer.from([0x75, 0x78, 0x13, 0x00, 0x01, 0x08]),
+      Buffer.from("PRIVATE!"), Buffer.from([0x08]), Buffer.from("RECEIPT!"),
+    ]);
+
+    for (const entries of [
+      [{ name: "Payload/Runner.app/file" }, { name: "Payload/Runner.app/file" }],
+      [{ name: "Payload/Runner.app/file" }, { name: "payload/runner.app/FILE" }],
+      [{ name: "Payload/../escaped" }],
+      [{ name: "/Payload/Runner.app/file" }],
+      [{ name: "Payload\\Runner.app\\file" }],
+      [{ name: "Other/Runner.app/file" }],
+      [{ name: "Payload/Runner.app/link", mode: 0o120777, data: "../../outside" }],
+      [{ name: "Payload/Runner.app/file", localName: "Payload/Runner.app/evil" }],
+      [{ name: "Payload/Runner.app/file", data: "data", localCompressedSize: 3 }],
+      [{ name: "Payload/Runner.app/file", data: "data", dataDescriptor: true, descriptorCompressedSize: 3 }],
+      [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x75, 0x70, 0x01, 0x00, 0x01]) }],
+      [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x6e, 0x75, 0x00, 0x00]) }],
+      [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x4d, 0x33, 0x00, 0x00]) }],
+      [{ name: "Payload/Runner.app/file", centralExtra: privateUidGid, localExtra: privateUidGid }],
+    ]) {
+      writeFileSync(archive, makeStoredZip(entries));
+      assert.throws(() => verifyTestIpa(archive), /Unsafe IPA archive/);
+    }
+    const contiguousEntries = [
+      { name: "Payload/" },
+      { name: "Payload/Runner.app/" },
+      { name: "Payload/Runner.app/file", data: "safe" },
+    ];
+    writeFileSync(archive, makeStoredZip(contiguousEntries, { prefix: Buffer.from("unreferenced-prefix") }));
+    assert.throws(() => verifyTestIpa(archive), /complete archive payload/);
+    writeFileSync(archive, makeStoredZip(contiguousEntries, { gap: Buffer.from("unreferenced-gap") }));
+    assert.throws(() => verifyTestIpa(archive), /complete archive payload/);
+    writeFileSync(archive, makeStoredZip(contiguousEntries, { archiveComment: Buffer.from("opaque-comment") }));
+    assert.throws(() => verifyTestIpa(archive), /archive comments are forbidden/);
+    writeFileSync(archive, makeStoredZip([
+      { name: "Payload/" },
+      { name: "Payload/Runner.app/file", data: "safe", centralComment: Buffer.from("opaque-comment") },
+    ]));
+    assert.throws(() => verifyTestIpa(archive), /entry comments are forbidden/);
+    for (const repeatedExtra of [Buffer.concat([harmlessTimestamp, harmlessTimestamp])]) {
+      writeFileSync(archive, makeStoredZip([
+        { name: "Payload/", centralExtra: repeatedExtra },
+      ]));
+      assert.throws(() => verifyTestIpa(archive), /duplicate archive metadata extra field/);
+    }
+    const opaqueNtfsField = Buffer.alloc(36);
+    opaqueNtfsField.writeUInt16LE(0x000a, 0);
+    opaqueNtfsField.writeUInt16LE(32, 2);
+    opaqueNtfsField.writeUInt16LE(1, 8);
+    opaqueNtfsField.writeUInt16LE(24, 10);
+    Buffer.from("PRIVATE_RECEIPT_TEXT_123").copy(opaqueNtfsField, 12);
+    writeFileSync(archive, makeStoredZip([
+      { name: "Payload/Runner.app/file", data: "safe", localExtra: opaqueNtfsField },
+    ]));
+    assert.throws(() => verifyTestIpa(archive), /non-metadata archive extra field is forbidden/);
+    const mismatchedTimestamp = Buffer.from(harmlessTimestamp);
+    mismatchedTimestamp.writeUInt32LE(1, 5);
+    writeFileSync(archive, makeStoredZip([
+      {
+        name: "Payload/Runner.app/file",
+        data: "safe",
+        centralExtra: harmlessTimestamp,
+        localExtra: mismatchedTimestamp,
+      },
+    ]));
+    assert.throws(() => verifyTestIpa(archive), /timestamp extra field is not canonical/);
+    for (const timestampEntry of [
+      { localTime: 0x4142, centralTime: 0x5758 },
+      { localDate: 0x4142, centralDate: 0x5758 },
+      { localDate: 0, centralDate: 0 },
+      { localTime: 0xffff, centralTime: 0xffff },
+      { localDate: 0x5c5f, centralDate: 0x5c5f },
+      { localTime: 0x4241, centralTime: 0x4241, localDate: 0x4443, centralDate: 0x4443 },
+    ]) {
+      writeFileSync(archive, makeStoredZip([
+        { name: "Payload/Runner.app/file", data: "safe", ...timestampEntry },
+      ]));
+      assert.throws(() => verifyTestIpa(archive), /DOS timestamp/);
+    }
+    const localTimestampWithUncheckedTimes = Buffer.alloc(17);
+    localTimestampWithUncheckedTimes.writeUInt16LE(0x5455, 0);
+    localTimestampWithUncheckedTimes.writeUInt16LE(13, 2);
+    localTimestampWithUncheckedTimes[4] = 0x07;
+    Buffer.from("PRIVATE_", "ascii").copy(localTimestampWithUncheckedTimes, 9);
+    writeFileSync(archive, makeStoredZip([{
+      name: "Payload/Runner.app/file",
+      data: "safe",
+      centralExtra: harmlessTimestamp,
+      localExtra: localTimestampWithUncheckedTimes,
+    }]));
+    assert.throws(() => verifyTestIpa(archive), /extended timestamp extra field is not canonical/);
+    for (const controlName of ["Payload/Runner.app/split\nidentity", "Payload/Runner.app/del\u007fidentity"]) {
+      writeFileSync(archive, makeStoredZip([{ name: "Payload/" }, { name: controlName, data: "safe" }]));
+      assert.throws(() => verifyTestIpa(archive), /control character/);
+    }
+    writeFileSync(archive, makeStoredZip([{ name: "Payload/", data: "hidden receipt evidence" }]));
+    assert.throws(() => verifyTestIpa(archive), /directory entry contains payload bytes/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("signed IPA rejects an alternate valid DEFLATE representation", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-deflate-"));
+  const ipaDirectory = path.join(root, "build/ios/ipa");
+  const archive = path.join(ipaDirectory, "Runner.ipa");
+  const oldDirectory = process.cwd();
+  const entries = (level) => [
+    { name: "Payload/" },
+    { name: "Payload/Runner.app/" },
+    { name: "Payload/Runner.app/Info.plist", data: "reviewed app bytes ".repeat(64), deflateLevel: level },
+  ];
+  try {
+    mkdirSync(ipaDirectory, { recursive: true });
+    const reviewed = makeStoredZip(entries(6));
+    writeFileSync(archive, reviewed);
+    assert.equal(verifyTestIpa(archive), sha256(reviewed));
+    process.chdir(root);
+    const reviewedDigests = new Set([sha256(reviewed)]);
+    assert.equal(verifyCanonicalIpa({ reviewedDigests }), sha256(reviewed));
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
+    const alternate = makeStoredZip(entries(0));
+    assert.notEqual(sha256(alternate), sha256(reviewed));
+    writeFileSync(archive, alternate);
+    assert.equal(verifyTestIpa(archive), sha256(alternate));
+    // A valid alternate representation has its own output identity; no digest is required before the build.
+    assert.equal(verifyCanonicalIpa(), sha256(alternate));
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
+    const fd = openSync(archive, constants.O_RDONLY | constants.O_NOFOLLOW);
+    assert.throws(() => verifyOpenedIpa(fd, { reviewedDigests }), /representation is unreviewed/);
+    assert.throws(() => verifyCanonicalIpa({ reviewedDigests }), /representation is unreviewed/);
+  } finally {
+    process.chdir(oldDirectory);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("opaque archive resource is classified for fail-closed iOS inspection", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "settleora-opaque-resource-"));
+  try {
+    const archive = path.join(directory, "innocuous.dat");
+    writeFileSync(archive, makeStoredZip([{ name: "private.png", data: "opaque receipt bytes" }]));
+    const observed = spawnSync("file", ["-b", archive], { encoding: "utf8" });
+    assert.equal(observed.status, 0);
+    assert.match(observed.stdout, /archive/i);
+    const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+    assert.match(script, /Web\/P\|archive\|compressed\\ data/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("binary property list with opaque image data is classified for fail-closed iOS inspection", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "settleora-opaque-plist-"));
+  try {
+    const plist = path.join(directory, "innocuous.dat");
+    writeFileSync(plist, Buffer.from("YnBsaXN0MDDRAQJUYmxvYk8QD4lQTkcNChoKUFJJVkFURQgLEAAAAAAAAAEBAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAi", "base64"));
+    const observed = spawnSync("file", ["-b", plist], { encoding: "utf8" });
+    assert.equal(observed.status, 0);
+    assert.match(observed.stdout, /Apple binary property list/);
+    const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+    assert.match(script, /Apple binary property list/);
+    assert.match(script, /"\$candidate" == \*\/Info\.plist \|\| "\$candidate" == \*\/InfoPlist\.strings/);
+    assert.match(script, /plist_xml.*<data>/);
+    assert.match(script, /"\$file_description" == data/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("XML property list with opaque data is covered by the common plist inspection", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "settleora-xml-plist-"));
+  try {
+    const plist = path.join(directory, "Info.plist");
+    writeFileSync(plist, '<?xml version="1.0"?><plist version="1.0"><dict><key>payload</key><data>iVBORw0KGgo=</data></dict></plist>');
+    const observed = spawnSync("file", ["-b", plist], { encoding: "utf8" });
+    assert.equal(observed.status, 0);
+    assert.doesNotMatch(observed.stdout, /Apple binary property list/);
+    const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+    assert.match(script, /if \[\[ "\$candidate" == \*\.plist \|\| "\$candidate" == \*\.xcprivacy \|\| "\$candidate" == \*\.strings \]\]/);
+    assert.match(script, /"\$plist_xml" != \*'<data>'\*/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("compiled asset inspection records added metadata without claiming signed approval", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  assert.match(script, /node "\$tool_root\/tools\/ocr-models\/verify-ios-asset-catalog\.mjs"/);
+  const observed = verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image", SHA1Digest: "a".repeat(40) },
+    { Name: "LaunchImage", AssetType: "Image", SHA1Digest: "b".repeat(40) },
+  ]));
+  assert.match(observed, /^[0-9a-f]{64}$/);
+  assert.equal(observed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { AssetType: "Image", Name: "AppIcon", SHA1Digest: "a".repeat(40) },
+    { AssetType: "Image", Name: "LaunchImage", SHA1Digest: "b".repeat(40) },
+  ])));
+  assert.notEqual(observed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image", SHA1Digest: "a".repeat(40) },
+    { Name: "AppIcon", AssetType: "Image", PixelWidth: 24, SHA1Digest: "c".repeat(40) },
+    { Name: "LaunchImage", AssetType: "Image", SHA1Digest: "b".repeat(40) },
+  ])));
+  assert.notEqual(observed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image", SHA1Digest: "a".repeat(40) },
+    { Name: "PrivateReceipt", AssetType: "Image" },
+  ])));
+  assert.throws(() => verifyIosAssetCatalogInfo("[]"), /metadata is invalid/);
+  assert.doesNotMatch(script, /compiled asset catalog bytes are unreviewed/);
+});
+
+test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  assert.match(script, /strings "\$candidate" >>"\$symbols_file"\s*done < <\(find "\$inventory_root" -type f -print\)/);
+  assert.match(script, /"\$candidate" == "\$app_path"\/AppIcon\*\.png/);
+  assert.match(script, /sips -s format bmp "\$candidate" --out "\$icon_compare_root\/packaged\.bmp"/);
+  assert.match(script, /sips -s format bmp "\$source_icon" --out "\$icon_compare_root\/source\.bmp"/);
+  assert.match(script, /cmp -s "\$icon_compare_root\/packaged\.bmp" "\$icon_compare_root\/source\.bmp"/);
+  assert.match(script, /wc -c < "\$candidate"/);
+  assert.match(script, /cat -- "\$candidate"/);
+  assert.match(script, /wc -c < "\$source_icon"/);
+  assert.match(script, /cat -- "\$source_icon"/);
+  assert.match(script, /\} \| node "\$tool_root\/tools\/ocr-models\/verify-ios-icon-png\.mjs"/);
+  assert.match(script, /icon_representation_unreviewed=true/);
+  assert.match(script, /\[\[ "\$icon_representation_unreviewed" == false \]\] \|\|/);
+  assert.match(script, /production application contains an unreviewed resource path/);
+  const resourceInventoryLoop = script.slice(script.lastIndexOf('while IFS= read -r candidate; do'));
+  assert.match(resourceInventoryLoop, /done < <\(find "\$inventory_root" -type f -print\)/);
+  assert.match(resourceInventoryLoop, /if \[\[ "\$file_description" == Mach-O\* && "\$candidate" == "\$app_path"\/\* \]\]; then/);
+  assert.match(resourceInventoryLoop, /Frameworks\/\*\.framework\/\*\)\s+\[\[ "\$relative_resource" =~ \^Frameworks\/\(\[\^\/\]\+\)\\\.framework\/\(\[\^\/\]\+\)\$ \]\] \|\| fail_unreviewed_resource_path/);
+  assert.match(resourceInventoryLoop, /"\$framework_name" == "\$\{BASH_REMATCH\[2\]\}"/);
+  assert.ok(resourceInventoryLoop.indexOf('if [[ "$file_description" == Mach-O*') <
+    resourceInventoryLoop.indexOf('nm -a "$candidate"'));
+  const appFrameworkSource = readFileSync(path.join(repoRoot, "apps/mobile/ios/Flutter/AppFrameworkInfo.plist"));
+  const appFrameworkSha = createHash("sha256").update(appFrameworkSource).digest("hex");
+  assert.match(resourceInventoryLoop, new RegExp(`AppFrameworkInfo\\.plist\\)[\\s\\S]*?"\\$mobile_root/ios/Flutter/AppFrameworkInfo\\.plist"\\)" == ${appFrameworkSha}`));
+  assert.match(resourceInventoryLoop, /observed_app_framework_sha=\$\(sha256_file "\$candidate"\)/);
+  assert.match(resourceInventoryLoop, /"\$observed_app_framework_sha" != 275c1f7273e185d2d65f8b447af25841e2be7fbdb3df89feb6324634f33ce317/);
+  assert.match(resourceInventoryLoop, /production AppFrameworkInfo resource differs from reviewed Xcode output/);
+  assert.match(resourceInventoryLoop, /"\$candidate" == "\$app_path\/AppFrameworkInfo\.plist"/);
+  assert.doesNotMatch(resourceInventoryLoop, /if \[\[ -d "\$candidate" \]\]/);
+  assert.match(resourceInventoryLoop,
+    /Base\.lproj\/\*\.storyboardc\/\*\) \[\[ "\$relative_resource" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$ \]\] \|\| fail_unreviewed_resource_path ;;/);
+  assert.match(resourceInventoryLoop,
+    /Base\.lproj\/\*\.nib\) \[\[ "\$relative_resource" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.nib\$ \]\] \|\| fail_unreviewed_resource_path ;;/);
+  assert.match(script, /unreviewed_resource_path_sha256=%s resource_class=%s/);
+  assert.match(script, /unreviewed_privacy_bundle_info_sha256=%s/);
+  assert.match(script, /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist/);
+  assert.match(script, /framework_component_sha256=%s framework_tail_sha256=%s resource_kind=%s resource_depth=%s/);
+  assert.match(script, /bundle_component_sha256=%s bundle_tail_sha256=%s resource_kind=%s resource_depth=%s bundle_resource_sha256=%s/);
+  assert.doesNotMatch(script, /unreviewed_bundle_path=%s/);
+  assert.match(script, /unreviewed_framework_resource_sha256=%s/);
+  const engineResourcePins = [...script.matchAll(/Frameworks\/Flutter\.framework\/(Headers\/[^)]+\.h|Modules\/module\.modulemap)\) expected_flutter_engine_resource_sha=([a-f0-9]{64}) ;;/g)];
+  assert.equal(engineResourcePins.length, 20);
+  assert.equal(new Set(engineResourcePins.map((match) => match[1])).size, 20);
+  assert.ok(engineResourcePins.some((match) => match[1] === 'Headers/FlutterSceneDelegate.h' &&
+    match[2] === '1bdbab65e137d7695d6b391e3ffeecbadd2dda103795f72ec47452b8b9a3fa06'));
+  assert.doesNotMatch(script, /Frameworks\/Flutter\.framework\/Headers\/\*\.h\) expected_flutter_engine_resource_sha=/);
+  assert.match(script, /packaged Flutter engine resource differs from reviewed toolchain bytes/);
+  assert.doesNotMatch(script, /unreviewed_resource_path=%s|framework_component=%s|framework_tail=%s/);
+  assert.match(script, /compiled_asset_car_sha256=%s/);
+  assert.match(script, /verify-ios-xcarchive\.mjs/);
+  assert.match(script, /archive_review=\$\(node "\$tool_root\/tools\/ocr-models\/verify-ios-xcarchive\.mjs"\)/);
+  assert.match(script, /signed IPA application path is not canonical/);
+  assert.doesNotMatch(script, /reviewed_asset_car_sha256=''/);
+  assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
+  assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);
+  assert.match(script, /unreviewed framework resource/);
+  assert.match(resourceInventoryLoop, /unreviewed_framework_name_sha256=%s/);
+  assert.doesNotMatch(resourceInventoryLoop, /unreviewed_framework_name=%s/);
+  assert.match(script, /App\|Flutter\|file_picker\|flutter_secure_storage_darwin/);
+  assert.match(script, /nanopb\|objective_c\|onnxruntime/);
+  assert.ok(resourceInventoryLoop.indexOf('*.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy') <
+    resourceInventoryLoop.indexOf('Frameworks/*/Info.plist|Frameworks/*/PrivacyInfo.xcprivacy'));
+  assert.match(resourceInventoryLoop,
+    /Frameworks\/GoogleDataTransport\.framework\/GoogleDataTransport_Privacy\.bundle\/\*\|Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Logger_Privacy\.bundle\/Info\.plist\|Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Logger_Privacy\.bundle\/PrivacyInfo\.xcprivacy\|Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Privacy\.bundle\/PrivacyInfo\.xcprivacy\|Frameworks\/GoogleUtilities\.framework\/GoogleUtilities_Privacy\.bundle\/Info\.plist\|Frameworks\/GoogleUtilities\.framework\/GoogleUtilities_Privacy\.bundle\/PrivacyInfo\.xcprivacy\|Frameworks\/GTMSessionFetcher\.framework\/GTMSessionFetcher_Core_Privacy\.bundle\/Info\.plist\|Frameworks\/GTMSessionFetcher\.framework\/GTMSessionFetcher_Core_Privacy\.bundle\/PrivacyInfo\.xcprivacy\|Frameworks\/FBLPromises\.framework\/FBLPromises_Privacy\.bundle\/Info\.plist\|Frameworks\/FBLPromises\.framework\/FBLPromises_Privacy\.bundle\/PrivacyInfo\.xcprivacy\|Frameworks\/flutter_secure_storage_darwin\.framework\/flutter_secure_storage\.bundle\/Info\.plist\|Frameworks\/flutter_secure_storage_darwin\.framework\/flutter_secure_storage\.bundle\/PrivacyInfo\.xcprivacy\|Frameworks\/MLKitTextRecognition\.framework\/LatinOCRResources\.bundle\/\*/);
+  assert.match(resourceInventoryLoop,
+    /Frameworks\/GTMSessionFetcher\.framework\/GTMSessionFetcher_Core_Privacy\.bundle\/PrivacyInfo\.xcprivacy/);
+  assert.match(resourceInventoryLoop,
+    /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/PrivacyInfo\.xcprivacy/);
+  assert.match(resourceInventoryLoop,
+    /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 92fa33c74cf8ae0f8e628a2718c45a8fb16d7e6b1bd33c899ccd1ce9ec437f13 \]\]/);
+  assert.match(resourceInventoryLoop, /\*\) is_reviewed_pre_native_baseline_resource \|\| fail_unreviewed_resource_path ;;\s+esac\s+fi ;;\s+Frameworks\/\*\/Info\.plist/);
+  assert.match(resourceInventoryLoop, /Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 1a93db69e5f73983aa5a92283f3cd7b830a894ac5a3917efa52910b2da1894b8 \]\]/);
+  assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 729ba3cbd0f458c78cd61edf17350edafe0e34ca86e314ec64c8cb22ccd21b54 \]\]/);
+  assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 8acd771356d9ae297dcb72876b232580832c516b82755e575fc3cb0de3f1a6f8 \]\]/);
+  assert.match(resourceInventoryLoop, /Frameworks\/file_picker\.framework\/file_picker_ios_privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 \]\]/);
+  assert.match(resourceInventoryLoop, /Frameworks\/file_picker\.framework\/file_picker_ios_privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 3d3b30c0bc5677bd40fc3dff681a369be2af6b956ec0f15dc59f91650e0740e9 \]\]/);
+  assert.ok(resourceInventoryLoop.indexOf('Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy)') <
+    resourceInventoryLoop.indexOf('Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*'));
+  const matchesNestedBundle = (relativePath) => {
+    const result = spawnSync('bash', ['-c', 'case "$1" in Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/Info.plist|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/Info.plist|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/Info.plist|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/PrivacyInfo.xcprivacy|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) printf reviewed ;; *) printf reject ;; esac', '_', relativePath], { encoding: 'utf8' });
+    assert.equal(result.status, 0);
+    return result.stdout;
+  };
+  assert.equal(matchesNestedBundle('Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/Info.plist'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/Other.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/Info.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/Other.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/Info.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/Info.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/Other.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/Other.xcprivacy'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/extra.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Privacy.bundle/Info.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/Info.plist'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/extra.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/Info.plist'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/extra.xcprivacy'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/extra.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/App.framework/flutter_secure_storage.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/App.framework/GoogleDataTransport_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.match(resourceInventoryLoop, /observed_asset_manifest_sha=\$\(sha256_file "\$candidate"\)/);
+  assert.match(resourceInventoryLoop, /"\$observed_asset_manifest_sha" != 00af55ad3d6f21898fe77e0ff092d1a1cda52c941b6860e9928d45c8af8c095d/);
+  assert.match(resourceInventoryLoop, /_CodeSignature\/CodeResources\|Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.bin\|Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
+  assert.match(resourceInventoryLoop, /"\$app_path"\/Base\.lproj\/\*\.nib\)\s+relative_nib=\$\{candidate#"\$app_path"\/\}/);
+  assert.match(resourceInventoryLoop, /"\$relative_nib" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.nib\$/);
+  assert.match(resourceInventoryLoop, /production compiled nib has no reviewed byte identity/);
+  assert.match(script, /compiled_storyboard_nib_count=0\s+is_reviewed_compiled_storyboard_nib\(\)/);
+  assert.match(script, /for compiled_nib in "\$app_path"\/Base\.lproj\/\*\.storyboardc\/\*\.nib; do/);
+  assert.match(script, /compiled_storyboard_nib_path_sha256=%s compiled_storyboard_nib_sha256=%s/);
+  assert.match(script, /unreviewed_opaque_path_sha256=%s unreviewed_opaque_sha256=%s/);
+  assert.match(script, /\*\) is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_opaque_resource ;;/);
+  assert.match(script, /"\$compiled_storyboard_nib_count" -eq 4/);
+  for (const digest of [
+    '79b50384bcd97f98ef991ad5d6328a0e68a467d97e1856c3b5da16c766f16aa0:6f2e96b21c175a06c4622032d9bbe1d14b634956b7130c9290d15cd456b319d6',
+    '3b45d86bcc78a2634049ebd2c637bde2be37e96d4edb91e14a0ee8164ea3ef3a:54f3637f671feba5f19e82ec4f4a7fb448bb3cfc0fb180f089aa571fc8f053e2',
+    '6e2ddab6bc4276bf991e29c08aa937c8d023ed25e0cd9e2efca010dd3187292e:058fe138c3b415c0a5f2608c42a8d56c579bf10f7b7351bd947b1c7eca4714d9',
+    '77485951f0a486f3a744e8fb3ddd5ade66e1af8f64cf365dd1370f7e5acb60a0:cbdd28d89423b2c9beef2b27ce2c9608d30d6c6a9d2e7679f79a53814444e53f',
+  ]) assert.ok(script.includes(digest));
+  assert.match(resourceInventoryLoop, /"\$relative_nib" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\\\.nib\$/);
+  assert.match(resourceInventoryLoop, /production storyboard nib changed after inventory verification/);
+  assert.ok(resourceInventoryLoop.indexOf('"$app_path"/Base.lproj/*.storyboardc/*.nib)') <
+    resourceInventoryLoop.indexOf('"$app_path"/Base.lproj/*.nib)'),
+  'nested storyboard nibs must be handled before the broad direct nib glob');
+  assert.ok(resourceInventoryLoop.indexOf('is_reviewed_compiled_storyboard_nib "$candidate_nib_path_sha" "$candidate_nib_sha"') <
+    resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
+  assert.ok(resourceInventoryLoop.indexOf('observed_asset_manifest_sha=$(sha256_file "$candidate")') <
+    resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
+  assert.ok(resourceInventoryLoop.indexOf('unreviewed_compiled_nib_sha256=%s') <
+    resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
+  assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) expected_flutter_asset_sha=73f6eae191a87b9e96ff32d4c255978e3769125b777b8288ee501a066f2bcd22/);
+  assert.equal(resourceInventoryLoop.indexOf('NOTICES.Z'),
+    resourceInventoryLoop.indexOf('NOTICES.Z) expected_flutter_asset_sha='));
+  assert.doesNotMatch(resourceInventoryLoop, /AssetManifest\.json\|Frameworks\/App\.framework\/flutter_assets\/FontManifest\.json\|Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) ;;/);
+  assert.ok(script.indexOf('elif [[ "$relative_resource" == Frameworks/App.framework/flutter_assets/NOTICES.Z') <
+    script.indexOf('elif [[ "$file_description" =~ image|bitmap'));
+  assert.match(readFileSync(path.join(repoRoot, 'apps/mobile/pubspec.lock'), 'utf8'), /objective_c:\s+dependency: transitive\s+description:[\s\S]*?name: objective_c[\s\S]*?version: "9\.3\.0"/);
+  assert.match(script, /file_picker_ios_privacy\|image_picker_ios_privacy\|flutter_secure_storage\|GoogleUtilities_Privacy/);
+  assert.match(script, /GoogleToolboxForMac_Logger_Privacy/);
+  assert.match(script, /GTMSessionFetcher_Core_Privacy/);
+  assert.match(script, /FBLPromises_Privacy/);
+  assert.match(script, /unreviewed privacy bundle/);
+  assert.match(script, /LatinOCRResources\.bundle/);
+  assert.match(script, /production application model resource differs from the pinned pod archive/);
+  assert.doesNotMatch(script, /assetutil --validate-file "\$app_path\/Assets\.car"/);
+  assert.match(script, /assetutil --info "\$app_path\/Assets\.car"/);
+  assert.match(script, /compiled asset catalog changed during metadata observation/);
+  assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
+  for (const generatedAsset of [
+    ["NativeAssetsManifest.json", "625b2ddedce42e3d218ceb8869bc9119e8dea8650a6cb24ab779d5008055b141"],
+    ["fonts/MaterialIcons-Regular.otf", "e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed"],
+    ["packages/cupertino_icons/assets/CupertinoIcons.ttf", "67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c"],
+    ["shaders/ink_sparkle.frag", "62ce4ba6e34254371ffdfb8e0670afcc5314f4452edf5ee70afcf079f2ed7ea2"],
+    ["shaders/stretch_effect.frag", "21cdf2ecc9b113671fb228620d952ebae0f102a78a39a9df89b6ebdf6aec315a"],
+  ]) {
+    assert.match(generatedAsset[1], /^[0-9a-f]{64}$/);
+    assert.ok(resourceInventoryLoop.includes(
+      `Frameworks/App.framework/flutter_assets/${generatedAsset[0]}) expected_flutter_asset_sha=${generatedAsset[1]} ;;`,
+    ));
+    assert.ok(resourceInventoryLoop.slice(resourceInventoryLoop.indexOf('elif [[ "$file_description" == data ]]')).includes(
+      `"$app_path"/Frameworks/App.framework/flutter_assets/${generatedAsset[0]}`,
+    ));
+  }
+  assert.match(resourceInventoryLoop, /observed_flutter_asset_sha=\$\(sha256_file "\$candidate"\)/);
+  assert.match(resourceInventoryLoop,
+    /"\$relative_resource" == Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z &&\s+"\$mode" == unsigned &&\s+"\$observed_flutter_asset_sha" == f1180de3d3150e74be53219fc4b526c64dbf85e806315d22c5abb6d26b8b9af6/);
+  assert.match(resourceInventoryLoop, /"\$observed_flutter_asset_sha" != "\$expected_flutter_asset_sha"/);
+  assert.match(resourceInventoryLoop, /production Flutter asset bytes differ from the reviewed identity/);
+  assert.match(resourceInventoryLoop, /unset expected_flutter_asset_sha/);
+  assert.doesNotMatch(script, /flutter_assets\/\*\.json/);
+  assert.match(script, /image\|bitmap\|PDF\\ document\|SVG\|HEIF\|HEIC\|AVIF\|Web\/P\|archive\|compressed\\ data\|gzip/);
+  assert.match(script, /production application contains an unreviewed image or document resource/);
+  const pubspec = readFileSync(path.join(repoRoot, "apps/mobile/pubspec.yaml"), "utf8");
+  const podfileLock = readFileSync(path.join(repoRoot, "apps/mobile/ios/Podfile.lock"), "utf8");
+  for (const required of [
+    "Flutter must be $expected_flutter_version",
+    "Xcode must be $expected_xcode_version",
+    "CocoaPods must be $expected_cocoapods_version",
+    "Codemagic CLI tools must be $expected_codemagic_cli_tools_version",
+    "Codemagic CLI tools contract is missing or changed",
+    "pubspec.lock drifted during build",
+    "pubspec.lock differs from the committed canonical source",
+    "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7",
+    "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903",
+    "Podfile.lock does not match the approved identity",
+    "Podfile.lock drifted during build",
+    "source checkout differs from the committed tree",
+    "source root is not the Git worktree root",
+    "signed release candidate requires a clean Git worktree",
+    "exported source differs from the committed tree",
+    "prepare-production-flutter-plugins.mjs",
+    "--package-config=.dart_tool/package_config.json",
+    "--package-graph=.dart_tool/package_graph.json",
+    "flutter clean",
+    "rm -rf -- build .dart_tool .flutter-plugins-dependencies ios/Pods ios/.symlinks",
+    'export PUB_CACHE="$dependency_cache_root/pub-cache"',
+    'export CP_HOME_DIR="$dependency_cache_root/cocoapods-home"',
+    'export CP_CACHE_DIR="$dependency_cache_root/cocoapods-cache"',
+    "verify-mobile-package.mjs",
+    "FilePicker registrant call is missing or duplicated",
+    "Flutter secure storage registrant call is missing or duplicated",
+    "integration_test is linked into the production application",
+    "native OCR acceptance handlers are linked into the production application",
+    "com.settleora.mobile/receipt_ocr_acceptance",
+    "loadModelCatalog",
+    "loadFixture",
+    "codesign --verify --deep --strict",
+    "verify-ipa-archive.mjs",
+    ".settleora-ipa-inspection",
+    "descriptor-backed IPA inspection is missing",
+    "retained IPA differs from descriptor-backed preflight",
+    "IPA changed after namespace preflight",
+    "IPA changed after package inspection",
+    "IPA changed while provenance was generated",
+    "IPA contains a non-allowlisted top-level entry",
+    "IPA Payload contains content outside the application bundle",
+    "IPA SwiftSupport layout is not canonical",
+    "IPA SwiftSupport inventory differs from the application",
+    "IPA SwiftSupport contains a non-Mach-O library",
+    "IPA SwiftSupport library differs from its application counterpart",
+    "file -b --",
+    "inventory_root=$inspection_root",
+    "packaged build name differs from the requested signed build",
+    "packaged build number differs from the requested signed build",
+    "write-ios-release-provenance.mjs",
+    "xcode-project use-profiles",
+    "codemagic-cli-tools --version",
+    "export options plist was not produced",
+    '$(basename "$provenance_out")',
+  ]) assert.ok(script.includes(required), required);
+  assert.match(script, /signed builds must be release candidates/);
+  assert.match(script, /release candidate provenance output is required/);
+  assert.match(pubspec, /flutter:\n(?:.|\n)*?config:\n\s+enable-swift-package-manager: false/);
+  assert.doesNotMatch(pubspec, /enable-swift-package-manager: true/);
+  for (const productionPlugin of ["file_picker", "flutter_secure_storage_darwin", "image_picker_ios"]) {
+    assert.match(podfileLock, new RegExp(`^  - ${productionPlugin} \\(`, "m"));
+    assert.match(podfileLock, new RegExp(`^  ${productionPlugin}:`, "m"));
+  }
+  assert.doesNotMatch(podfileLock, /integration_test/);
+  assert.doesNotMatch(script, /\b(?:mapfile|readarray)\b/);
+  assert.doesNotMatch(script, /app-store-connect|submit_to_testflight|submit_to_app_store|\bupload\b|\bpublish\b/i);
+});
+
+test("historical iOS size baseline pins five bundle files and one separate privacy manifest", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const guard = script.match(/is_reviewed_pre_native_baseline_resource\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(guard);
+  const inventory = script.match(/observe_pre_native_baseline_bundle\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory);
+  const privacyInventory = script.match(/observe_pre_native_privacy_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(privacyInventory);
+  const privacyBundleCase = script.match(/case "\$bundle_name" in[\s\S]*?\n\s*esac/)?.[0];
+  assert.ok(privacyBundleCase);
+  assert.match(privacyBundleCase, /unreviewed_privacy_bundle_path_sha256=%s unreviewed_privacy_bundle_byte_sha256=%s/);
+  assert.match(privacyBundleCase, /unreviewed_privacy_bundle_component_sha256=%s unreviewed_privacy_bundle_tail_sha256=%s/);
+  assert.doesNotMatch(privacyBundleCase, /printf '[^']*relative_resource=%s/);
+  assert.match(inventory, /"\$observed_count" -le 64/);
+  assert.match(inventory, /"\$observed_count" -eq 5/);
+  assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
+  assert.match(inventory, /baseline_bundle_path_sha256=%s baseline_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_bundle_byte_sha256=%s/);
+  assert.match(guard, /be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac/);
+  assert.match(guard, /9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12/);
+  assert.match(guard, /47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1/);
+  assert.match(guard, /ce1c3886deab82acd18ba2aa80def98e34cf86e714639dd744f82482d49cfc2c/);
+  assert.match(guard, /ae21ad45c956d823328afa166d6a6ba27caf7183985a07ddeb79369a6df2b785/);
+  assert.match(guard, /6c8d836a96d43c6618bdbd7cd2dc13a3ed4ddca443d2168e40488209e393980b/);
+  assert.match(privacyInventory, /"\$observed_count" -le 128/);
+  assert.match(privacyInventory, /baseline_privacy_path_sha256=%s baseline_privacy_component_sha256=%s baseline_privacy_tail_sha256=%s baseline_privacy_byte_sha256=%s/);
+  assert.doesNotMatch(privacyInventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
+  assert.doesNotMatch(inventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
+  assert.match(script, /observe_pre_native_baseline_bundle\s+observe_pre_native_privacy_bundle_inventory\s+observe_pre_native_other_bundle_inventory\s+while IFS= read -r candidate; do/);
+  assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_resource \|\|\s+is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_resource_path/);
+  assert.match(script, /is_reviewed_pre_native_baseline_resource \|\|\s+is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_opaque_resource/);
+  const probe = String.raw`${guard}
+${inventory}
+shasum() {
+  local value
+  value=$(cat)
+  case "$value" in
+    Vendor.bundle) printf '%s  -\n' "$mock_component_sha" ;;
+    Vendor.bundle/*) printf '%s  -\n' "$mock_path_sha" ;;
+    *) printf '%s  -\n' "$mock_tail_sha" ;;
+  esac
+}
+sha256_file() { printf '%s\n' "$mock_byte_sha"; }
+mock_component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+candidate=/tmp/mock-baseline-resource
+check_tuple() {
+  mock_path_sha=$1
+  mock_tail_sha=$2
+  mock_byte_sha=$3
+  relative_resource=$4
+  is_reviewed_pre_native_baseline_resource
+}
+check_tuple 2acd809e558c9d1a7c08069eb361c296a3125e94820b015f99082288d66fc285 7bd67f215974b512446d5ff4725574d4bd7f64417b5120c4a4f55d854b95b671 288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b Vendor.bundle/lang.lproj/name.strings || exit 11
+check_tuple d2736eac556c5bae12db2e4b6c2a2b02cd36a490e26388b65527feecb84cd5ed 639261fd474c06142a4e2036b16fdb8a3ee1526da0dc2eaedd69246bb830fa80 efd39647cbb35228a962f5d397757839f13c1c6360417a7822ce428d1a44ae61 Vendor.bundle/lang2.lproj/name.strings || exit 12
+check_tuple b3d731c55e13078a1d0e953e07d37c614133f4c1c3df65f1db1dcffbf3437226 e8bf176ab46545c803ef0db2bdefe57bf6ea302149d36257aaecca3e5118d172 48323c9991f72b12d5df9852aa33f50daa13fd4afb447ddb995f8c9e3327c79e Vendor.bundle/lang3.lproj/name.strings || exit 13
+check_tuple bd2a59d6d3ebe4da870b642e5bff0b3e6a7cb3e0374795bcbeb88eb2a8dcc379 d05a82bd3911e6fb696a4236f1948edcd980cf709fbd6870eeb4ac6e4d5dad9f 4ce5093174371d9711f34278532b4d5c9a7c2783739f361ab96c9ccd919ea432 Vendor.bundle/data.bin || exit 14
+check_tuple c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69 9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1 Vendor.bundle/Info.plist || exit 15
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+check_tuple 9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12 6d123ae8ab04eee632cc6c18a31d71271ad217595dcd4401c63875b4b5c0e226 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 Vendor.bundle/PrivacyInfo.xcprivacy || exit 36
+mock_component_sha=ce1c3886deab82acd18ba2aa80def98e34cf86e714639dd744f82482d49cfc2c
+check_tuple ae21ad45c956d823328afa166d6a6ba27caf7183985a07ddeb79369a6df2b785 6cd869293d722a973916e2242f1c5d8fcbf55898ec280a23f962a90909a7a8a5 6c8d836a96d43c6618bdbd7cd2dc13a3ed4ddca443d2168e40488209e393980b Vendor.bundle/en.lproj/Name.strings || exit 41
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 42; fi
+mock_byte_sha=6c8d836a96d43c6618bdbd7cd2dc13a3ed4ddca443d2168e40488209e393980b
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 43; fi
+mock_path_sha=ae21ad45c956d823328afa166d6a6ba27caf7183985a07ddeb79369a6df2b785
+mock_tail_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 44; fi
+mock_tail_sha=6cd869293d722a973916e2242f1c5d8fcbf55898ec280a23f962a90909a7a8a5
+relative_resource=Vendor.bundle/en.lproj/Name.json
+if is_reviewed_pre_native_baseline_resource; then exit 45; fi
+relative_resource=Vendor.bundle/en.lproj/Name.strings
+mode=signed
+if is_reviewed_pre_native_baseline_resource; then exit 46; fi
+mode=unsigned
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 47; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+mock_path_sha=9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12
+mock_tail_sha=6d123ae8ab04eee632cc6c18a31d71271ad217595dcd4401c63875b4b5c0e226
+relative_resource=Vendor.bundle/PrivacyInfo.xcprivacy
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 37; fi
+mock_byte_sha=47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 38; fi
+mock_path_sha=9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12
+mock_tail_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 39; fi
+mock_component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
+if is_reviewed_pre_native_baseline_resource; then exit 40; fi
+mock_tail_sha=9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf
+mock_path_sha=c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69
+mock_byte_sha=edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1
+relative_resource=Vendor.bundle/Info.plist
+fail() { return 1; }
+privacy_bundle_case() {
+  ${privacyBundleCase}
+}
+bundle_name=Vendor
+privacy_bundle_case || exit 16
+source_sha=0000000000000000000000000000000000000000
+if privacy_bundle_case; then exit 17; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+mode=signed
+if privacy_bundle_case; then exit 18; fi
+mode=unsigned
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if privacy_bundle_case; then exit 19; fi
+mock_byte_sha=edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1
+mode=signed
+if is_reviewed_pre_native_baseline_resource; then exit 21; fi
+mode=unsigned
+artifact_class=release-candidate
+if is_reviewed_pre_native_baseline_resource; then exit 22; fi
+artifact_class=size-measurement
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 23; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 24; fi
+mock_path_sha=c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 25; fi
+mock_byte_sha=288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b
+if is_reviewed_pre_native_baseline_resource; then exit 26; fi
+mock_component_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 27; fi
+mock_component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
+relative_resource=Vendor/Info.plist
+if is_reviewed_pre_native_baseline_resource; then exit 28; fi
+relative_resource=Vendor.bundle/Info.plist
+sha256_file() { printf '%s\n' '/private/raw/bundle/path' >&2; return 1; }
+diagnostic_output=$(privacy_bundle_case 2>&1) && exit 29
+[[ "$diagnostic_output" == *'unreviewed_privacy_bundle_byte_sha256=unavailable'* ]] || exit 30
+[[ "$diagnostic_output" != *'/private/raw/bundle/path'* ]] || exit 31
+[[ "$diagnostic_output" == *"unreviewed_privacy_bundle_component_sha256=$mock_component_sha"* ]] || exit 34
+[[ "$diagnostic_output" == *"unreviewed_privacy_bundle_tail_sha256=$mock_tail_sha"* ]] || exit 35
+app_path=$(mktemp -d)
+mkdir -p "$app_path/Vendor.bundle"
+: > "$app_path/Vendor.bundle/Info.plist"
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+baseline_output=$(observe_pre_native_baseline_bundle 2>&1) && exit 32
+[[ "$baseline_output" == *'pre-native baseline bundle resource is unreadable'* ]] || exit 33
+[[ "$baseline_output" != *'/private/raw/bundle/path'* ]] || exit 34
+rm -rf -- "$app_path"
+`;
+  const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("historical iOS bundle inventory reports bounded hashes without resource names or bytes", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const inventory = script.match(/observe_pre_native_other_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory);
+  assert.match(script, /observe_pre_native_privacy_bundle_inventory\s+observe_pre_native_other_bundle_inventory\s+while IFS= read -r candidate; do/);
+  assert.match(inventory, /"\$observed_count" -le 256/);
+  assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
+  assert.match(inventory, /\[\[ -d "\$candidate" && ! -L "\$candidate" \]\] && continue/);
+  assert.doesNotMatch(inventory, /printf '[^']*(?:relative_resource|bundle_component|bundle_tail|candidate)=%s/);
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-bundle-inventory-"));
+  try {
+    const appPath = path.join(root, "Runner.app");
+    const resource = path.join(appPath, "Vendor.bundle", "fi.lproj", "private-receipt.strings");
+    mkdirSync(path.dirname(resource), { recursive: true });
+    writeFileSync(resource, "private receipt text");
+    const inventoryFile = path.join(root, "inventory.txt");
+    writeFileSync(inventoryFile, [
+      path.join(appPath, "Vendor.bundle"),
+      path.join(appPath, "Vendor.bundle", "fi.lproj"),
+      resource,
+    ].join("\n") + "\n");
+    const probe = String.raw`${inventory}
+sha256_file() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+fail() { printf '%s\n' "$1" >&2; exit 98; }
+app_path=$APP_PATH
+inventory_file=$INVENTORY_FILE
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+observe_pre_native_other_bundle_inventory
+mode=signed
+observe_pre_native_other_bundle_inventory
+source_sha=0000000000000000000000000000000000000000
+mode=unsigned
+observe_pre_native_other_bundle_inventory
+`;
+    const result = spawnSync("bash", ["-s"], {
+      encoding: "utf8",
+      input: probe,
+      env: { ...process.env, APP_PATH: appPath, INVENTORY_FILE: inventoryFile },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /baseline_other_bundle_path_sha256=[0-9a-f]{64} baseline_other_bundle_component_sha256=[0-9a-f]{64} baseline_other_bundle_tail_sha256=[0-9a-f]{64} resource_kind=strings resource_depth=1 baseline_other_bundle_byte_sha256=[0-9a-f]{64}/);
+    assert.match(result.stdout, /baseline_other_bundle_inventory_count=1/);
+    assert.equal(result.stdout.trim().split("\n").length, 2);
+    assert.doesNotMatch(result.stdout + result.stderr, /private-receipt|private receipt text|Runner\.app|Vendor\.bundle/);
+    const linkedResource = path.join(appPath, "Vendor.bundle", "fi.lproj", "private-link.strings");
+    symlinkSync(resource, linkedResource);
+    writeFileSync(inventoryFile, `${linkedResource}\n`);
+    const linkedResult = spawnSync("bash", ["-s"], {
+      encoding: "utf8",
+      input: probe,
+      env: { ...process.env, APP_PATH: appPath, INVENTORY_FILE: inventoryFile },
+    });
+    assert.equal(linkedResult.status, 98);
+    assert.match(linkedResult.stderr, /pre-native other bundle resource is not a regular file/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("historical unsigned iOS bundle commitment accepts only the complete observed bytes", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const inventory = script.match(/observe_pre_native_other_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  const guard = script.match(/is_reviewed_pre_native_other_bundle_resource\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory && guard);
+  assert.match(inventory, /observed_count" -eq 63/);
+  assert.match(inventory, /LC_ALL=C sort/);
+  assert.match(guard, /\$mode" == unsigned/);
+  assert.match(guard, /\$artifact_class" == size-measurement/);
+  assert.match(guard, /grep -Fxq -- "\$observed_line"/);
+  assert.match(script, /is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_resource_path/);
+  assert.match(script, /is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_opaque_resource/);
+
+  const relative = "Sample.bundle/fi.lproj/Ui.strings";
+  const component = "Sample.bundle";
+  const tail = "fi.lproj/Ui.strings";
+  const content = "reviewed fixture";
+  const line = [
+    `baseline_other_bundle_path_sha256=${sha256(relative)}`,
+    `baseline_other_bundle_component_sha256=${sha256(component)}`,
+    `baseline_other_bundle_tail_sha256=${sha256(tail)}`,
+    "resource_kind=strings",
+    "resource_depth=1",
+    `baseline_other_bundle_byte_sha256=${sha256(content)}`,
+  ].join(" ");
+  const digest = sha256(`${line}\n`);
+  const testInventory = inventory
+    .replace('"$observed_count" -eq 63', '"$observed_count" -eq 1')
+    .replace("cf2042eb75c1d738afcad7c9f0ef7b3202a1f68059d270e6015881c9a1365990", digest);
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-bundle-commitment-"));
+  try {
+    const appPath = path.join(root, "Runner.app");
+    const resource = path.join(appPath, relative);
+    mkdirSync(path.dirname(resource), { recursive: true });
+    writeFileSync(resource, content);
+    const inventoryFile = path.join(root, "inventory.txt");
+    writeFileSync(inventoryFile, `${resource}\n`);
+    const probe = String.raw`reviewed_other_bundle_inventory=''
+${testInventory}
+${guard}
+sha256_file() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+fail() { printf '%s\n' "$1" >&2; exit 98; }
+app_path=$APP_PATH
+inventory_file=$INVENTORY_FILE
+candidate=$RESOURCE
+relative_resource=Sample.bundle/fi.lproj/Ui.strings
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+observe_pre_native_other_bundle_inventory
+is_reviewed_pre_native_other_bundle_resource || exit 11
+printf 'changed fixture' > "$candidate"
+if is_reviewed_pre_native_other_bundle_resource; then exit 12; fi
+printf 'reviewed fixture' > "$candidate"
+mode=signed
+if is_reviewed_pre_native_other_bundle_resource; then exit 13; fi
+mode=unsigned
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_other_bundle_resource; then exit 14; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+relative_resource=Sample.bundle/fi.lproj/Unknown.strings
+if is_reviewed_pre_native_other_bundle_resource; then exit 15; fi
+relative_resource=Sample.bundle/fi.lproj/Ui.strings
+printf '%s\n' "$candidate" "$candidate" > "$inventory_file"
+observe_pre_native_other_bundle_inventory
+if is_reviewed_pre_native_other_bundle_resource; then exit 16; fi
+`;
+    const result = spawnSync("bash", ["-s"], {
+      encoding: "utf8",
+      input: probe,
+      env: { ...process.env, APP_PATH: appPath, INVENTORY_FILE: inventoryFile, RESOURCE: resource },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /reviewed fixture|changed fixture|Runner\.app|Sample\.bundle/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("historical iOS privacy metadata accepts only observed unsigned source-bound tuples", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const guard = script.match(/is_reviewed_pre_native_baseline_privacy_metadata\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(guard);
+  assert.match(script, /! is_reviewed_pre_native_baseline_resource &&\s*! is_reviewed_pre_native_baseline_privacy_metadata/);
+  const probe = String.raw`${guard}
+shasum() {
+  local value
+  value=$(cat)
+  case "$value" in
+    Vendor.bundle) printf '%s  -\n' "$mock_component_sha" ;;
+    Vendor.bundle/*) printf '%s  -\n' "$mock_path_sha" ;;
+    *) printf '%s  -\n' "$mock_tail_sha" ;;
+  esac
+}
+sha256_file() { printf '%s\n' "$mock_byte_sha"; }
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+candidate=/tmp/mock-baseline-privacy
+relative_resource=Vendor.bundle/Info.plist
+mock_path_sha=76c6977604d74ae01792f7d00b8150a71f2c1974dd295f813694f85d61201251
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+mock_tail_sha=9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf
+mock_byte_sha=f546fbcf3cb94c4ad9084bc5a470421693bf96166057048818f85b062c417b4c
+is_reviewed_pre_native_baseline_privacy_metadata || exit 51
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 52; fi
+mock_byte_sha=f546fbcf3cb94c4ad9084bc5a470421693bf96166057048818f85b062c417b4c
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 53; fi
+mock_path_sha=76c6977604d74ae01792f7d00b8150a71f2c1974dd295f813694f85d61201251
+mock_component_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 54; fi
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+relative_resource=Vendor.bundle/opaque.bin
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 55; fi
+relative_resource=Vendor.bundle/Info.plist
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 56; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+mode=signed
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 57; fi
+mode=unsigned
+artifact_class=release-candidate
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 58; fi
+`;
+  const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("fixed iOS baseline privacy inventory emits only bounded hashes and fails on unreadable bytes", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const inventory = script.match(/observe_pre_native_privacy_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory);
+  const probe = String.raw`${inventory}
+shasum() { cat >/dev/null; printf '%064d  -\n' 1; }
+sha256_file() { printf '%064d\n' 2; }
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+app_path=$(mktemp -d)
+inventory_file=$(mktemp)
+mkdir -p "$app_path/Vendor.bundle"
+: > "$app_path/Vendor.bundle/PrivacyInfo.xcprivacy"
+printf '%s\n' "$app_path/Vendor.bundle/PrivacyInfo.xcprivacy" > "$inventory_file"
+output=$(observe_pre_native_privacy_bundle_inventory) || exit 41
+[[ "$output" == *'baseline_privacy_bundle_inventory_count=1'* ]] || exit 42
+[[ "$output" == *'baseline_privacy_path_sha256=0000000000000000000000000000000000000000000000000000000000000001'* ]] || exit 43
+[[ "$output" != *'Vendor.bundle'* ]] || exit 44
+source_sha=0000000000000000000000000000000000000000
+[[ -z "$(observe_pre_native_privacy_bundle_inventory)" ]] || exit 45
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+sha256_file() { printf '%s\n' '/private/raw/resource/path' >&2; return 1; }
+error=$(observe_pre_native_privacy_bundle_inventory 2>&1) && exit 46
+[[ "$error" == *'pre-native privacy bundle resource is unreadable'* ]] || exit 47
+[[ "$error" != *'/private/raw/resource/path'* ]] || exit 48
+rm -rf -- "$app_path"
+rm -f -- "$inventory_file"
+`;
+  const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("iOS acceptance channel is compiled only into the Debug Runner", () => {
+  const plugin = readFileSync(
+    path.join(repoRoot, "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift"),
+    "utf8",
+  );
+  const project = readFileSync(
+    path.join(repoRoot, "apps/mobile/ios/Runner.xcodeproj/project.pbxproj"),
+    "utf8",
+  );
+  const runnerDebug = project.match(
+    /97C147061CF9000F007C117D \/\* Debug \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0];
+  const runnerRelease = project.match(
+    /97C147071CF9000F007C117D \/\* Release \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0];
+  const runnerProfile = project.match(
+    /249021D4217E4FDB00AE95B9 \/\* Profile \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0];
+  assert.match(runnerDebug ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;/);
+  assert.doesNotMatch(runnerRelease ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS/);
+  assert.doesNotMatch(runnerProfile ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS/);
+  assert.match(
+    plugin,
+    /#if DEBUG\n    let acceptanceChannelName = "com\.settleora\.mobile\/receipt_ocr_acceptance"/,
+  );
+  assert.doesNotMatch(
+    plugin,
+    /private static let acceptanceChannelName = "com\.settleora\.mobile\/receipt_ocr_acceptance"/,
+  );
+});
+
+test("historical size measurement does not require release-candidate OCR identities", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  assert.match(
+    script,
+    /catalog_sha=\nfixture_manifest_sha=\nif \[\[ "\$artifact_class" == release-candidate \]\]; then\n  catalog_sha=.*\n  fixture_manifest_sha=.*\nfi/,
+  );
+});
+
+test("iOS simulator pod graph permits exactly the pinned integration_test projection", () => {
+  const production = `PODS:\n  - Flutter (1.0.0)\n\nDEPENDENCIES:\n  - Flutter (from \`Flutter\`)\n\nEXTERNAL SOURCES:\n  Flutter:\n    :path: Flutter\n\nSPEC CHECKSUMS:\n  Flutter: ${"1".repeat(40)}\n`;
+  const projected = production
+    .replace("  - Flutter (1.0.0)\n", "  - Flutter (1.0.0)\n  - integration_test (0.0.1):\n    - Flutter\n")
+    .replace("DEPENDENCIES:\n", "DEPENDENCIES:\n  - integration_test (from `.symlinks/plugins/integration_test/ios`)\n")
+    .replace("EXTERNAL SOURCES:\n", "EXTERNAL SOURCES:\n  integration_test:\n    :path: \".symlinks/plugins/integration_test/ios\"\n")
+    .replace("SPEC CHECKSUMS:\n", `SPEC CHECKSUMS:\n  integration_test: ${"2".repeat(40)}\n`);
+  assert.doesNotThrow(() => verifyIosTestPodfileLock(production, projected));
+  assert.throws(
+    () => verifyIosTestPodfileLock(production, projected.replace("  - Flutter (1.0.0)\n", "  - Flutter (2.0.0)\n")),
+    /differs beyond/,
+  );
+  assert.throws(
+    () => verifyIosTestPodfileLock(production, production),
+    /expected one integration_test pod/,
+  );
+  assert.throws(
+    () => verifyIosTestPodfileLock(production, projected.replace(
+      "  - integration_test (0.0.1):\n    - Flutter\n",
+      "  - integration_test (0.0.1):\n    - Flutter\n  - integration_test (0.0.1):\n    - Flutter\n",
+    )),
+    /expected one integration_test pod/,
+  );
+});
+
+test("canonical wrapper rejects unsafe modes and release candidates without provenance before building", () => {
+  const wrapper = path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh");
+  const invalidMode = spawnSync("bash", [wrapper, "--mode=debug"], { encoding: "utf8" });
+  assert.notEqual(invalidMode.status, 0);
+  assert.match(invalidMode.stderr, /mode must be unsigned or signed/);
+
+  const missingProvenance = spawnSync("bash", [
+    wrapper,
+    "--mode=unsigned",
+    `--source-sha=${"1".repeat(40)}`,
+    `--source-tree=${"2".repeat(40)}`,
+  ], { encoding: "utf8" });
+  assert.notEqual(missingProvenance.status, 0);
+  assert.match(missingProvenance.stderr, /provenance output is required/);
+
+  const directoryHasher = path.join(repoRoot, "tools/ocr-models/hash-directory.mjs");
+  const arbitraryRoot = spawnSync(process.execPath, [directoryHasher, rootForUnsafeCli()], { encoding: "utf8" });
+  assert.notEqual(arbitraryRoot.status, 0);
+  assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive>/);
+});
+
+test("signed wrapper rejects a non-Git source before trusting caller provenance", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-nongit-source-"));
+  try {
+    mkdirSync(path.join(root, "apps/mobile/ios/Runner"), { recursive: true });
+    mkdirSync(path.join(root, "tools/ocr-models"), { recursive: true });
+    writeFileSync(path.join(root, "apps/mobile/pubspec.lock"), "lock");
+    writeFileSync(path.join(root, "apps/mobile/ios/Podfile.lock"), "lock");
+    writeFileSync(path.join(root, "tools/ocr-models/prepare-production-flutter-plugins.mjs"), "");
+    writeFileSync(path.join(root, "tools/ocr-models/verify-mobile-package.mjs"), "");
+    const result = spawnSync("bash", [
+      path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"),
+      "--mode=signed",
+      `--source-sha=${"1".repeat(40)}`,
+      `--source-tree=${"2".repeat(40)}`,
+      `--mobile-root=${path.join(root, "apps/mobile")}`,
+      `--repo-root=${root}`,
+      `--tool-root=${root}`,
+      "--build-name=1.0.0",
+      "--build-number=1",
+      `--export-options-plist=${path.join(root, "export.plist")}`,
+      `--provenance-out=${path.join(root, "provenance.json")}`,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /signed release candidate requires a clean Git worktree/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("signed wrapper rejects an ignored fake source nested under a clean worktree", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-nested-source-"));
+  const fakeRoot = path.join(root, "ignored-source");
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  try {
+    assert.equal(git("init", "-q").status, 0);
+    assert.equal(git("config", "user.email", "test@example.invalid").status, 0);
+    assert.equal(git("config", "user.name", "Settleora Test").status, 0);
+    writeFileSync(path.join(root, ".gitignore"), "ignored-source/\n");
+    writeFileSync(path.join(root, "tracked"), "source");
+    assert.equal(git("add", ".gitignore", "tracked").status, 0);
+    assert.equal(git("commit", "-q", "-m", "fixture").status, 0);
+    const head = git("rev-parse", "HEAD").stdout.trim();
+    const tree = git("rev-parse", "HEAD^{tree}").stdout.trim();
+    mkdirSync(path.join(fakeRoot, "apps/mobile/ios/Runner"), { recursive: true });
+    mkdirSync(path.join(fakeRoot, "tools/ocr-models"), { recursive: true });
+    writeFileSync(path.join(fakeRoot, "apps/mobile/pubspec.lock"), "fake-lock");
+    writeFileSync(path.join(fakeRoot, "apps/mobile/ios/Podfile.lock"), "fake-lock");
+    writeFileSync(path.join(fakeRoot, "tools/ocr-models/prepare-production-flutter-plugins.mjs"), "");
+    writeFileSync(path.join(fakeRoot, "tools/ocr-models/verify-mobile-package.mjs"), "");
+    const result = spawnSync("bash", [
+      path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"),
+      "--mode=signed",
+      `--source-sha=${head}`,
+      `--source-tree=${tree}`,
+      `--mobile-root=${path.join(fakeRoot, "apps/mobile")}`,
+      `--repo-root=${fakeRoot}`,
+      `--tool-root=${fakeRoot}`,
+      "--build-name=1.0.0",
+      "--build-number=1",
+      `--export-options-plist=${path.join(fakeRoot, "export.plist")}`,
+      `--provenance-out=${path.join(fakeRoot, "provenance.json")}`,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /source root is not the Git worktree root/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("directory hasher CLI rejects symlinked fixed build ancestors", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-cli-root-"));
+  const external = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-cli-external-"));
+  try {
+    mkdirSync(path.join(root, "build"));
+    symlinkSync(external, path.join(root, "build/ios"), "dir");
+    const directoryHasher = path.join(repoRoot, "tools/ocr-models/hash-directory.mjs");
+    const result = spawnSync(process.execPath, [directoryHasher, "app"], { cwd: root, encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /build path components must be real directories/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
+function rootForUnsafeCli() {
+  return path.resolve(os.tmpdir(), "untrusted-artifact-root");
+}
