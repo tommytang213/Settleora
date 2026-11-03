@@ -22,9 +22,11 @@ export function createCapturePhaseDiagnostics(write) {
   const seen = new Set();
   let attempts = 0;
   let terminal = false;
+  let writing = false;
 
   const emit = (event) => {
-    if (typeof event !== "string" || !EVENTS.has(event) || terminal || seen.has(event)) return;
+    // Writer callbacks cannot consume events or terminate later observations.
+    if (writing || typeof event !== "string" || !EVENTS.has(event) || terminal || seen.has(event)) return;
     const failure = event === FAILURE_EVENT;
     // Reserve one terminal failure line. Count attempts before invoking the
     // writer so thrown or reentrant callbacks cannot evade the bound.
@@ -32,10 +34,13 @@ export function createCapturePhaseDiagnostics(write) {
     seen.add(event);
     attempts += 1;
     if (failure) terminal = true;
+    writing = true;
     try {
       if (typeof write === "function") write(`bounded_capture_phase=${event}\n`);
     } catch {
       // Never emit arbitrary exception content or fall back to another writer.
+    } finally {
+      writing = false;
     }
   };
 

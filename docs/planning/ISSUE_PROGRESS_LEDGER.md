@@ -2,6 +2,12 @@
 
 ## Recent checkpoints
 
+### #1247 / #1309 — Bounded rejected-workspace diagnosis (2026-11-02)
+
+- Hosted native run `41512650150` at reviewed `e6d59b5ac085d6062dcba9eff9671b93e85d9e0b` completed with Android 78/101 and iOS 75/101. Each platform's 61 field mismatches and all 101 recognition-coverage records match the preceding measured head. Ordinary checks and source corrections have not established native accuracy improvement or acceptance.
+- The iOS outer acceptance command returned before its deadline. Fixed phases place the later package-capture rejection at `workspace_rejected_other_state`, before projection verification or plist inspection. This proves neither the actual dirty path nor a new approved workspace state; the same privacy-plist hash remains rejected, and no plist bytes were retained. Android's missing reviewed source/package binding and the downstream missing-argument rejection remain separate gates.
+- A separate source-only candidate observes the existing rejected status using closed enums for job match, shape, the two already-known projection files' index/worktree states, and other tracked-entry presence. No arbitrary path, contents, raw status, hash, credential, OCR text or new source read is emitted. Existing accepted states, rejection outcomes, package/model pins, privacy bounds, terminal phase and shared diagnostic-write cap remain unchanged. Exact-byte mock tests and independent reviews are required; no publication, native rerun, repin, merge or issue closure is implied.
+
 ### #1309 — Complete Arabic VAT-label ownership (2026-11-01)
 
 - Separate local candidate from reviewed `01e50dfaf47140ca405a251e29c7509099965b10`. The printed complete Arabic VAT phrase was absent from tax-role vocabulary. The parser-only red run passed 16 controls and failed five tax/ambiguity cases; the narrow complete-row correction passes all 21 cases, including existing-label, merchandise-substring, malformed/extra-amount and foreign/opposed-currency controls.

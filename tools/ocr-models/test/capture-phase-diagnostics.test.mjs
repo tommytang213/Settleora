@@ -112,17 +112,66 @@ test("throwing and non-callable synchronous writers never affect caller flow", (
   }
 });
 
-test("reentrant writers cannot bypass deduplication, termination, or the cap", () => {
-  const lines = [];
-  let diagnostics;
-  diagnostics = createCapturePhaseDiagnostics((line) => {
-    lines.push(line);
+for (const throws of [false, true]) {
+  test((throws ? "throwing" : "returning") + " writer cannot report premature terminal failure", () => {
+    const lines = [];
+    let diagnostics;
+    diagnostics = createCapturePhaseDiagnostics((line) => {
+      lines.push(line);
+      if (line === lineFor("capture_enter")) {
+        diagnostics.emit("capture_failure");
+        if (throws) throw new Error(PRIVATE);
+      }
+    });
+    const child = new FakeEmitter();
+    const outcome = { code: 7, signal: null, private: PRIVATE };
+    const received = [];
+    child.once("exit", (value) => received.push(value));
+    diagnostics.observeChild(child);
+    assert.doesNotThrow(() => diagnostics.emit("capture_enter"));
+    assert.deepEqual(lines, [lineFor("capture_enter")]);
+    assert.doesNotThrow(() => {
+      child.fire("spawn");
+      child.fire("exit", outcome);
+      child.fire("close", outcome);
+      diagnostics.emit("capture_return");
+    });
+    const realEvents = ["capture_enter", "child_spawn", "child_exit", "child_close", "capture_return"];
+    assert.deepEqual(lines, realEvents.map(lineFor));
+    assert.deepEqual(received, [outcome]);
+    assert.equal(received[0], outcome);
+    diagnostics.emit("capture_failure");
     for (const event of ALL_EVENTS) diagnostics.emit(event);
+    assert.deepEqual(lines, [...realEvents, "capture_failure"].map(lineFor));
+    assert.equal(lines.join("").includes(PRIVATE), false);
+    assert.ok(lines.length <= 16);
   });
-  assert.doesNotThrow(() => diagnostics.emit("capture_enter"));
-  assert.deepEqual(lines, ALL_EVENTS.map(lineFor));
-  assert.equal(new Set(lines).size, lines.length);
-  assert.ok(lines.length <= 16);
+}
+
+test("reentrant writers cannot consume events, terminal state, or the cap", () => {
+  for (const throws of [false, true]) {
+    const lines = [];
+    let diagnostics;
+    diagnostics = createCapturePhaseDiagnostics((line) => {
+      lines.push(line);
+      for (const event of ALL_EVENTS) diagnostics.emit(event);
+      if (throws) throw new Error(PRIVATE);
+    });
+    assert.doesNotThrow(() => diagnostics.emit("capture_enter"));
+    assert.deepEqual(lines, [lineFor("capture_enter")]);
+    // Ignored callbacks must not mark ordinary events as seen or use the
+    // reserved failure; each later real event remains observable once.
+    for (const event of ORDINARY_EVENTS) assert.doesNotThrow(() => diagnostics.emit(event));
+    assert.deepEqual(lines, ORDINARY_EVENTS.map(lineFor));
+    assert.doesNotThrow(() => diagnostics.emit("capture_failure"));
+    for (let index = 0; index < 1000; index += 1) {
+      for (const event of ALL_EVENTS) diagnostics.emit(event);
+    }
+    assert.deepEqual(lines, ALL_EVENTS.map(lineFor));
+    assert.equal(new Set(lines).size, lines.length);
+    assert.ok(lines.length <= 16);
+    assert.equal(lines.join("").includes(PRIVATE), false);
+  }
 });
 
 test("lifecycle hooks retain only fixed events and ignore all callback arguments", () => {

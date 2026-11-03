@@ -300,6 +300,38 @@ class PhaseContractTest(unittest.TestCase):
         self.popen.assert_not_called()
         self.run.assert_not_called()
 
+    def test_rejected_workspace_reports_fixed_status_without_changing_admission(self):
+        cases = [
+            ("ios-native-acceptance", b" M " + module.IOS_LOCK.encode() + b"\0 M " + PRIVATE.encode() + b"\0",
+             "job:match;shape:simple;lock_index:unchanged;lock_worktree:modified;debug_index:absent;debug_worktree:absent;other:present"),
+            ("private-job", b" M " + module.IOS_LOCK.encode() + b"\0",
+             "job:mismatch;shape:simple;lock_index:unchanged;lock_worktree:modified;debug_index:absent;debug_worktree:absent;other:absent"),
+            ("ios-native-acceptance", b"M  " + DEBUG_PATH.encode() + b"\0",
+             "job:match;shape:simple;lock_index:absent;lock_worktree:absent;debug_index:modified;debug_worktree:unchanged;other:absent"),
+            ("ios-native-acceptance", b" M " + module.IOS_LOCK.encode(),
+             "job:match;shape:malformed;lock_index:unknown;lock_worktree:unknown;debug_index:unknown;debug_worktree:unknown;other:unknown"),
+            ("ios-native-acceptance", b"R  " + DEBUG_PATH.encode() + b"\0" + PRIVATE.encode() + b"\0",
+             "job:match;shape:rename_copy;lock_index:unknown;lock_worktree:unknown;debug_index:unknown;debug_worktree:unknown;other:unknown"),
+        ]
+        for job, status, summary in cases:
+            with self.subTest(summary=summary):
+                self.reset_observations()
+                self.status = status
+                self.environment["GITHUB_JOB"] = job
+                with self.assertRaisesRegex(ValueError, "^capture boundary rejected$"):
+                    self.main()
+                self.assert_failure_phase("workspace_rejected_other_state")
+                self.assertEqual(self.git_calls, [
+                    ("rev-parse", "HEAD"),
+                    ("status", "--porcelain", "-z", "--untracked-files=no"),
+                ])
+                self.assertEqual(self.outputs, [])
+                self.assertEqual(self.ready_calls, [])
+                summaries = [line for line in self.log.getvalue().splitlines()
+                             if line.startswith("package_capture_workspace=")]
+                self.assertEqual(summaries, ["package_capture_workspace=" + summary])
+                self.assertNotIn("private-job", self.log.getvalue())
+
     def test_main_context_failure_is_original_exception_and_has_exact_phase(self):
         error = RuntimeError(PRIVATE)
         self.read_git.side_effect = error
@@ -879,8 +911,216 @@ class PhaseContractTest(unittest.TestCase):
         diagnostics = module.CapturePhaseDiagnostics(reenter)
         diagnostics.phase("arguments")
         diagnostics.failure()
-        self.assertEqual(len(lines), 32)
-        self.assertEqual(lines[-1], "package_capture_failure_phase=catalog\n")
+        self.assertEqual(lines, ["package_capture_phase=arguments\n",
+                                 "package_capture_failure_phase=arguments\n"])
+
+    def test_reentrant_workspace_writer_cannot_replace_original_failure_phase(self):
+        original = ValueError("original rejection sentinel")
+        real_require = module.require
+        def require(value):
+            if not value:
+                raise original
+            return real_require(value)
+        for throws in (False, True):
+            with self.subTest(throws=throws):
+                self.reset_observations()
+                self.status = b" M " + PRIVATE.encode() + b"\0"
+                def write(line):
+                    self.log.write(line)
+                    if line.startswith("package_capture_workspace="):
+                        observer.phase("catalog")
+                        if throws:
+                            raise OSError(PRIVATE)
+                observer = module.CapturePhaseDiagnostics(write)
+                with patch.object(module, "require", side_effect=require):
+                    with self.assertRaises(ValueError) as raised:
+                        self.main(diagnostics=observer)
+                self.assertIs(raised.exception, original)
+                self.assertEqual(self.git_calls, [("rev-parse", "HEAD"),
+                                                 ("status", "--porcelain", "-z", "--untracked-files=no")])
+                self.assertEqual(self.outputs, [])
+                self.assertEqual(self.ready_calls, [])
+                self.assert_failure_phase("workspace_rejected_other_state")
+
+    def test_workspace_observation_preserves_both_environment_reads_and_predicates(self):
+        class Environment:
+            def __init__(self, values):
+                self.values = iter(values)
+                self.calls = []
+            def get(self, name):
+                self.calls.append(name)
+                return next(self.values)
+        match, mismatch = "ios-native-acceptance", PRIVATE
+        cases = [
+            (b"", (), "clean"),
+            (b" M " + module.IOS_LOCK.encode() + b"\0", (mismatch, match), "admitted"),
+            (module.IOS_COMBINED_STATUS, (match, mismatch), "admitted"),
+            (module.IOS_COMBINED_STATUS, (mismatch, match), "rejected"),
+            (b" M " + module.IOS_LOCK.encode() + b"\0", (match, mismatch), "rejected"),
+        ]
+        for status, values, outcome in cases:
+            for enabled in (False, True):
+                with self.subTest(outcome=outcome, enabled=enabled, values=values):
+                    environment = Environment(values)
+                    commands, lines = [], []
+                    admitted = RuntimeError("admitted operation sentinel")
+                    def git(*args):
+                        commands.append(args)
+                        if args[0] == "status":
+                            return status
+                        raise admitted
+                    observer = module.CapturePhaseDiagnostics(lines.append) if enabled else None
+                    with patch.object(module, "combined_projection_snapshot", side_effect=admitted):
+                        if outcome == "clean":
+                            result = module.workspace_observation(
+                                Path("/fixture-repo"), "a" * 40, environment, git, observer)
+                            self.assertEqual(result, ({"workspaceState": "clean", "workspaceLockSha256": None}, None))
+                        elif outcome == "admitted":
+                            with self.assertRaises(RuntimeError) as raised:
+                                module.workspace_observation(Path("/fixture-repo"), "a" * 40, environment, git, observer)
+                            self.assertIs(raised.exception, admitted)
+                        else:
+                            with self.assertRaisesRegex(ValueError, "^capture boundary rejected$"):
+                                module.workspace_observation(Path("/fixture-repo"), "a" * 40, environment, git, observer)
+                    self.assertEqual(environment.calls, ["GITHUB_JOB"] * len(values))
+                    self.assertEqual(commands[0], ("status", "--porcelain", "-z", "--untracked-files=no"))
+                    self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines),
+                                     int(enabled and outcome == "rejected"))
+                    self.assertNotIn(PRIVATE, "".join(lines))
+
+    def test_workspace_observer_failures_preserve_original_rejection_and_operation_trace(self):
+        self.status = b" M " + PRIVATE.encode() + b"\0"
+        original = ValueError("original boundary sentinel")
+        real_require = module.require
+        def require(value):
+            if not value:
+                raise original
+            return real_require(value)
+        class BrokenObserver:
+            def phase(self, phase):
+                pass
+            def failure(self):
+                pass
+            @property
+            def workspace_rejection(self):
+                raise RuntimeError(PRIVATE)
+        def broken_writer(line):
+            raise OSError(PRIVATE)
+        for observer in (BrokenObserver(), module.CapturePhaseDiagnostics(broken_writer)):
+            with self.subTest(observer=type(observer).__name__), patch.object(module, "require", side_effect=require):
+                self.git_calls = []
+                with self.assertRaises(ValueError) as raised:
+                    self.main(diagnostics=observer)
+                self.assertIs(raised.exception, original)
+                self.assertEqual(self.git_calls, [("rev-parse", "HEAD"),
+                                                 ("status", "--porcelain", "-z", "--untracked-files=no")])
+                self.assertEqual(self.outputs, [])
+                self.assertEqual(self.ready_calls, [])
+        with patch.object(module, "require", side_effect=require), \
+                patch.object(module, "classify_workspace_status", side_effect=RuntimeError(PRIVATE)):
+            with self.assertRaises(ValueError) as raised:
+                self.main()
+            self.assertIs(raised.exception, original)
+        self.assert_failure_phase("workspace_rejected_other_state")
+
+    def test_workspace_observation_rejects_non_enum_results_without_coercion(self):
+        class Hostile:
+            def __str__(self):
+                raise AssertionError("unexpected coercion")
+            def __hash__(self):
+                raise AssertionError("unexpected hashing")
+        class TextSubclass(str):
+            pass
+        valid = ("simple", "absent", "absent", "absent", "absent", "absent")
+        malformed = (None, [], Hostile(), valid[:-1], (*valid[:-1], PRIVATE),
+                     (PRIVATE, *valid[1:]), ("simple", Hostile(), *valid[2:]),
+                     (TextSubclass("simple"), *valid[1:]))
+        for result in malformed:
+            lines = []
+            observer = module.CapturePhaseDiagnostics(lines.append)
+            with patch.object(module, "classify_workspace_status", return_value=result):
+                observer.workspace_rejection(b"", True)
+            self.assertEqual(lines, [])
+            observer.failure()
+            self.assertEqual(lines, ["package_capture_failure_phase=arguments\n"])
+        for job_matches in (None, 1, PRIVATE, Hostile()):
+            observer = module.CapturePhaseDiagnostics(self.log.write)
+            with patch.object(module, "classify_workspace_status") as classify:
+                observer.workspace_rejection(b"", job_matches)
+                classify.assert_not_called()
+        self.assertEqual(self.log.getvalue(), "")
+
+    def test_workspace_observation_shares_budget_reserves_failure_and_is_reentrant_safe(self):
+        for count in (0, 30, 31, 1000):
+            for throws in (False, True):
+                with self.subTest(count=count, throws=throws):
+                    lines = []
+                    def write(line):
+                        lines.append(line)
+                        if throws:
+                            raise OSError(PRIVATE)
+                    observer = module.CapturePhaseDiagnostics(write)
+                    for _ in range(count):
+                        observer.phase("workspace_rejected_other_state")
+                    observer.workspace_rejection(b" M " + PRIVATE.encode() + b"\0", True)
+                    observer.workspace_rejection(b"", False)
+                    observer.failure()
+                    observer.workspace_rejection(b"", False)
+                    observer.failure()
+                    self.assertLessEqual(len(lines), 32)
+                    self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines),
+                                     int(count < 31))
+                    phase = "workspace_rejected_other_state" if count else "arguments"
+                    self.assertEqual(lines[-1], "package_capture_failure_phase=" + phase + "\n")
+                    self.assertNotIn(PRIVATE, "".join(lines))
+        lines = []
+        def reenter(line):
+            lines.append(line)
+            observer.workspace_rejection(b"", False)
+            if line.startswith("package_capture_workspace="):
+                for _ in range(1000):
+                    observer.phase("catalog")
+        observer = module.CapturePhaseDiagnostics(reenter)
+        observer.phase("workspace_rejected_other_state")
+        observer.workspace_rejection(b"", True)
+        observer.failure()
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines), 1)
+        self.assertEqual(lines[-1], "package_capture_failure_phase=workspace_rejected_other_state\n")
+
+    def test_reentrant_callbacks_cannot_consume_terminal_state_or_block_sequential_phases(self):
+        for throws in (False, True):
+            with self.subTest(throws=throws):
+                lines = []
+                def write(line):
+                    lines.append(line)
+                    observer.phase("catalog")
+                    observer.workspace_rejection(b" M " + PRIVATE.encode() + b"\0", False)
+                    observer.failure()
+                    if throws:
+                        raise OSError(PRIVATE)
+                observer = module.CapturePhaseDiagnostics(write)
+                observer.phase("workspace_rejected_other_state")
+                self.assertEqual(lines, ["package_capture_phase=workspace_rejected_other_state\n"])
+                # A nested callback must not consume the workspace one-shot.
+                observer.workspace_rejection(b"", True)
+                self.assertEqual(len(lines), 2)
+                self.assertTrue(lines[1].startswith("package_capture_workspace=job:match;"))
+                # The guard resets after successful and failed writes alike.
+                observer.phase("output_published")
+                self.assertEqual(lines[-1], "package_capture_phase=output_published\n")
+                for _ in range(1000):
+                    observer.phase("ready_marker")
+                self.assertEqual(len(lines), 31)
+                self.assertFalse(any(line.startswith("package_capture_failure_phase=") for line in lines))
+                observer.failure()
+                observer.failure()
+                observer.phase("complete")
+                self.assertEqual(len(lines), 32)
+                self.assertEqual(lines[-1], "package_capture_failure_phase=ready_marker\n")
+                self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines), 1)
+                self.assertNotIn("package_capture_phase=catalog\n", lines)
+                self.assertNotIn(PRIVATE, "".join(lines))
 
     def test_shell_wiring_is_literal_capped_and_samples_exit_status_before_observation(self):
         source = (ROOT / "tools/ocr-models/run-ios-native-acceptance.sh").read_text()

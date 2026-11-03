@@ -54,6 +54,60 @@ CAPTURE_PHASES = frozenset({
 })
 
 
+WORKSPACE_SHAPES = frozenset({
+    "simple", "rename_copy", "malformed", "unsupported_status", "unavailable",
+})
+WORKSPACE_STATUS_CLASSES = frozenset({
+    "absent", "unchanged", "modified", "type_changed", "added", "deleted", "unmerged", "unknown",
+})
+WORKSPACE_OTHER_CLASSES = frozenset({"absent", "present", "unknown"})
+WORKSPACE_STATUS_BYTES = {
+    32: "unchanged", 77: "modified", 84: "type_changed",
+    65: "added", 68: "deleted", 85: "unmerged",
+}
+
+
+def classify_workspace_status(status):
+    # Observational only. Never decode, normalize, serialize or retain paths.
+    # The caller already read at most 16 KiB; preserve that diagnostic bound.
+    def unknown(shape):
+        return (shape, "unknown", "unknown", "unknown", "unknown", "unknown")
+
+    if type(status) is not bytes or len(status) > 16 * 1024:
+        return unknown("unavailable")
+    if not status:
+        return ("simple", "absent", "absent", "absent", "absent", "absent")
+    if not status.endswith(b"\0"):
+        return unknown("malformed")
+    records = status[:-1].split(b"\0")
+    known = {IOS_LOCK.encode(): None, IOS_DEBUG.encode(): None}
+    seen = set()
+    other = "absent"
+    for index, record in enumerate(records):
+        if len(record) < 4 or record[2:3] != b" ":
+            return unknown("malformed")
+        columns, name = record[:2], record[3:]
+        if any(value not in WORKSPACE_STATUS_BYTES and value not in (82, 67) for value in columns):
+            return unknown("unsupported_status")
+        if columns == b"  ":
+            return unknown("unsupported_status")
+        if b"R" in columns or b"C" in columns:
+            # Rename/copy has a second NUL-delimited name. Do not mistake it
+            # for another status entry or infer any path-specific conclusion.
+            return unknown("rename_copy" if index + 1 < len(records) and records[index + 1]
+                           else "malformed")
+        if name in seen:
+            return unknown("malformed")
+        seen.add(name)
+        if name in known:
+            known[name] = tuple(WORKSPACE_STATUS_BYTES[value] for value in columns)
+        else:
+            other = "present"
+    lock = known[IOS_LOCK.encode()] or ("absent", "absent")
+    debug = known[IOS_DEBUG.encode()] or ("absent", "absent")
+    return ("simple", *lock, *debug, other)
+
+
 def write_capture_phase(line):
     # _emit contains descriptor, encoding and write failures. Bypass buffering
     # so failed diagnostics cannot be retried by interpreter shutdown flushing.
@@ -68,25 +122,49 @@ class CapturePhaseDiagnostics:
         self._phase = "arguments"
         self._attempts = 0
         self._failed = False
+        self._workspace_attempted = False
+        self._writing = False
 
     def _emit(self, prefix, phase):
-        # Count before invoking the writer, including failures or reentrant calls.
+        # Count failed writes too; callbacks cannot select phases or spend budget.
         self._attempts += 1
+        self._writing = True
         try:
             self._write(prefix + phase + "\n")
         except Exception:
             pass
+        finally:
+            self._writing = False
 
     def phase(self, phase):
-        if type(phase) is not str or phase not in CAPTURE_PHASES or self._failed:
+        if self._writing or type(phase) is not str or phase not in CAPTURE_PHASES or self._failed:
             return
         self._phase = phase
         # Reserve one attempt for the terminal failure phase, even at the cap.
         if self._attempts < CAPTURE_PHASE_LIMIT - 1:
             self._emit("package_capture_phase=", phase)
 
+    def workspace_rejection(self, status, job_matches):
+        if (self._writing or type(job_matches) is not bool or self._failed or self._workspace_attempted
+                or self._attempts >= CAPTURE_PHASE_LIMIT - 1):
+            return
+        # Set before classification/write, including a reentrant or failed writer.
+        self._workspace_attempted = True
+        values = classify_workspace_status(status)
+        if (type(values) is not tuple or len(values) != 6
+                or any(type(value) is not str for value in values)
+                or values[0] not in WORKSPACE_SHAPES
+                or any(value not in WORKSPACE_STATUS_CLASSES for value in values[1:5])
+                or values[5] not in WORKSPACE_OTHER_CLASSES):
+            return
+        summary = ("job:%s;shape:%s;lock_index:%s;lock_worktree:%s;"
+                   "debug_index:%s;debug_worktree:%s;other:%s") % (
+                       "match" if job_matches else "mismatch", *values)
+        # This observation shares the phase budget but never selects a phase.
+        self._emit("package_capture_workspace=", summary)
+
     def failure(self):
-        if self._failed:
+        if self._writing or self._failed:
             return
         self._failed = True
         self._emit("package_capture_failure_phase=", self._phase)
@@ -96,6 +174,14 @@ def diagnostic_phase(diagnostics, phase):
     try:
         if diagnostics is not None:
             diagnostics.phase(phase)
+    except Exception:
+        pass
+
+
+def diagnostic_workspace_rejection(diagnostics, status, job_matches):
+    try:
+        if diagnostics is not None:
+            diagnostics.workspace_rejection(status, job_matches)
     except Exception:
         pass
 
@@ -313,13 +399,16 @@ def workspace_observation(repo, source_sha, env, git, diagnostics=None):
     if status == b"":
         diagnostic_phase(diagnostics, "workspace_clean")
         return {"workspaceState": "clean", "workspaceLockSha256": None}, None
-    combined = (env.get("GITHUB_JOB") == "ios-native-acceptance" and status == IOS_COMBINED_STATUS)
+    job_matches = env.get("GITHUB_JOB") == "ios-native-acceptance"
+    combined = (job_matches and status == IOS_COMBINED_STATUS)
     # Admit only the existing lock projection or the exact source-bound pair.
     # Never restore a dirty path or exempt arbitrary CocoaPods changes.
     allowed = (env.get("GITHUB_JOB") == "ios-native-acceptance"
                and status == b" M " + IOS_LOCK.encode() + b"\0")
     diagnostic_phase(diagnostics, "workspace_lock_projection" if allowed or combined
                      else "workspace_rejected_other_state")
+    if not (allowed or combined):
+        diagnostic_workspace_rejection(diagnostics, status, job_matches)
     require(allowed or combined)
     if combined:
         before = combined_projection_snapshot(repo, source_sha, git)

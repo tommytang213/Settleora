@@ -441,8 +441,57 @@ class CaptureContractTest(unittest.TestCase):
                 if capture_status == 1 and called:self.assertIn("bounded_package_failure_capture_unavailable", result.stderr)
 
 
+class WorkspaceStatusDiagnosticTest(unittest.TestCase):
+    def test_fixed_path_columns_and_opaque_other_names(self):
+        lock, debug = module.IOS_LOCK.encode(), module.IOS_DEBUG.encode()
+        self.assertEqual(module.classify_workspace_status(b""),
+                         ("simple", "absent", "absent", "absent", "absent", "absent"))
+        cases = [
+            (b" M " + lock + b"\0", ("simple", "unchanged", "modified", "absent", "absent", "absent")),
+            (b"MM " + lock + b"\0T  " + debug + b"\0",
+             ("simple", "modified", "modified", "type_changed", "unchanged", "absent")),
+            (b"A  " + lock + b"\0 D " + debug + b"\0",
+             ("simple", "added", "unchanged", "unchanged", "deleted", "absent")),
+            (b"UU " + lock + b"\0", ("simple", "unmerged", "unmerged", "absent", "absent", "absent")),
+            (b" M " + PRIVATE + b"\xff\n" + lock + b"\0",
+             ("simple", "absent", "absent", "absent", "absent", "present")),
+        ]
+        for raw, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(module.classify_workspace_status(raw), expected)
+                lines = []
+                module.CapturePhaseDiagnostics(lines.append).workspace_rejection(raw, True)
+                self.assertEqual(len(lines), 1)
+                self.assertLessEqual(len(lines[0].encode("ascii")), 256)
+                for private in (PRIVATE.decode(), module.IOS_LOCK, module.IOS_DEBUG):
+                    self.assertNotIn(private, lines[0])
+
+    def test_malformed_nul_rename_and_unknown_status_discard_partial_conclusions(self):
+        lock = module.IOS_LOCK.encode()
+        prefix = b" M " + lock + b"\0"
+        cases = [
+            (None, "unavailable"), (bytearray(prefix), "unavailable"),
+            (b"x" * (16 * 1024 + 1), "unavailable"),
+            (b"\0", "malformed"), (prefix[:-1], "malformed"),
+            (prefix + b"\0", "malformed"), (prefix + b" M \0", "malformed"),
+            (prefix + b"M x\0", "malformed"), (prefix + prefix, "malformed"),
+            (prefix + b"R  private\0", "malformed"),
+            (prefix + b"R  private\0\0", "malformed"),
+            (prefix + b"R  private\0old\0", "rename_copy"),
+            (prefix + b" C private\0old\0", "rename_copy"),
+            (prefix + b"?? private\0", "unsupported_status"),
+            (prefix + b"!! private\0", "unsupported_status"),
+            (prefix + b"\xffM private\0", "unsupported_status"),
+            (prefix + b"   private\0", "unsupported_status"),
+        ]
+        for raw, shape in cases:
+            with self.subTest(shape=shape, raw_type=type(raw).__name__):
+                self.assertEqual(module.classify_workspace_status(raw),
+                                 (shape, "unknown", "unknown", "unknown", "unknown", "unknown"))
+
+
 class CapturePhaseStderrProcessTest(unittest.TestCase):
-    def test_real_stderr_failure_preserves_exit_status_and_fixed_output(self):
+    def test_real_stdout_and_stderr_failures_preserve_exit_status_and_fixed_output(self):
         if not Path("/dev/full").is_char_device():
             self.skipTest("requires the /dev/full failing stderr device")
         child_source = r"""
@@ -476,26 +525,32 @@ with patch.object(module.argparse, "ArgumentParser", return_value=parser), \
         pass
 assert len(writers) == 1
 status = int(sys.argv[3])
+try:
+    module.os.write(1, b'{"result":"preserved"}\n')
+except OSError:
+    status = 7
 if sys.argv[2] == "1":
     observer = observer_class(writers[0])
     observer.phase("arguments")
+    observer.workspace_rejection(b" M private-unreported-path\0", True)
     if status:
         observer.failure()
     else:
         observer.phase("complete")
-sys.stdout.write('{"result":"preserved"}\n')
 raise SystemExit(status)
 """
         command = [sys.executable, "-I", "-S", "-B", "-X", "pycache_prefix=/dev/null",
                    "-c", child_source, str(HELPER)]
         for status in (0, 7):
-            for failing_stderr, enabled in ((False, True), (True, False), (True, True)):
+            for failing_stdout, failing_stderr, enabled in (
+                    (False, False, False), (False, False, True), (False, True, False), (False, True, True),
+                    (True, False, False), (True, False, True), (True, True, False), (True, True, True)):
                 failing = open("/dev/full", "wb", buffering=0)
                 child = None
                 try:
                     child = subprocess.Popen(
                         [*command, "1" if enabled else "0", str(status)],
-                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stdin=subprocess.DEVNULL, stdout=failing if failing_stdout else subprocess.PIPE,
                         stderr=failing if failing_stderr else subprocess.PIPE,
                         env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
                         cwd=ROOT)
@@ -518,17 +573,24 @@ raise SystemExit(status)
                     # or when process construction returned no child handle.
                     if child is None or child.returncode is not None:
                         if child is not None:
-                            child.stdout.close()
+                            if child.stdout is not None:
+                                child.stdout.close()
                             if child.stderr is not None:
                                 child.stderr.close()
                         failing.close()
-                with self.subTest(status=status, failing_stderr=failing_stderr, enabled=enabled):
-                    self.assertEqual(stdout, b'{"result":"preserved"}\n')
-                    self.assertEqual(child.returncode, status)
+                with self.subTest(status=status, failing_stdout=failing_stdout,
+                                  failing_stderr=failing_stderr, enabled=enabled):
+                    expected_status = 7 if failing_stdout else status
+                    self.assertEqual(stdout, None if failing_stdout else b'{"result":"preserved"}\n')
+                    self.assertEqual(child.returncode, expected_status)
                     if not failing_stderr:
-                        terminal = (b"package_capture_failure_phase=arguments\n" if status else
+                        terminal = (b"package_capture_failure_phase=arguments\n" if expected_status else
                                     b"package_capture_phase=complete\n")
-                        self.assertEqual(stderr, b"package_capture_phase=arguments\n" + terminal)
+                        observation = (b"package_capture_workspace=job:match;shape:simple;"
+                                       b"lock_index:absent;lock_worktree:absent;"
+                                       b"debug_index:absent;debug_worktree:absent;other:present\n")
+                        self.assertEqual(stderr, b"package_capture_phase=arguments\n" + observation + terminal
+                                         if enabled else b"")
 
 
 if __name__ == "__main__":unittest.main()
