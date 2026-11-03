@@ -66,6 +66,27 @@ WORKSPACE_STATUS_BYTES = {
     65: "added", 68: "deleted", 85: "unmerged",
 }
 
+# Fixed published source identities; c01..c11 are their stable opaque log keys.
+# These are observations only, never workspace allowances.
+WORKSPACE_MEMBERSHIP_PATHS = (
+    b"apps/mobile/.metadata",
+    b"apps/mobile/ios/Flutter/AppFrameworkInfo.plist",
+    b"apps/mobile/ios/Flutter/Release.xcconfig",
+    b"apps/mobile/ios/Runner.xcodeproj/project.pbxproj",
+    b"apps/mobile/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata",
+    b"apps/mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist",
+    b"apps/mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings",
+    b"apps/mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme",
+    b"apps/mobile/ios/Runner.xcworkspace/contents.xcworkspacedata",
+    b"apps/mobile/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist",
+    b"apps/mobile/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings",
+)
+WORKSPACE_MEMBERSHIP_KEYS = (
+    "c01", "c02", "c03", "c04", "c05", "c06",
+    "c07", "c08", "c09", "c10", "c11", "other",
+)
+WORKSPACE_MEMBERSHIP_CLASSES = frozenset({"absent", "present", "unavailable"})
+
 
 def classify_workspace_status(status):
     # Observational only. Never decode, normalize, serialize or retain paths.
@@ -111,6 +132,26 @@ def classify_workspace_status(status):
     return ("simple", *lock, *debug, other)
 
 
+
+def classify_workspace_membership(status):
+    # Reuse the existing validity rules and the same <=16 KiB byte snapshot.
+    # Never infer membership from a partial, renamed, copied or malformed record.
+    if classify_workspace_status(status)[0] != "simple":
+        return ("unavailable",) * 12
+    values = ["absent"] * 12
+    for record in status[:-1].split(b"\0") if status else ():
+        name = record[3:]
+        if name in (IOS_LOCK.encode(), IOS_DEBUG.encode()):
+            continue
+        try:
+            index = WORKSPACE_MEMBERSHIP_PATHS.index(name)
+        except ValueError:
+            index = -1
+        values[index] = "present"
+    # Exact bytes only: no path decoding, normalization, content read or export.
+    return tuple(values)
+
+
 def write_capture_phase(line):
     # _emit contains descriptor, encoding and write failures. Bypass buffering
     # so failed diagnostics cannot be retried by interpreter shutdown flushing.
@@ -134,8 +175,9 @@ class CapturePhaseDiagnostics:
         self._writing = True
         try:
             self._write(prefix + phase + "\n")
+            return True
         except Exception:
-            pass
+            return False
         finally:
             self._writing = False
 
@@ -164,7 +206,19 @@ class CapturePhaseDiagnostics:
                    "debug_index:%s;debug_worktree:%s;other:%s") % (
                        "match" if job_matches else "mismatch", *values)
         # This observation shares the phase budget but never selects a phase.
-        self._emit("package_capture_workspace=", summary)
+        if not self._emit("package_capture_workspace=", summary):
+            return
+        # The legacy summary has priority; keep the terminal failure slot even
+        # when the new observation cannot fit or its writer fails.
+        if self._writing or self._failed or self._attempts >= CAPTURE_PHASE_LIMIT - 1:
+            return
+        membership = classify_workspace_membership(status)
+        if (type(membership) is not tuple or len(membership) != 12
+                or any(type(value) is not str or value not in WORKSPACE_MEMBERSHIP_CLASSES
+                       for value in membership)):
+            return
+        self._emit("package_capture_workspace_membership=", "v1;" + ";".join(
+            key + ":" + value for key, value in zip(WORKSPACE_MEMBERSHIP_KEYS, membership)))
 
     def failure(self):
         if self._writing or self._failed:

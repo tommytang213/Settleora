@@ -352,7 +352,8 @@ class PhaseContractTest(unittest.TestCase):
                 module.CapturePhaseDiagnostics(lines.append).workspace_rejection(status, True)
                 self.assertEqual(lines, [
                     "package_capture_workspace=job:match;shape:simple;lock_index:absent;"
-                    "lock_worktree:absent;debug_index:absent;debug_worktree:absent;other:present\n"])
+                    "lock_worktree:absent;debug_index:absent;debug_worktree:absent;other:present\n",
+                    'package_capture_workspace_membership=v1;c01:absent;c02:absent;c03:absent;c04:absent;c05:absent;c06:absent;c07:absent;c08:absent;c09:absent;c10:absent;c11:absent;other:present\n'])
                 self.assertNotIn(PRIVATE, "".join(lines))
         for name in (module.IOS_LOCK, DEBUG_PATH):
             path = name.encode()
@@ -1069,6 +1070,8 @@ class PhaseContractTest(unittest.TestCase):
                     self.assertEqual(commands[0], ("status", "--porcelain", "-z", "--untracked-files=no"))
                     self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines),
                                      int(enabled and outcome == "rejected"))
+                    self.assertEqual(sum(line.startswith("package_capture_workspace_membership=") for line in lines),
+                                     int(enabled and outcome == "rejected"))
                     self.assertNotIn(PRIVATE, "".join(lines))
 
     def test_workspace_observer_failures_preserve_original_rejection_and_operation_trace(self):
@@ -1167,7 +1170,7 @@ class PhaseContractTest(unittest.TestCase):
         observer.phase("workspace_rejected_other_state")
         observer.workspace_rejection(b"", True)
         observer.failure()
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(len(lines), 4)
         self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines), 1)
         self.assertEqual(lines[-1], "package_capture_failure_phase=workspace_rejected_other_state\n")
 
@@ -1187,7 +1190,7 @@ class PhaseContractTest(unittest.TestCase):
                 self.assertEqual(lines, ["package_capture_phase=workspace_rejected_other_state\n"])
                 # A nested callback must not consume the workspace one-shot.
                 observer.workspace_rejection(b"", True)
-                self.assertEqual(len(lines), 2)
+                self.assertEqual(len(lines), 2 if throws else 3)
                 self.assertTrue(lines[1].startswith("package_capture_workspace=job:match;"))
                 # The guard resets after successful and failed writes alike.
                 observer.phase("output_published")
@@ -1204,6 +1207,114 @@ class PhaseContractTest(unittest.TestCase):
                 self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines), 1)
                 self.assertNotIn("package_capture_phase=catalog\n", lines)
                 self.assertNotIn(PRIVATE, "".join(lines))
+
+
+    def test_membership_is_additive_after_original_rejected_workspace_summary(self):
+        self.status = (b" M apps/mobile/ios/Runner.xcodeproj/project.pbxproj\0 M "
+                       + PRIVATE.encode() + b"\0")
+        with self.assertRaisesRegex(ValueError, "^capture boundary rejected$"):
+            self.main()
+        lines = self.log.getvalue().splitlines()
+        original = ("package_capture_workspace=job:match;shape:simple;lock_index:absent;"
+                    "lock_worktree:absent;debug_index:absent;debug_worktree:absent;other:present")
+        membership = ("package_capture_workspace_membership=v1;c01:absent;c02:absent;"
+                      "c03:absent;c04:present;c05:absent;c06:absent;c07:absent;c08:absent;"
+                      "c09:absent;c10:absent;c11:absent;other:present")
+        self.assertIn(original, lines)
+        self.assertIn(membership, lines)
+        self.assertLess(lines.index(original), lines.index(membership))
+        self.assertEqual(self.git_calls, [("rev-parse", "HEAD"),
+                                         ("status", "--porcelain", "-z", "--untracked-files=no")])
+        self.assertEqual(self.outputs, [])
+        self.assertEqual(self.ready_calls, [])
+        self.assert_failure_phase("workspace_rejected_other_state")
+
+
+    def test_membership_classifier_failures_preserve_original_rejection_and_trace(self):
+        class Hostile:
+            def __str__(self):
+                raise AssertionError("unexpected coercion")
+            def __hash__(self):
+                raise AssertionError("unexpected hashing")
+        class TextSubclass(str):
+            pass
+        valid = ("absent",) * 12
+        malformed = (None, [], Hostile(), valid[:-1], (*valid[:-1], PRIVATE),
+                     (Hostile(), *valid[1:]), (TextSubclass("absent"), *valid[1:]))
+        for result in malformed:
+            with self.subTest(result_type=type(result).__name__):
+                self.reset_observations()
+                self.status = b" M " + PRIVATE.encode() + b"\0"
+                with patch.object(module, "classify_workspace_membership", return_value=result):
+                    with self.assertRaisesRegex(ValueError, "^capture boundary rejected$"):
+                        self.main()
+                lines = self.log.getvalue().splitlines()
+                self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines), 1)
+                self.assertFalse(any(line.startswith("package_capture_workspace_membership=") for line in lines))
+                self.assertEqual(self.git_calls, [("rev-parse", "HEAD"),
+                                                 ("status", "--porcelain", "-z", "--untracked-files=no")])
+                self.assertEqual(self.outputs, [])
+                self.assertEqual(self.ready_calls, [])
+                self.assert_failure_phase("workspace_rejected_other_state")
+        self.reset_observations()
+        self.status = b" M " + PRIVATE.encode() + b"\0"
+        with patch.object(module, "classify_workspace_membership", side_effect=RuntimeError(PRIVATE)):
+            with self.assertRaisesRegex(ValueError, "^capture boundary rejected$"):
+                self.main()
+        self.assertIn("package_capture_workspace=", self.log.getvalue())
+        self.assertNotIn("package_capture_workspace_membership=", self.log.getvalue())
+        self.assert_failure_phase("workspace_rejected_other_state")
+
+    def test_membership_cap_reentry_and_write_failures_keep_original_and_terminal_priority(self):
+        for count in (0, 29, 30, 31, 1000):
+            for failed_prefix in (None, "package_capture_workspace=", "package_capture_workspace_membership="):
+                with self.subTest(count=count, failed_prefix=failed_prefix):
+                    lines = []
+                    def write(line):
+                        lines.append(line)
+                        observer.phase("catalog")
+                        observer.workspace_rejection(b"", False)
+                        observer.failure()
+                        if failed_prefix and line.startswith(failed_prefix):
+                            raise OSError(PRIVATE)
+                    observer = module.CapturePhaseDiagnostics(write)
+                    for _ in range(count):
+                        observer.phase("workspace_rejected_other_state")
+                    observer.workspace_rejection(b" M " + PRIVATE.encode() + b"\0", True)
+                    observer.workspace_rejection(b"", False)
+                    observer.failure()
+                    observer.workspace_rejection(b"", False)
+                    observer.failure()
+                    self.assertLessEqual(len(lines), 32)
+                    self.assertEqual(observer._attempts, len(lines))
+                    self.assertEqual(sum(line.startswith("package_capture_workspace=") for line in lines),
+                                     int(count < 31))
+                    self.assertEqual(sum(line.startswith("package_capture_workspace_membership=") for line in lines),
+                                     int(count < 30 and failed_prefix != "package_capture_workspace="))
+                    phase = "workspace_rejected_other_state" if count else "arguments"
+                    self.assertEqual(lines[-1], "package_capture_failure_phase=" + phase + "\n")
+                    self.assertNotIn("package_capture_phase=catalog\n", lines)
+                    self.assertNotIn(PRIVATE, "".join(lines))
+
+    def test_membership_work_follows_successful_legacy_write_and_available_budget(self):
+        for count, fails in ((0, False), (0, True), (30, False), (31, False)):
+            with self.subTest(count=count, fails=fails):
+                lines = []
+                with patch.object(module, "classify_workspace_membership",
+                                  return_value=("absent",) * 12) as classify:
+                    def write(line):
+                        if line.startswith("package_capture_workspace="):
+                            classify.assert_not_called()
+                            if fails:
+                                raise OSError(PRIVATE)
+                        lines.append(line)
+                    observer = module.CapturePhaseDiagnostics(write)
+                    for _ in range(count):
+                        observer.phase("workspace_rejected_other_state")
+                    observer.workspace_rejection(b"", True)
+                    self.assertEqual(classify.call_count, int(count < 30 and not fails))
+                    observer.failure()
+                    self.assertLessEqual(observer._attempts, 32)
 
     def test_shell_wiring_is_literal_capped_and_samples_exit_status_before_observation(self):
         source = (ROOT / "tools/ocr-models/run-ios-native-acceptance.sh").read_text()

@@ -461,8 +461,8 @@ class WorkspaceStatusDiagnosticTest(unittest.TestCase):
                 self.assertEqual(module.classify_workspace_status(raw), expected)
                 lines = []
                 module.CapturePhaseDiagnostics(lines.append).workspace_rejection(raw, True)
-                self.assertEqual(len(lines), 1)
-                self.assertLessEqual(len(lines[0].encode("ascii")), 256)
+                self.assertEqual(len(lines), 2)
+                self.assertTrue(all(len(line.encode("ascii")) <= 256 for line in lines))
                 for private in (PRIVATE.decode(), module.IOS_LOCK, module.IOS_DEBUG):
                     self.assertNotIn(private, lines[0])
 
@@ -488,6 +488,112 @@ class WorkspaceStatusDiagnosticTest(unittest.TestCase):
             with self.subTest(shape=shape, raw_type=type(raw).__name__):
                 self.assertEqual(module.classify_workspace_status(raw),
                                  (shape, "unknown", "unknown", "unknown", "unknown", "unknown"))
+
+
+class WorkspaceMembershipDiagnosticTest(unittest.TestCase):
+    # Independent fixtures define the published opaque-key mapping.
+    PATHS = (
+        b"apps/mobile/.metadata",
+        b"apps/mobile/ios/Flutter/AppFrameworkInfo.plist",
+        b"apps/mobile/ios/Flutter/Release.xcconfig",
+        b"apps/mobile/ios/Runner.xcodeproj/project.pbxproj",
+        b"apps/mobile/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata",
+        b"apps/mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist",
+        b"apps/mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings",
+        b"apps/mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme",
+        b"apps/mobile/ios/Runner.xcworkspace/contents.xcworkspacedata",
+        b"apps/mobile/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist",
+        b"apps/mobile/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings",
+    )
+
+    @staticmethod
+    def expected(present=(), other="absent", unavailable=False):
+        return (("unavailable",) * 12 if unavailable else
+                tuple("present" if index in present else "absent" for index in range(11)) + (other,))
+
+    @staticmethod
+    def line(values):
+        keys = ("c01", "c02", "c03", "c04", "c05", "c06",
+                "c07", "c08", "c09", "c10", "c11", "other")
+        return "package_capture_workspace_membership=v1;" + ";".join(
+            key + ":" + value for key, value in zip(keys, values)) + "\n"
+
+    def test_each_fixed_candidate_has_its_own_key_and_never_exports_path(self):
+        for index, path in enumerate(self.PATHS):
+            with self.subTest(key=index + 1):
+                raw = b" M " + path + b"\0"
+                expected = self.expected((index,))
+                self.assertEqual(module.classify_workspace_membership(raw), expected)
+                self.assertEqual(module.classify_workspace_status(raw),
+                                 ("simple", "absent", "absent", "absent", "absent", "present"))
+                lines = []
+                module.CapturePhaseDiagnostics(lines.append).workspace_rejection(raw, True)
+                self.assertEqual(lines[1], self.line(expected))
+                for known in self.PATHS:
+                    self.assertNotIn(known.decode("ascii"), "".join(lines))
+
+    def test_all_candidates_and_unknown_remainder_are_order_independent(self):
+        records = [b" M " + path for path in self.PATHS]
+        records += [b" M " + module.IOS_LOCK.encode(), b" M " + module.IOS_DEBUG.encode(),
+                    b" M " + PRIVATE + b"\xff\n\t"]
+        expected = self.expected(range(11), "present")
+        for ordered in (records, list(reversed(records))):
+            raw = b"\0".join(ordered) + b"\0"
+            self.assertEqual(module.classify_workspace_membership(raw), expected)
+        for raw in (b"", b" M " + module.IOS_LOCK.encode() + b"\0", module.IOS_COMBINED_STATUS):
+            self.assertEqual(module.classify_workspace_membership(raw), self.expected())
+
+    def test_unknown_aliases_and_private_bytes_never_match_or_escape(self):
+        path = self.PATHS[3]
+        aliases = (b"./" + path, path + b"/", b"prefix/" + path, path + b"\n" + PRIVATE,
+                   path.replace(b"/", b"//", 1), path.upper(), PRIVATE + b"\xff\r\n\t")
+        for name in aliases:
+            with self.subTest(length=len(name)):
+                raw = b" M " + name + b"\0"
+                self.assertEqual(module.classify_workspace_membership(raw), self.expected(other="present"))
+                lines = []
+                module.CapturePhaseDiagnostics(lines.append).workspace_rejection(raw, True)
+                self.assertEqual(lines[1], self.line(self.expected(other="present")))
+                self.assertNotIn(PRIVATE.decode(), "".join(lines))
+                self.assertTrue(all(line.isascii() for line in lines))
+
+    def test_invalid_snapshots_discard_partial_membership(self):
+        prefix = b" M " + self.PATHS[3] + b"\0"
+        invalid = (None, bytearray(prefix), b"x" * (16 * 1024 + 1), prefix[:-1],
+                   prefix + prefix, prefix + b"\0", prefix + b" M \0",
+                   prefix + b"R  private\0old\0", prefix + b" C private\0old\0",
+                   prefix + b"R  private\0", prefix + b"?? private\0",
+                   prefix + b"!! private\0", prefix + b"\xffM private\0",
+                   prefix + b"   private\0")
+        for raw in invalid:
+            with self.subTest(type=type(raw).__name__):
+                self.assertEqual(module.classify_workspace_membership(raw), self.expected(unavailable=True))
+
+    def test_supported_index_worktree_and_unmerged_columns_keep_membership(self):
+        for columns in (b" M", b"M ", b"MM", b"T ", b" D", b"A ", b"DD",
+                        b"AU", b"UD", b"UA", b"DU", b"AA", b"UU"):
+            with self.subTest(columns=columns):
+                raw = columns + b" " + self.PATHS[3] + b"\0"
+                self.assertEqual(module.classify_workspace_membership(raw), self.expected((3,)))
+
+    def test_worst_case_line_is_exactly_234_ascii_bytes_including_newline(self):
+        expected = self.line(self.expected(unavailable=True))
+        lines = []
+        module.CapturePhaseDiagnostics(lines.append).workspace_rejection(b"x" * (16 * 1024 + 1), True)
+        self.assertEqual(lines[1], expected)
+        self.assertEqual(len(lines[1].encode("ascii")), 234)
+        self.assertTrue(all(len(line.encode("ascii")) <= 256 for line in lines))
+
+    def test_original_other_presence_equals_candidate_or_unknown_membership(self):
+        cases = (b"", module.IOS_COMBINED_STATUS,
+                 b" M " + self.PATHS[0] + b"\0",
+                 b" M " + PRIVATE + b"\0",
+                 b" M " + self.PATHS[-1] + b"\0 M " + PRIVATE + b"\0")
+        for raw in cases:
+            with self.subTest(length=len(raw)):
+                membership = module.classify_workspace_membership(raw)
+                self.assertEqual(module.classify_workspace_status(raw)[-1] == "present",
+                                 "present" in membership)
 
 
 class CapturePhaseStderrProcessTest(unittest.TestCase):
@@ -589,7 +695,8 @@ raise SystemExit(status)
                         observation = (b"package_capture_workspace=job:match;shape:simple;"
                                        b"lock_index:absent;lock_worktree:absent;"
                                        b"debug_index:absent;debug_worktree:absent;other:present\n")
-                        self.assertEqual(stderr, b"package_capture_phase=arguments\n" + observation + terminal
+                        membership = b'package_capture_workspace_membership=v1;c01:absent;c02:absent;c03:absent;c04:absent;c05:absent;c06:absent;c07:absent;c08:absent;c09:absent;c10:absent;c11:absent;other:present\n'
+                        self.assertEqual(stderr, b"package_capture_phase=arguments\n" + observation + membership + terminal
                                          if enabled else b"")
 
 
