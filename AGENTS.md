@@ -85,6 +85,14 @@ A repository manual gate is a required review decision, not automatically a requ
 
 Implementing and testing an agreed security feature in isolated source is routine technical development; assess the actual effect and scope rather than treating every auth-related edit as a live access change. Ask Tommy when a product requirement or UX direction is unresolved, or before changing live credentials, permissions, exposure, or security-sensitive system or network settings, a production-triggering merge, deployment or release, purchases, adding reviewers, or any task that expressly requires Tommy's own approval. Code and configuration labels do not create an exemption when their actual effect is protected. A task-specific human-merge-only rule remains in force. Do not infer permission for a protected action from Atlas technical signoff. Record the actual gate owner and decision in the task report; do not repeatedly escalate routine technical choices to Tommy after the agreed requirement is clear.
 
+## Cursor Cloud specific instructions
+
+Cloud Agent images for this repo provide Node.js 22, the .NET 9 SDK (`DOTNET_ROOT=/usr/local/share/dotnet`), Flutter 3.44.8, and Docker Engine with Compose. There is no systemd. The `ubuntu` user is in the `docker` group on a new login. The environment start script launches `dockerd`, then sets `net.bridge.bridge-nf-call-iptables=0` and `net.bridge.bridge-nf-call-ip6tables=0`. Without those sysctls, Compose containers cannot open TCP connections to each other even when published host ports work. Apply the same sysctls again after creating a Docker network.
+
+Start then runs `docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml` for Postgres, RabbitMQ, and the API. The API process does not apply EF migrations. Start runs `migrate-database --mode=apply-safe` in a one-shot API container before it starts the API. Readiness is `http://127.0.0.1:8080/health/ready` with `"status":"ready"`. The user web dev server listens on port 5174 and does not proxy the API.
+
+`npm run validate:api` uses in-memory databases and does not need Compose. Run `flutter analyze` and `flutter test` from `apps/mobile`. iOS builds are not available on this Linux image. Development database and queue passwords live only in `infra/env/.env.example`.
+
 ## Required Task Report Fields
 
 - Task status and branch names.
