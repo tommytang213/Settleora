@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 SPEC = importlib.util.spec_from_file_location(
@@ -16,6 +17,14 @@ SPEC.loader.exec_module(MODULE)
 
 class IsolationTest(unittest.TestCase):
     def setUp(self):
+        # Git redirection overrides -C. Isolate the whole test process before
+        # fixture setup, including in-process MODULE calls and hosted children.
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        git_environment = patch.dict(os.environ, env, clear=True)
+        git_environment.start()
+        self.addCleanup(git_environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
@@ -48,6 +57,9 @@ class IsolationTest(unittest.TestCase):
             stderr=subprocess.DEVNULL, text=True)
 
     def test_exact_detached_source_and_mutations_do_not_dirty_capture_checkout(self):
+        self.assertEqual({key: value for key, value in os.environ.items()
+                          if key.startswith("GIT_")},
+                         {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull})
         result = MODULE.prepare(self.repo, self.runner_temp, self.sha)
         self.assertEqual(result, self.target)
         self.assertEqual(self.git("rev-parse", "HEAD", repo=result).strip(), self.sha)
@@ -137,6 +149,38 @@ class IsolationTest(unittest.TestCase):
         wrong_root = subprocess.run(command + ["--verify"], env=env,
                                     cwd=self.target / "apps/mobile", capture_output=True)
         self.assertEqual(wrong_root.returncode, 98)
+
+    def test_inherited_git_redirection_cannot_escape_fixture_repositories(self):
+        external = self.root / "controlled-external"
+        external.mkdir()
+        self.git("init", "--quiet", repo=external)
+        (external / "active-work").write_text("preserve controlled external work\n")
+        self.git("add", ".", repo=external)
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                 "commit", "--quiet", "-m", "external", "--no-gpg-sign", repo=external)
+        snapshot = lambda: {str(file.relative_to(external)): file.read_bytes()
+                            for file in external.rglob("*") if file.is_file()}
+        before = snapshot()
+        poisoned = dict(os.environ, GIT_DIR=str(external / ".git"),
+                        GIT_WORK_TREE=str(external),
+                        GIT_INDEX_FILE=str(external / ".git/index"),
+                        GIT_COMMON_DIR=str(external / ".git"),
+                        GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath",
+                        GIT_CONFIG_VALUE_0=str(external / "no-hooks"))
+        # Read-only control: inherited redirection really does override -C.
+        redirected = subprocess.check_output(
+            ["git", "--no-optional-locks", "-C", str(self.repo),
+             "rev-parse", "--show-toplevel"], env=poisoned, text=True).strip()
+        self.assertEqual(redirected, str(external))
+        # Exercise fixture setup, in-process prepare/verify and hosted children
+        # under poison. Select existing cases so this regression cannot recurse.
+        result = subprocess.run(
+            [sys.executable, "-I", "-S", "-B", str(Path(__file__).resolve()),
+             "IsolationTest.test_exact_detached_source_and_mutations_do_not_dirty_capture_checkout",
+             "IsolationTest.test_hosted_cli_checks_actual_working_directory_and_root"],
+            env=poisoned, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(snapshot(), before)
 
     def test_workflow_routes_dependency_verifier_and_runner_to_same_isolated_source(self):
         workflow = (ROOT / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()
