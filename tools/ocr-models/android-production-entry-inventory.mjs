@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 shared Git repository environment isolation source at d12e913a.
+  // One fresh canonical Flutter 3.44.8 Release build verified 2764 tracked blobs.
+  // Real pinned signer and complete package gates passed for this exact pair.
+  // Independent review governs this pair; native/iOS/hosted/merge remain.
+  "2fc205dab2e9ba29c5b8e924ab5ec1514f55357e4539db995aae1b8d19a4e6e3": Object.freeze([
+    "0fbb8c5bf1809e2e1126f8f4587e9d7701112865a3b8d7d0a58535c7e456282c",
+  ]),
   // #1309 explicit-repository Git isolation source at bc12c264.
   // One fresh canonical Flutter 3.44.8 Release build verified 2763 tracked blobs.
   // It reproduced the prior APK; real pinned signer and complete gates passed.
