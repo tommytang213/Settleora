@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
+import { aggregateGateDecision } from '../scaffold-validation-changes.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -44,6 +46,220 @@ function assertNativeFixtureScoringPolicy(nativeTest, fixtureContract) {
   );
 }
 
+const phaseTestPath = 'tools/ocr-models/test/package-failure-phases.test.py';
+const phaseStep = {
+  name: 'Validate package failure phase contracts',
+  run: 'python3 -I -S -B -X pycache_prefix=/dev/null ' + phaseTestPath + ' -v',
+};
+const isPhaseStep = (step) =>
+  step.name === phaseStep.name ||
+  (typeof step.run === 'string' && step.run.includes(phaseTestPath));
+
+const isSdkSetup = (step) =>
+  typeof step.uses === 'string' &&
+  [
+    'actions/setup-node@',
+    'actions/setup-dotnet@',
+    'subosito/flutter-action@',
+  ].some((prefix) => step.uses.startsWith(prefix));
+
+function assertPackageFailurePhaseWiring(scaffold) {
+  const mobile = scaffold.jobs['mobile-validation'];
+  const steps = stepsFor(mobile);
+  const phases = steps.filter(isPhaseStep);
+  assert.equal(phases.length, 1, 'phase suite must run exactly once');
+  assert.deepEqual(phases[0], phaseStep);
+
+  const bindings = steps.filter(
+    (step) => step.name === 'Verify stacked PR source binding',
+  );
+  assert.equal(bindings.length, 1);
+  const validation = steps.find(
+    (step) => step.run === 'npm run validate:mobile',
+  );
+  assert.ok(validation);
+  assert.ok(steps.indexOf(bindings[0]) < steps.indexOf(phases[0]));
+  assert.ok(steps.indexOf(phases[0]) < steps.indexOf(validation));
+  const firstSdk = steps.findIndex(isSdkSetup);
+  assert.notEqual(firstSdk, -1, 'mobile SDK setup must be present');
+  assert.ok(
+    steps.indexOf(phases[0]) < firstSdk,
+    'phase suite must run before the first SDK setup',
+  );
+}
+
+test('ordinary mobile CI runs the isolated package failure phase suite', () => {
+  assertPackageFailurePhaseWiring(workflow('scaffold-validation.yml'));
+});
+
+test('ordinary mobile CI rejects weakened package failure phase wiring', () => {
+  const control = workflow('scaffold-validation.yml');
+  const mobile = control.jobs['mobile-validation'];
+  mobile.steps = stepsFor(mobile).filter((step) => !isPhaseStep(step));
+  const bindingIndex = mobile.steps.findIndex(
+    (step) => step.name === 'Verify stacked PR source binding',
+  );
+  assert.notEqual(bindingIndex, -1);
+  mobile.steps.splice(bindingIndex + 1, 0, { ...phaseStep });
+  assert.doesNotThrow(() => assertPackageFailurePhaseWiring(control));
+
+  const variants = [
+    ['missing step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 1)],
+    ['duplicate step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 0, { ...step })],
+    ['missing isolation flag', (_, step) =>
+      step.run = step.run.replace(' -S ', ' ')],
+    ['broad discovery', (_, step) =>
+      step.run = 'python3 -m unittest discover'],
+    ['masked failure', (_, step) => step.run += ' || true'],
+    ['background execution', (_, step) => step.run += ' &'],
+    ['conditional skip', (_, step) => step.if = 'false'],
+    ['tolerated failure', (_, step) => step['continue-on-error'] = true],
+    ['environment override', (_, step) =>
+      step.env = { PYTHONPATH: '/synthetic-fixture' }],
+    ['directory override', (_, step) =>
+      step['working-directory'] = 'apps/mobile'],
+    ['before source binding', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      const index = job.steps.findIndex(
+        (item) => item.name === 'Verify stacked PR source binding',
+      );
+      job.steps.splice(index, 0, step);
+    }],
+    ['after first SDK setup', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      const firstSdk = job.steps.findIndex(isSdkSetup);
+      assert.notEqual(firstSdk, -1);
+      job.steps.splice(firstSdk + 1, 0, step);
+    }],
+    ['after mobile validation', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      job.steps.push(step);
+    }],
+  ];
+
+  for (const [label, mutate] of variants) {
+    const candidate = structuredClone(control);
+    const job = candidate.jobs['mobile-validation'];
+    mutate(job, job.steps.find(isPhaseStep));
+    assert.throws(
+      () => assertPackageFailurePhaseWiring(candidate),
+      { code: 'ERR_ASSERTION' },
+      label,
+    );
+  }
+});
+
+const captureTestPath = 'tools/ocr-models/test/package-failure-capture.test.py';
+const captureStep = {
+  name: 'Validate package failure capture contracts',
+  run: 'python3 -I -S -B -X pycache_prefix=/dev/null ' + captureTestPath + ' -v',
+};
+const isCaptureStep = (step) =>
+  step.name === captureStep.name ||
+  (typeof step.run === 'string' && step.run.includes(captureTestPath));
+const isNodeSetup = (step) =>
+  typeof step.uses === 'string' && step.uses.startsWith('actions/setup-node@');
+
+function assertPackageFailureCaptureWiring(scaffold) {
+  // The mocked phase suite must retain its earlier, pre-SDK position.
+  assertPackageFailurePhaseWiring(scaffold);
+  const steps = stepsFor(scaffold.jobs['mobile-validation']);
+  const captures = steps.filter(isCaptureStep);
+  assert.equal(captures.length, 1, 'capture suite must run exactly once');
+  assert.deepEqual(captures[0], captureStep);
+  const nodes = steps.filter(isNodeSetup);
+  assert.equal(nodes.length, 1, 'capture suite requires one Node setup');
+  assert.equal(nodes[0].uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
+  assert.equal(nodes[0].with?.['node-version'], '22');
+  assert.equal(nodes[0].if, undefined);
+  assert.equal(nodes[0]['continue-on-error'], undefined);
+  const binding = steps.find(
+    (step) => step.name === 'Verify stacked PR source binding',
+  );
+  const validation = steps.find(
+    (step) => step.run === 'npm run validate:mobile',
+  );
+  assert.ok(steps.indexOf(binding) < steps.indexOf(captures[0]));
+  assert.ok(
+    steps.indexOf(nodes[0]) < steps.indexOf(captures[0]),
+    'capture suite must run after Node setup',
+  );
+  assert.ok(
+    steps.indexOf(captures[0]) < steps.indexOf(validation),
+    'capture suite must run before mobile validation',
+  );
+}
+
+test('ordinary mobile CI runs the package failure capture contract suite', () => {
+  assertPackageFailureCaptureWiring(workflow('scaffold-validation.yml'));
+});
+
+test('ordinary mobile CI rejects weakened package failure capture wiring', () => {
+  const control = workflow('scaffold-validation.yml');
+  const mobile = control.jobs['mobile-validation'];
+  mobile.steps = stepsFor(mobile).filter((step) => !isCaptureStep(step));
+  const nodeIndex = mobile.steps.findIndex(isNodeSetup);
+  assert.notEqual(nodeIndex, -1);
+  mobile.steps.splice(nodeIndex + 1, 0, { ...captureStep });
+  assert.doesNotThrow(() => assertPackageFailureCaptureWiring(control));
+
+  const variants = [
+    ['missing step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 1)],
+    ['duplicate step', (job, step) =>
+      job.steps.splice(job.steps.indexOf(step), 0, { ...step })],
+    ['missing isolation flag', (_, step) =>
+      step.run = step.run.replace(' -S ', ' ')],
+    ['wrong suite', (_, step) =>
+      step.run = step.run.replace(captureTestPath, 'tools/ocr-models/test/another-contract.test.py')],
+    ['selected subset', (_, step) => step.run += ' CaptureContractTest'],
+    ['masked failure', (_, step) => step.run += ' || true'],
+    ['background execution', (_, step) => step.run += ' &'],
+    ['conditional skip', (_, step) => step.if = 'false'],
+    ['tolerated failure', (_, step) => step['continue-on-error'] = true],
+    ['environment override', (_, step) =>
+      step.env = { PYTHONPATH: '/synthetic-fixture' }],
+    ['directory override', (_, step) =>
+      step['working-directory'] = 'apps/mobile'],
+    ['before source binding', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      const index = job.steps.findIndex(
+        (item) => item.name === 'Verify stacked PR source binding',
+      );
+      job.steps.splice(index, 0, step);
+    }],
+    ['before Node setup', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      job.steps.splice(job.steps.findIndex(isNodeSetup), 0, step);
+    }],
+    ['after mobile validation', (job, step) => {
+      job.steps.splice(job.steps.indexOf(step), 1);
+      job.steps.push(step);
+    }],
+    ['missing Node setup', (job) =>
+      job.steps.splice(job.steps.findIndex(isNodeSetup), 1)],
+    ['conditional Node setup', (job) =>
+      job.steps.find(isNodeSetup).if = 'false'],
+    ['wrong Node version', (job) =>
+      job.steps.find(isNodeSetup).with['node-version'] = '20'],
+    ['unpinned Node setup', (job) =>
+      job.steps.find(isNodeSetup).uses = 'actions/setup-node@v6'],
+  ];
+
+  for (const [label, mutate] of variants) {
+    const candidate = structuredClone(control);
+    const job = candidate.jobs['mobile-validation'];
+    mutate(job, job.steps.find(isCaptureStep));
+    assert.throws(
+      () => assertPackageFailureCaptureWiring(candidate),
+      { code: 'ERR_ASSERTION' },
+      label,
+    );
+  }
+});
+
 test('required-check budget documents every classifier lane', () => {
   const policy = read('docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md');
   assert.match(policy, /docs-only, full, mobile, iOS, and user-web routing decisions/);
@@ -57,6 +273,7 @@ test('scaffold orchestration preserves the stable fail-closed aggregate', () => 
     'main',
     'ai/integration',
     'test/1301-native-ocr-acceptance-20260918-0038',
+    'ai/task/1324-included-tax-contract-on-1308-20261002',
   ]);
   assert.deepEqual(Object.keys(scaffold.on).sort(), ['pull_request', 'push']);
   assert.deepEqual(scaffold.on.push.branches, ['main', 'feat/**', 'fix/**', 'chore/**', 'docs/**']);
@@ -158,6 +375,160 @@ test('full and mobile validation commands remain unweakened', () => {
     packageJson.scripts['validate:mobile'],
     `npm run validate:ocr-models && node tools/doctor-validation.mjs --mobile && cd apps/mobile && ${sharedMobileReleaseGate}`,
   );
+});
+
+test('stack source binding preserves merge validation and the exact owned target', () => {
+  const scaffold = workflow('scaffold-validation.yml');
+  const mobile = scaffold.jobs['mobile-validation'];
+  const checkout = stepsFor(mobile).find((step) => step.uses?.startsWith('actions/checkout@'));
+  assert.equal(checkout.with.ref, undefined);
+  assert.equal(checkout.with['fetch-depth'], 2);
+  assert.equal(checkout.with['persist-credentials'], false);
+  const binding = stepsFor(mobile).find((step) => step.name === 'Verify stacked PR source binding');
+  assert.equal(binding.if, "${{ github.event.pull_request.base.ref == 'ai/task/1324-included-tax-contract-on-1308-20261002' }}");
+  assert.equal(binding.shell, 'bash');
+  assert.deepEqual(binding.env, {
+    EXPECTED_BASE: '${{ github.event.pull_request.base.sha }}',
+    EXPECTED_HEAD: '${{ github.event.pull_request.head.sha }}',
+    EXPECTED_MERGE: '${{ github.sha }}',
+  });
+  assert.ok(stepsFor(mobile).indexOf(binding) < stepsFor(mobile).findIndex((step) => step.run === 'npm run validate:mobile'));
+  assert.doesNotMatch(binding.run, /\$\{\{|eval\s|git fetch|git checkout|continue-on-error|\|\|\s*true/);
+  assert.equal(workflow('mobile-ocr-native-acceptance.yml').on.pull_request.branches.includes('ai/task/1324-included-tax-contract-on-1308-20261002'), false);
+  const publishing = workflow('api-image-ghcr.yml');
+  assert.equal(publishing.on.pull_request, undefined);
+  assert.deepEqual(publishing.on.push, { branches: ['main'], tags: ['v*'] });
+  assert.deepEqual(workflow('mobile-ocr-native-acceptance.yml').on.pull_request.branches, ['main']);
+});
+
+test('routing amendment leaves push skips and PR aggregate enforcement intact', () => {
+  const push = {
+    EVENT_NAME: 'push', CLASSIFY_RESULT: 'success',
+    RUN_FULL_VALIDATION: 'true', RUN_MOBILE_VALIDATION: 'true',
+    RUN_IOS_VALIDATION: 'true', RUN_WEB_USER_VALIDATION: 'true',
+    FULL_RESULT: 'success', MOBILE_RESULT: 'skipped',
+    IOS_RESULT: 'skipped', WEB_USER_RESULT: 'skipped',
+  };
+  assert.equal(aggregateGateDecision(push).ok, true);
+  for (const key of ['MOBILE_RESULT', 'IOS_RESULT', 'WEB_USER_RESULT']) {
+    assert.equal(aggregateGateDecision({ ...push, [key]: 'success' }).ok, false);
+  }
+  assert.equal(aggregateGateDecision({ ...push, EVENT_NAME: 'pull_request' }).ok, false);
+  assert.equal(aggregateGateDecision({
+    ...push, EVENT_NAME: 'pull_request', MOBILE_RESULT: 'success',
+    IOS_RESULT: 'success', WEB_USER_RESULT: 'success',
+  }).ok, true);
+});
+
+function stackedSourceFixture(t, { advanceBase = false } = {}) {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-stack-source-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = {
+    PATH: process.env.PATH,
+    HOME: root,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_AUTHOR_NAME: 'Synthetic fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Synthetic fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    GIT_AUTHOR_DATE: '2026-10-29T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-29T00:00:00Z',
+  };
+  const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git('init', '--initial-branch=base');
+  writeFileSync(path.join(root, 'source.txt'), 'base\n');
+  git('add', 'source.txt'); git('commit', '--no-gpg-sign', '-m', 'base');
+  git('checkout', '-b', 'candidate');
+  writeFileSync(path.join(root, 'source.txt'), 'reviewed candidate\n');
+  git('commit', '--no-gpg-sign', '-am', 'candidate');
+  const head = git('rev-parse', 'HEAD');
+  git('checkout', 'base');
+  if (advanceBase) {
+    writeFileSync(path.join(root, 'base-only.txt'), 'unreviewed base addition\n');
+    git('add', 'base-only.txt'); git('commit', '--no-gpg-sign', '-m', 'advance base');
+  }
+  const base = git('rev-parse', 'HEAD');
+  git('merge', '--no-ff', '--no-gpg-sign', '-m', 'synthetic PR merge', 'candidate');
+  const merge = git('rev-parse', 'HEAD');
+  return { root, env, git, identities: { EXPECTED_BASE: base, EXPECTED_HEAD: head, EXPECTED_MERGE: merge } };
+}
+
+function runStackBinding(fixture, overrides = {}, cwd = fixture.root) {
+  const script = stepsFor(workflow('scaffold-validation.yml').jobs['mobile-validation'])
+    .find((step) => step.name === 'Verify stacked PR source binding').run;
+  const env = { ...fixture.env, ...fixture.identities, ...overrides };
+  for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key];
+  const result = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script],
+    { cwd, env, encoding: 'utf8', timeout: 10_000 });
+  if (result.error) throw result.error;
+  assert.equal(result.signal, null, 'binding script must exit normally');
+  assert.equal(Number.isInteger(result.status), true, 'binding script must produce an exit code');
+  return result;
+}
+
+test('stack source binding accepts an exact merge/head tree and records its identities', (t) => {
+  const fixture = stackedSourceFixture(t);
+  const result = runStackBinding(fixture);
+  assert.equal(result.status, 0, result.stderr);
+  for (const sha of Object.values(fixture.identities)) assert.ok(result.stdout.includes(sha));
+  assert.ok(result.stdout.includes(fixture.git('rev-parse', 'HEAD^{tree}')));
+  assert.equal(fixture.git('rev-parse', 'HEAD'), fixture.identities.EXPECTED_MERGE);
+});
+
+test('stack source binding succeeds with the workflow depth-two checkout and both parents', (t) => {
+  const fixture = stackedSourceFixture(t);
+  const shallow = path.join(fixture.root, 'depth-two');
+  fixture.git('clone', '--no-local', '--depth=2', '--branch=base', fixture.root, shallow);
+  const git = (...args) => execFileSync('git', ['-C', shallow, ...args], { env: fixture.env, encoding: 'utf8' }).trim();
+  assert.equal(git('rev-parse', '--is-shallow-repository'), 'true');
+  for (const sha of Object.values(fixture.identities)) assert.equal(git('cat-file', '-t', sha), 'commit');
+  const result = runStackBinding(fixture, {}, shallow);
+  assert.equal(result.status, 0, result.stderr);
+  for (const sha of Object.values(fixture.identities)) assert.ok(result.stdout.includes(sha));
+});
+
+test('binding harness propagates process-start errors instead of counting a rejection', (t) => {
+  const fixture = stackedSourceFixture(t);
+  assert.throws(() => runStackBinding(fixture, { PATH: path.join(fixture.root, 'unavailable-bin') }), { code: 'ENOENT' });
+});
+
+test('stack source binding rejects missing, malformed, zero and unavailable identities', (t) => {
+  const fixture = stackedSourceFixture(t);
+  for (const key of Object.keys(fixture.identities)) {
+    for (const value of [undefined, '', '0'.repeat(40), 'a'.repeat(39), 'A'.repeat(40), '--upload-pack=bad', '$(touch unexpected)', 'f'.repeat(40)]) {
+      const result = runStackBinding(fixture, { [key]: value });
+      assert.notEqual(result.status, 0, `${key}/${value}`);
+    }
+  }
+  assert.equal(readdirSync(fixture.root).includes('unexpected'), false);
+});
+
+test('stack source binding rejects a wrong checkout merge and wrong parent identities', (t) => {
+  const fixture = stackedSourceFixture(t);
+  for (const [overrides, diagnostic] of [
+    [{ EXPECTED_MERGE: fixture.identities.EXPECTED_HEAD }, 'Stacked PR checkout merge mismatch'],
+    [{ EXPECTED_BASE: fixture.identities.EXPECTED_HEAD }, 'Stacked PR parent identities mismatch'],
+    [{ EXPECTED_HEAD: fixture.identities.EXPECTED_BASE }, 'Stacked PR parent identities mismatch'],
+  ]) {
+    const result = runStackBinding(fixture, overrides);
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr, `${diagnostic}\n`);
+    assert.equal(result.stdout, '');
+  }
+});
+
+test('stack source binding rejects a merge with valid parents but unequal full trees', (t) => {
+  const fixture = stackedSourceFixture(t, { advanceBase: true });
+  assert.notEqual(fixture.git('rev-parse', 'HEAD^{tree}'), fixture.git('rev-parse', `${fixture.identities.EXPECTED_HEAD}^{tree}`));
+  const result = runStackBinding(fixture);
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, 'Stacked PR merge/head tree mismatch\n');
+  assert.equal(result.stdout, '');
+});
+
+test('stack source binding fails closed when shallow checkout lacks parent objects', (t) => {
+  const fixture = stackedSourceFixture(t);
+  const shallow = path.join(fixture.root, 'shallow');
+  fixture.git('clone', '--no-local', '--depth=1', '--branch=base', fixture.root, shallow);
+  assert.notEqual(runStackBinding(fixture, {}, shallow).status, 0);
 });
 
 test('required scaffold classifier runs the fail-closed release identity suite exactly once', () => {
@@ -339,6 +710,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     if (jobName === 'android-native-acceptance') {
       assert.equal(job.env.ORG_GRADLE_PROJECT_settleoraReleaseEvidence, 'true');
       assert.ok(packageCommands.includes('flutter build apk --release --no-pub'));
+      assert.match(packageCommands, /candidate_dir=\/tmp\/settleora-ocr-android-production-v1\n\s*mkdir -m 700 "\$candidate_dir"\n\s*test "\$\(realpath -e "\$candidate_dir"\)" = "\$candidate_dir"/);
       assert.match(packageCommands, /install -m 0400 "\$full_apk" "\$verified_apk"/);
       assert.match(packageCommands, /--package="\$verified_apk"/);
       assert.match(packageCommands, /apkanalyzer" dex packages "\$verified_apk"/);
