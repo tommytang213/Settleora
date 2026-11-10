@@ -193,16 +193,12 @@ jobs:
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
-          # Flutter retains the generated Dart plugin registrant URI in AOT
-          # snapshots. Use its virtual filesystem so archive locations do not
-          # change production entry bytes. Keep the complete verifier unchanged.
-          build_production_apk() {
-            env "ORG_GRADLE_PROJECT_filesystem-roots=$PWD" \
-              ORG_GRADLE_PROJECT_filesystem-scheme=org-settleora-source \
-              flutter build apk --release --no-pub
-          }
-          candidate_dir="$RUNNER_TEMP/android-candidate-package"
-          mkdir -p "$candidate_dir"
+          # Flutter retains the generated Dart plugin registrant's absolute URI
+          # in AOT snapshots. Match the reviewed build root on every host and
+          # refuse an existing destination so no prior work is overwritten.
+          candidate_dir=/tmp/settleora-ocr-android-production-v1
+          mkdir -m 700 "$candidate_dir"
+          test "$(realpath -e "$candidate_dir")" = "$candidate_dir"
           git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
           (
             cd "$candidate_dir/apps/mobile"
@@ -214,7 +210,7 @@ jobs:
               --package-config=.dart_tool/package_config.json \
               --package-graph=.dart_tool/package_graph.json \
               --require-integration-test=true
-            build_production_apk
+            flutter build apk --release --no-pub
           )
           full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
           verified_apk="$RUNNER_TEMP/settleora-verified-production.apk"
@@ -267,7 +263,7 @@ jobs:
               --package-config=.dart_tool/package_config.json \
               --package-graph=.dart_tool/package_graph.json \
               --require-integration-test=true
-            build_production_apk
+            flutter build apk --release --no-pub
           )
           model_free_bytes=$(stat -c %s "$full_apk")
           base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
@@ -286,7 +282,7 @@ jobs:
               --file=.flutter-plugins-dependencies \
               --package-config=.dart_tool/package_config.json \
               --package-graph=.dart_tool/package_graph.json
-            build_production_apk
+            flutter build apk --release --no-pub
           )
           base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk")
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
@@ -342,7 +338,10 @@ jobs:
             fi
           fi
           candidate_present=false
-          if [[ "${RUNNER_TEMP:-}" == /home/runner/work/_temp && -d "$RUNNER_TEMP/android-candidate-package" ]]; then
+          if [[ "${RUNNER_TEMP:-}" == /home/runner/work/_temp &&
+                -d /tmp/settleora-ocr-android-production-v1 &&
+                -O /tmp/settleora-ocr-android-production-v1 &&
+                ! -L /tmp/settleora-ocr-android-production-v1 ]]; then
             candidate_present=true
           fi
           python3 tools/ocr-models/android-build-provenance-evidence.py \
