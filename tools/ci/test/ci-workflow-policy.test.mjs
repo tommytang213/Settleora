@@ -710,6 +710,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     if (jobName === 'android-native-acceptance') {
       assert.equal(job.env.ORG_GRADLE_PROJECT_settleoraReleaseEvidence, 'true');
       assert.ok(packageCommands.includes('flutter build apk --release --no-pub'));
+      // Full, model-free and baseline builds must use the same compiler URI
+      // policy; otherwise the measured delta includes archive-path strings.
+      assert.match(packageCommands, /build_production_apk\(\) \{\s+env "ORG_GRADLE_PROJECT_filesystem-roots=\$PWD" \\\n\s+ORG_GRADLE_PROJECT_filesystem-scheme=org-settleora-source \\\n\s+flutter build apk --release --no-pub\s+\}/);
+      assert.equal(packageCommands.match(/^\s*build_production_apk\s*$/gm)?.length, 3);
       assert.match(packageCommands, /install -m 0400 "\$full_apk" "\$verified_apk"/);
       assert.match(packageCommands, /--package="\$verified_apk"/);
       assert.match(packageCommands, /apkanalyzer" dex packages "\$verified_apk"/);

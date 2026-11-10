@@ -193,6 +193,14 @@ jobs:
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
+          # Flutter retains the generated Dart plugin registrant URI in AOT
+          # snapshots. Use its virtual filesystem so archive locations do not
+          # change production entry bytes. Keep the complete verifier unchanged.
+          build_production_apk() {
+            env "ORG_GRADLE_PROJECT_filesystem-roots=$PWD" \
+              ORG_GRADLE_PROJECT_filesystem-scheme=org-settleora-source \
+              flutter build apk --release --no-pub
+          }
           candidate_dir="$RUNNER_TEMP/android-candidate-package"
           mkdir -p "$candidate_dir"
           git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
@@ -206,7 +214,7 @@ jobs:
               --package-config=.dart_tool/package_config.json \
               --package-graph=.dart_tool/package_graph.json \
               --require-integration-test=true
-            flutter build apk --release --no-pub
+            build_production_apk
           )
           full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
           verified_apk="$RUNNER_TEMP/settleora-verified-production.apk"
@@ -259,7 +267,7 @@ jobs:
               --package-config=.dart_tool/package_config.json \
               --package-graph=.dart_tool/package_graph.json \
               --require-integration-test=true
-            flutter build apk --release --no-pub
+            build_production_apk
           )
           model_free_bytes=$(stat -c %s "$full_apk")
           base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
@@ -278,7 +286,7 @@ jobs:
               --file=.flutter-plugins-dependencies \
               --package-config=.dart_tool/package_config.json \
               --package-graph=.dart_tool/package_graph.json
-            flutter build apk --release --no-pub
+            build_production_apk
           )
           base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk")
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
