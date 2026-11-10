@@ -12,7 +12,7 @@ import { verifyIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
 import { canonicalizeOpenedIpa, inspectOpenedIpa, verifyCanonicalIpa, verifyOpenedIpa } from "../verify-ipa-archive.mjs";
 import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
 import { buildProvenance } from "../write-ios-release-provenance.mjs";
-import { withPackageContract } from "./package-contract-fixture.mjs";
+import { fixtureGitEnvironment, withPackageContract } from "./package-contract-fixture.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -1368,7 +1368,8 @@ test("signed wrapper rejects a non-Git source before trusting caller provenance"
 test("signed wrapper rejects an ignored fake source nested under a clean worktree", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-nested-source-"));
   const fakeRoot = path.join(root, "ignored-source");
-  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  const env = fixtureGitEnvironment();
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env });
   try {
     assert.equal(git("init", "-q").status, 0);
     assert.equal(git("config", "user.email", "test@example.invalid").status, 0);

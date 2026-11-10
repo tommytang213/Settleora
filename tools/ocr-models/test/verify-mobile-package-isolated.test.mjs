@@ -58,6 +58,11 @@ test("fingerprinting and fixture setup resist inherited Git repository/object ov
           assert.equal(nestedGit("rev-parse", "--show-toplevel"), nested);
           assert.equal(reviewedSourceTreeFingerprint(nested, nestedSha), expected);
         });
+        const nestedSuite = spawnSync(process.execPath, ["--test",
+          "--test-name-pattern=signed wrapper rejects an ignored fake source",
+          path.join(repoRootForCli(), "tools/ocr-models/test/ios-production-release-contract.test.mjs")],
+        { env: { ...process.env }, encoding: "utf8" });
+        assert.equal(nestedSuite.status, 0, nestedSuite.stdout + nestedSuite.stderr);
         for (const [key, value] of Object.entries(overrides)) assert.equal(process.env[key], value);
       } finally {
         for (const [key, value] of Object.entries(saved)) {

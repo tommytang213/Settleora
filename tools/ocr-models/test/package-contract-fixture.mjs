@@ -11,13 +11,18 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-export function withPackageContract(callback) {
+export function fixtureGitEnvironment() {
   // Capture a private fixture environment before init; later adversarial
   // caller overrides must never redirect fixture writes to another repository.
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
   Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull,
     GIT_AUTHOR_NAME: "Settleora Test", GIT_AUTHOR_EMAIL: "test@example.invalid",
     GIT_COMMITTER_NAME: "Settleora Test", GIT_COMMITTER_EMAIL: "test@example.invalid" });
+  return env;
+}
+
+export function withPackageContract(callback) {
+  const env = fixtureGitEnvironment();
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-"));
   const model = Buffer.from("model-bytes");
   try {
