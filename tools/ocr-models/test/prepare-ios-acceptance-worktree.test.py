@@ -182,6 +182,30 @@ class IsolationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(snapshot(), before)
 
+    def test_prepare_ignores_repository_overrides_but_preserves_git_configuration(self):
+        external = self.root / "same-commit-external"
+        subprocess.run(["git", "clone", "--quiet", "--no-local", str(self.repo),
+                        str(external)], check=True)
+        snapshot = lambda: {str(file.relative_to(external)): file.read_bytes()
+                            for file in external.rglob("*") if file.is_file()}
+        before = snapshot()
+        overrides = {"GIT_DIR": str(external / ".git"),
+                     "GIT_WORK_TREE": str(self.repo),
+                     "GIT_INDEX_FILE": str(external / ".git/index"),
+                     "GIT_COMMON_DIR": str(external / ".git"),
+                     "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "settleora.fixtureConfig",
+                     "GIT_CONFIG_VALUE_0": "preserved"}
+        try:
+            with patch.dict(os.environ, overrides):
+                target = MODULE.prepare(self.repo, self.runner_temp, self.sha)
+                self.assertEqual(MODULE.verify(self.repo, self.runner_temp, self.sha), target)
+                self.assertEqual(MODULE.git(target, "config", "--get", "settleora.fixtureConfig"),
+                                 b"preserved\n")
+            common = ("rev-parse", "--path-format=absolute", "--git-common-dir")
+            self.assertEqual(self.git(*common, repo=target), self.git(*common))
+        finally:
+            self.assertTrue(snapshot() == before, "Controlled external repository changed")
+
     def test_workflow_routes_dependency_verifier_and_runner_to_same_isolated_source(self):
         workflow = (ROOT / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()
         # Real YAML is parsed by the existing CI policy suite. These checks bind

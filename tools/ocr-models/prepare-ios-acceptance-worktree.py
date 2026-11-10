@@ -23,9 +23,14 @@ def require(condition):
 
 
 def git(repo, *args):
+    # Repository/index overrides take precedence over -C. Keep the workflow's
+    # Git configuration and authentication environment, but bind operations to
+    # the explicit repository argument.
+    env = {key: value for key, value in os.environ.items()
+           if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"}}
     result = subprocess.run(
         ["git", "--no-optional-locks", "-C", str(repo), *args],
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     require(result.returncode == 0 and len(result.stdout) <= 32 * 1024 * 1024)
     return result.stdout
 
