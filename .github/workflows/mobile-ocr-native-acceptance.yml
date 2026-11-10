@@ -453,8 +453,13 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
           test "$(pod --version)" = "1.17.0"
 
+      # Simulator dependency integration and Flutter migrations must never
+      # mutate the exact source checkout used by package failure capture.
+      - name: Prepare isolated iOS simulator source
+        run: python3 -I -S -B tools/ocr-models/prepare-ios-acceptance-worktree.py
+
       - name: Install dependencies and pods
-        working-directory: apps/mobile
+        working-directory: ${{ runner.temp }}/ios-acceptance-source/apps/mobile
         run: |
           flutter pub get
           git diff --exit-code -- pubspec.lock
@@ -495,7 +500,7 @@ jobs:
           # canonical production graph is proven. The production package below is
           # built from an independent exact-head archive and cannot consume it.
           (cd ios && pod install)
-          node "$GITHUB_WORKSPACE/tools/ocr-models/verify-ios-test-podfile-lock.mjs" \
+          node "$RUNNER_TEMP/ios-acceptance-source/tools/ocr-models/verify-ios-test-podfile-lock.mjs" \
             < "$test_metadata_dir/production-Podfile.lock"
 
       - name: Boot trusted iOS simulator
@@ -524,7 +529,9 @@ jobs:
       - name: Execute iOS real-provider acceptance
         id: acceptance
         timeout-minutes: 180
-        working-directory: apps/mobile
+        working-directory: ${{ runner.temp }}/ios-acceptance-source/apps/mobile
+        env:
+          SETTLEORA_IOS_ACCEPTANCE_ROOT: ${{ runner.temp }}/ios-acceptance-source
         shell: bash
         run: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-ios-native-acceptance.sh" "${{ steps.simulator.outputs.udid }}"
 

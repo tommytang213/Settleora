@@ -26,6 +26,13 @@ test("iOS simulator acceptance resolves its test-only link before running the pr
     runner.indexOf("phase=execute_flutter_test"));
 });
 
+test("iOS simulator source isolation survives real Git and generator mutations", () => {
+  const result = spawnSync("python3", [
+    "-I", "-S", "-B", "tools/ocr-models/test/prepare-ios-acceptance-worktree.test.py", "-v",
+  ], { cwd: repoRoot, encoding: "utf8", maxBuffer: 1024 * 1024 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
 function withLog(contents, callback) {
   const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "settleora-ocr-evidence-"));
   try {

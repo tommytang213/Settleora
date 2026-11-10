@@ -123,6 +123,9 @@ phase=validate_environment
 : "${GITHUB_WORKSPACE:?GitHub workspace is unavailable}"
 : "${GITHUB_OUTPUT:?GitHub output path is unavailable}"
 : "${RUNNER_TEMP:?Runner temporary path is unavailable}"
+phase=verify_isolated_acceptance_source
+python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-acceptance-worktree.py" --verify
+acceptance_root="$SETTLEORA_IOS_ACCEPTANCE_ROOT"
 device="${1:-}"
 test "$(printf '%s' "$device" | tr -cd '0-9A-Fa-f-')" = "$device"
 test "${#device}" -eq 36
@@ -199,7 +202,7 @@ test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION)"
 test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED)"
 
 phase=install_network_isolation
-debug_config="$GITHUB_WORKSPACE/apps/mobile/ios/Flutter/Debug.xcconfig"
+debug_config="$acceptance_root/apps/mobile/ios/Flutter/Debug.xcconfig"
 network_config_backup="$RUNNER_TEMP/settleora-ocr-debug.xcconfig.original"
 phase=verify_debug_link_config
 debug_config_sha=$(shasum -a 256 "$debug_config" | cut -d ' ' -f 1)
@@ -220,7 +223,7 @@ esac
 phase=save_debug_link_config
 cp -p "$debug_config" "$network_config_backup"
 network_link_configured=true
-runner_project="$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcodeproj/project.pbxproj"
+runner_project="$acceptance_root/apps/mobile/ios/Runner.xcodeproj/project.pbxproj"
 runner_project_backup="$RUNNER_TEMP/settleora-ocr-runner-project.original"
 phase=save_runner_project
 cp -p "$runner_project" "$runner_project_backup"
@@ -254,7 +257,7 @@ test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
 test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $link_anchor -Wl,-u,_settleora_require_network_interposer -L$RUNNER_TEMP $network_deny -Wl,-needed-lSettleoraOcrNetworkDeny"
 test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting
-resolved_debug_settings=$(xcodebuild -project "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcodeproj" \
+resolved_debug_settings=$(xcodebuild -project "$acceptance_root/apps/mobile/ios/Runner.xcodeproj" \
   -target Runner -configuration Debug -sdk iphonesimulator -showBuildSettings 2>/dev/null)
 resolved_link_flags=$(sed -n 's/^[[:space:]]*OTHER_LDFLAGS = //p' <<< "$resolved_debug_settings")
 resolved_library_search_paths=$(sed -n 's/^[[:space:]]*LIBRARY_SEARCH_PATHS = //p' <<< "$resolved_debug_settings")
@@ -325,7 +328,7 @@ grep -Fx 'ios_runner_anchor_in_link_invocation=present' <<< "$link_diagnostic" >
 grep -Fx 'ios_runner_anchor_root_in_link_invocation=present' <<< "$link_diagnostic" >/dev/null
 grep -Fx 'ios_runner_forced_symbol_in_link_invocation=absent' <<< "$link_diagnostic" >/dev/null
 phase=verify_simulator_interposer_link
-simulator_app="$GITHUB_WORKSPACE/apps/mobile/build/ios/iphonesimulator/Runner.app"
+simulator_app="$acceptance_root/apps/mobile/build/ios/iphonesimulator/Runner.app"
 simulator_executable="$simulator_app/Runner"
 simulator_interposer="$simulator_app/Frameworks/libSettleoraOcrNetworkDeny.dylib"
 phase=verify_simulator_app
@@ -338,7 +341,7 @@ test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
 test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $link_anchor -Wl,-u,_settleora_require_network_interposer -L$RUNNER_TEMP $network_deny -Wl,-needed-lSettleoraOcrNetworkDeny"
 test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting_after_build
-resolved_built_settings=$(xcodebuild -workspace "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcworkspace" \
+resolved_built_settings=$(xcodebuild -workspace "$acceptance_root/apps/mobile/ios/Runner.xcworkspace" \
   -scheme Runner -configuration Debug -sdk iphonesimulator -showBuildSettings 2>/dev/null)
 resolved_built_runner_settings=$(awk '
   /^Build settings for action build and target Runner:$/ { found++; selected = 1; next }
