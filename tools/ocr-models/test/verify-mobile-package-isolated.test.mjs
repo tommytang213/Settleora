@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
@@ -10,6 +10,71 @@ import { repoRootForCli, withPackageContract } from "./package-contract-fixture.
 
 // Independently runnable checks that do not construct or verify an Android package.
 // Android archive/signature integration remains in verify-mobile-package.test.mjs.
+test("fingerprinting and fixture setup resist inherited Git repository/object overrides", () => {
+  withPackageContract(({ root, sourceSha }) => {
+    const expected = reviewedSourceTreeFingerprint(root, sourceSha);
+    withPackageContract(({ root: external, git }) => {
+      writeFileSync(path.join(external, "apps/mobile/lib/source.dart"), "distinct foreign source");
+      git("add", ".");
+      git("commit", "-qm", "foreign source");
+      assert.notEqual(git("rev-parse", "HEAD"), sourceSha);
+      const snapshot = () => {
+        const files = {};
+        function visit(directory) {
+          for (const entry of readdirSync(directory, { withFileTypes: true })) {
+            const name = path.join(directory, entry.name);
+            if (entry.isDirectory()) visit(name);
+            else files[path.relative(external, name)] = readFileSync(name).toString("base64");
+          }
+        }
+        visit(external);
+        return files;
+      };
+      const before = snapshot();
+      const overrides = {
+        GIT_DIR: path.join(external, ".git"), GIT_WORK_TREE: external,
+        GIT_COMMON_DIR: path.join(external, ".git"), GIT_INDEX_FILE: path.join(external, ".git/index"),
+        GIT_OBJECT_DIRECTORY: path.join(external, ".git/objects"),
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(external, ".git/objects"),
+        GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "settleora.fixtureConfig",
+        GIT_CONFIG_VALUE_0: "preserved", GIT_ASKPASS: "preserved-askpass", GIT_NO_REPLACE_OBJECTS: "1",
+      };
+      const saved = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
+      let calls = 0;
+      try {
+        Object.assign(process.env, overrides);
+        const run = (command, args, options) => {
+          calls++;
+          const childEnv = options.env ?? process.env;
+          assert.equal(childEnv.GIT_ASKPASS, "preserved-askpass");
+          assert.equal(childEnv.GIT_NO_REPLACE_OBJECTS, "1");
+          assert.equal(execFileSync("git", ["-C", root, "config", "--get", "settleora.fixtureConfig"],
+            { ...options, encoding: "utf8" }).trim(), "preserved");
+          return execFileSync(command, args, options);
+        };
+        assert.equal(reviewedSourceTreeFingerprint(root, sourceSha, run), expected);
+        assert.equal(calls, 2);
+        withPackageContract(({ root: nested, sourceSha: nestedSha, git: nestedGit }) => {
+          assert.equal(nestedGit("rev-parse", "--show-toplevel"), nested);
+          assert.equal(reviewedSourceTreeFingerprint(nested, nestedSha), expected);
+        });
+        const nestedSuite = spawnSync(process.execPath, ["--test",
+          "--test-name-pattern=signed wrapper rejects an ignored fake source",
+          path.join(repoRootForCli(), "tools/ocr-models/test/ios-production-release-contract.test.mjs")],
+        { env: { ...process.env }, encoding: "utf8" });
+        assert.equal(nestedSuite.status, 0, nestedSuite.stdout + nestedSuite.stderr);
+        for (const [key, value] of Object.entries(overrides)) assert.equal(process.env[key], value);
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+        assert.deepEqual(snapshot(), before);
+      }
+    });
+  });
+});
+
 test("APK signer rejects missing and same-size altered jar bytes", () => {
   assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1)), /toolchain is unreviewed/);
   assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1074241)), /toolchain is unreviewed/);

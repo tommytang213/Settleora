@@ -382,12 +382,24 @@ export function reviewedSourceTreeFingerprint(gitRoot, sourceSha, runCommand = e
   if (!/^[0-9a-f]{40}$/.test(sourceSha ?? "")) {
     throw new Error("Production APK source commit is invalid");
   }
+  // The explicit Git root must also own object lookup and discovery. Leave
+  // configuration/authentication and the caller's process environment intact.
+  const overrides = readFileSync(new URL("./git-repository-overrides.txt", import.meta.url), "utf8")
+    .trimEnd().split("\n");
+  if (overrides.length < 5 || overrides.length > 32 || new Set(overrides).size !== overrides.length ||
+      !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]
+        .every((name) => overrides.includes(name)) ||
+      overrides.some((name) => !/^GIT_[A-Z_]+$/.test(name) ||
+        /^GIT_(?:CONFIG|SSH|ASKPASS|PROXY_COMMAND|NO_REPLACE_OBJECTS)/.test(name))) {
+    throw new Error("Production APK Git environment policy is invalid");
+  }
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !overrides.includes(key)));
   const head = runCommand("git", ["-C", gitRoot, "rev-parse", "HEAD"], {
-    encoding: "utf8", maxBuffer: 1024,
+    encoding: "utf8", maxBuffer: 1024, env,
   }).trim();
   if (head !== sourceSha) throw new Error("Production APK source commit differs from checkout");
   const listing = runCommand("git", ["-C", gitRoot, "ls-tree", "-r", "-z", "--full-tree", sourceSha], {
-    encoding: "buffer", maxBuffer: maxInventoryBytes,
+    encoding: "buffer", maxBuffer: maxInventoryBytes, env,
   });
   if (!Buffer.isBuffer(listing) || listing.length === 0 || listing.at(-1) !== 0) {
     throw new Error("Production APK source tree is unavailable");
