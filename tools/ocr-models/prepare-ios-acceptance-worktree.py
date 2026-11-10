@@ -23,11 +23,17 @@ def require(condition):
 
 
 def git(repo, *args):
-    # Repository/index overrides take precedence over -C. Keep the workflow's
+    # Repository/object overrides take precedence over -C. Keep the workflow's
     # Git configuration and authentication environment, but bind operations to
     # the explicit repository argument.
-    env = {key: value for key, value in os.environ.items()
-           if key not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"}}
+    overrides = Path(__file__).resolve().with_name("git-repository-overrides.txt").read_text("ascii").splitlines()
+    require(5 <= len(overrides) <= 32 and len(set(overrides)) == len(overrides)
+            and {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+                 "GIT_OBJECT_DIRECTORY"} <= set(overrides)
+            and all(re.fullmatch(r"GIT_[A-Z_]+", name) and not name.startswith(
+                ("GIT_CONFIG", "GIT_SSH", "GIT_ASKPASS", "GIT_PROXY_COMMAND", "GIT_NO_REPLACE_OBJECTS"))
+                    for name in overrides))
+    env = {key: value for key, value in os.environ.items() if key not in overrides}
     result = subprocess.run(
         ["git", "--no-optional-locks", "-C", str(repo), *args],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)

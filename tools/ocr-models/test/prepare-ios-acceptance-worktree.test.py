@@ -165,6 +165,8 @@ class IsolationTest(unittest.TestCase):
                         GIT_WORK_TREE=str(external),
                         GIT_INDEX_FILE=str(external / ".git/index"),
                         GIT_COMMON_DIR=str(external / ".git"),
+                        GIT_OBJECT_DIRECTORY=str(external / ".git/objects"),
+                        GIT_ALTERNATE_OBJECT_DIRECTORIES=str(external / ".git/objects"),
                         GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath",
                         GIT_CONFIG_VALUE_0=str(external / "no-hooks"))
         # Read-only control: inherited redirection really does override -C.
@@ -193,6 +195,8 @@ class IsolationTest(unittest.TestCase):
                      "GIT_WORK_TREE": str(self.repo),
                      "GIT_INDEX_FILE": str(external / ".git/index"),
                      "GIT_COMMON_DIR": str(external / ".git"),
+                     "GIT_OBJECT_DIRECTORY": str(external / ".git/objects"),
+                     "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(external / ".git/objects"),
                      "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "settleora.fixtureConfig",
                      "GIT_CONFIG_VALUE_0": "preserved"}
         try:
@@ -205,6 +209,18 @@ class IsolationTest(unittest.TestCase):
             self.assertEqual(self.git(*common, repo=target), self.git(*common))
         finally:
             self.assertTrue(snapshot() == before, "Controlled external repository changed")
+
+    def test_empty_inherited_object_store_cannot_hide_requested_commit(self):
+        empty = self.root / "empty-objects"
+        empty.mkdir()
+        with patch.dict(os.environ, GIT_OBJECT_DIRECTORY=str(empty),
+                        GIT_ALTERNATE_OBJECT_DIRECTORIES=str(empty)):
+            inherited = dict(os.environ)
+            target = MODULE.prepare(self.repo, self.runner_temp, self.sha)
+            self.assertEqual(MODULE.verify(self.repo, self.runner_temp, self.sha), target)
+            self.assertEqual(dict(os.environ), inherited)
+        self.assertEqual(list(empty.iterdir()), [])
+        self.assertEqual(self.git("status", "--porcelain"), "")
 
     def test_workflow_routes_dependency_verifier_and_runner_to_same_isolated_source(self):
         workflow = (ROOT / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()

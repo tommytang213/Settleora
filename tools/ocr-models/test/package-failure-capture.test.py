@@ -275,6 +275,60 @@ class CaptureContractTest(unittest.TestCase):
             with self.subTest(malformed=malformed):
                 with self.assertRaises(ValueError):module.source_fingerprint(malformed)
 
+    def test_git_reader_uses_requested_source_and_preserves_configuration(self):
+        # Real repositories with different HEADs/catalogs expose redirection,
+        # rather than accepting a mocked source identity.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        def git(repo, *args):
+            return subprocess.check_output(
+                ["/usr/bin/git", "-C", str(repo), *args], env=env, stderr=subprocess.DEVNULL)
+        source, external = self.root / "source", self.root / "external"
+        heads = []
+        for repo, content in ((source, b"requested catalog"), (external, b"foreign catalog")):
+            repo.mkdir()
+            git(repo, "init", "--quiet")
+            (repo / "catalog.json").write_bytes(content)
+            git(repo, "add", ".")
+            git(repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "commit", "--quiet", "--no-gpg-sign", "-m", content.decode())
+            heads.append(git(repo, "rev-parse", "HEAD").strip())
+        self.assertNotEqual(*heads)
+        snapshot = lambda: {str(p.relative_to(external)): p.read_bytes()
+                            for p in external.rglob("*") if p.is_file()}
+        before = snapshot()
+        overrides = dict(GIT_DIR=str(external / ".git"), GIT_WORK_TREE=str(external),
+                         GIT_COMMON_DIR=str(external / ".git"),
+                         GIT_INDEX_FILE=str(external / ".git/index"),
+                         GIT_OBJECT_DIRECTORY=str(external / ".git/objects"),
+                         GIT_ALTERNATE_OBJECT_DIRECTORIES=str(external / ".git/objects"),
+                         GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="settleora.fixtureConfig",
+                         GIT_CONFIG_VALUE_0="preserved", GIT_ASKPASS="preserved-askpass",
+                         GIT_NO_REPLACE_OBJECTS="1")
+        children = []
+        def launch(*args, **kwargs):
+            child_env = kwargs.get("env", os.environ)
+            self.assertEqual(child_env["GIT_ASKPASS"], "preserved-askpass")
+            self.assertEqual(child_env["GIT_NO_REPLACE_OBJECTS"], "1")
+            child = subprocess.Popen(*args, **kwargs)
+            children.append(child)
+            return child
+        try:
+            with patch.dict(os.environ, overrides):
+                inherited = dict(os.environ)
+                self.assertEqual(module.read_git(source, ["rev-parse", "HEAD"], 1024, launch).strip(),
+                                 heads[0])
+                self.assertEqual(module.read_git(source, ["show", "HEAD:catalog.json"], 1024, launch),
+                                 b"requested catalog")
+                self.assertEqual(module.read_git(source, ["config", "--get", "settleora.fixtureConfig"],
+                                                 1024, launch), b"preserved\n")
+                self.assertEqual(dict(os.environ), inherited)
+        finally:
+            for child in children:
+                self.assertIsNotNone(child.poll())
+                child.stdout.close()  # Only after the real reader drained/waited.
+            self.assertEqual(snapshot(), before)
+
     def test_git_output_bound_drains_without_signals_or_early_close(self):
         stream = io.BytesIO(PRIVATE * 10000)
         class Child:

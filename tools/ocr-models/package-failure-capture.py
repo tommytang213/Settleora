@@ -369,8 +369,16 @@ def validate_context(context, platform):
 def read_git(repo, args, limit, popen=subprocess.Popen):
     # Bound buffered memory; drain excess until normal child exit. No timeout,
     # signal, early pipe close or fallback termination is introduced.
+    overrides = Path(__file__).resolve().with_name("git-repository-overrides.txt").read_text("ascii").splitlines()
+    require(5 <= len(overrides) <= 32 and len(set(overrides)) == len(overrides)
+            and {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+                 "GIT_OBJECT_DIRECTORY"} <= set(overrides)
+            and all(re.fullmatch(r"GIT_[A-Z_]+", name) and not name.startswith(
+                ("GIT_CONFIG", "GIT_SSH", "GIT_ASKPASS", "GIT_PROXY_COMMAND", "GIT_NO_REPLACE_OBJECTS"))
+                    for name in overrides))
+    env = {key: value for key, value in os.environ.items() if key not in overrides}
     child = popen(["/usr/bin/git", "--no-optional-locks", "-C", str(repo), *args],
-                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
     data = bytearray()
     oversized = False
     try:

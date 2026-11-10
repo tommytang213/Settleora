@@ -12,6 +12,12 @@ function sha256(bytes) {
 }
 
 export function withPackageContract(callback) {
+  // Capture a private fixture environment before init; later adversarial
+  // caller overrides must never redirect fixture writes to another repository.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_AUTHOR_NAME: "Settleora Test", GIT_AUTHOR_EMAIL: "test@example.invalid",
+    GIT_COMMITTER_NAME: "Settleora Test", GIT_COMMITTER_EMAIL: "test@example.invalid" });
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-"));
   const model = Buffer.from("model-bytes");
   try {
@@ -38,9 +44,7 @@ export function withPackageContract(callback) {
     writeFileSync(path.join(root, "tools/ocr-models/android-production-entry-inventory.mjs"), "reviewed inventory");
     const git = (...args) => {
       const result = spawnSync("git", ["-C", root, ...args], {
-        encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Settleora Test",
-          GIT_AUTHOR_EMAIL: "test@example.invalid", GIT_COMMITTER_NAME: "Settleora Test",
-          GIT_COMMITTER_EMAIL: "test@example.invalid" },
+        encoding: "utf8", env,
       });
       assert.equal(result.status, 0, result.stderr);
       return result.stdout.trim();
