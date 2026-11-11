@@ -810,11 +810,12 @@ const reviewRoleDiagnosticNames = new Set(["unavailable", "matched", "invalidCon
   "roleRowAbsent", "ambiguousRoleRow", "contextMismatch", "amountBoundaryMismatch",
   "extraneousColumn", "forbiddenIncompleteReason", "warningMismatch", "decisionHintMismatch"]);
 
-function sanitizeReviewRoleDiagnostic(value, hasReviewMismatch) {
+function sanitizeReviewRoleDiagnostic(value, hasReviewMismatch, previewPresent) {
   const role = reviewRoleDiagnosticNames.has(value) ? value : "invalidDiagnostic";
   if (role === "unavailable" || role === "invalidDiagnostic") return role;
-  // The producer uses the same matcher for this diagnostic and the mismatch.
-  if ((role === "matched" && hasReviewMismatch) ||
+  // The producer computes a role only with a preview, using the same matcher
+  // for this diagnostic and the mismatch. Legacy preview-field absence remains valid.
+  if (previewPresent === false || (role === "matched" && hasReviewMismatch) ||
       (role !== "matched" && !hasReviewMismatch)) {
     throw new Error("Recognition coverage review role diagnostic is inconsistent");
   }
@@ -1189,7 +1190,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
       ...(hasUiWitness ? { uiWitness: sanitizeUiWitness(entry.uiWitness, entry) } : {}),
       ...(hasParserDiagnostics ? { parserDiagnostics: boundedParserDiagnostics(entry.parserDiagnostics) } : {}),
       ...(hasReviewRoleDiagnostic ? { reviewRoleDiagnostic: sanitizeReviewRoleDiagnostic(
-        entry.reviewRoleDiagnostic, reviewMismatchFixtures.has(fixtureId)) } : {}),
+        entry.reviewRoleDiagnostic, reviewMismatchFixtures.has(fixtureId), entry.previewPresent) } : {}),
       ...(hasNumericRoutingObservation ? {
         numericRoutingObservation: sanitizeNumericRoutingObservation(entry.numericRoutingObservation) } : {}),
       ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),

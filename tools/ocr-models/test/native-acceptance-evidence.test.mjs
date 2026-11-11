@@ -101,7 +101,7 @@ function producerReviewRoleNames() {
   return names;
 }
 
-function collectReviewDiagnostic(role, reviewMismatch) {
+function collectReviewDiagnostic(role, reviewMismatch, options = {}) {
   const acceptance = {
     schemaVersion: 1, platform: "android", completed: true, networkIsolated: true,
     fixtureCount: 101, passedFixtureCount: reviewMismatch ? 100 : 101,
@@ -111,6 +111,16 @@ function collectReviewDiagnostic(role, reviewMismatch) {
       fixtureId, blockCount: 12, merchantExactTextSeen: true, totalExactTokenSeen: true,
       expectedItemCount: 2, itemDescriptionsExactTextSeen: 1,
       reviewRoleDiagnostic: index === 0 ? role : "matched",
+      ...(Object.hasOwn(options, "previewPresent") ? {
+        previewPresent: index === 0 ? options.previewPresent : true,
+        previewWarningCount: 0,
+        previewWarningCategoryCounts: Object.fromEntries([
+          "noReadableText", "dccAmountMissing", "itemChargedCurrencyConflict",
+          "itemReceiptCurrencyConflict", "noItems", "ratedTaxAmbiguity",
+          "untraceableItemAmount", "noTotal", "currencyFallback",
+          "symbolCurrencyUnresolved", "conflictingDate", "stayOnlyDate", "unknownWarning",
+        ].map((name) => [name, 0])),
+      } : {}),
     })),
     runtime: "onnxruntime-android:1.21.1:cpu", coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
@@ -118,8 +128,33 @@ function collectReviewDiagnostic(role, reviewMismatch) {
     peakRssBytes: 123456, perScript: { Latin: { total: 101, passed: reviewMismatch ? 100 : 101 } },
   };
   return withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`),
-    (log) => buildEvidence(evidenceArgs(log), repoRoot).acceptance);
+    (log) => (options.failure ? buildFailureEvidence : buildEvidence)(
+      { ...evidenceArgs(log), ...(options.failure ? { "test-status": "1" } : {}) },
+      repoRoot).acceptance);
 }
+
+test("review role diagnostics reject computed roles without a preview", () => {
+  for (const role of producerReviewRoleNames().filter((name) => name !== "unavailable")) {
+    assert.throws(() => collectReviewDiagnostic(role, role !== "matched", { previewPresent: false }),
+      /review role diagnostic is inconsistent/, role);
+  }
+});
+
+test("review role diagnostics failure recovery rejects computed roles without a preview", () => {
+  for (const role of producerReviewRoleNames().filter((name) => name !== "unavailable")) {
+    assert.deepEqual(collectReviewDiagnostic(role, role !== "matched",
+      { previewPresent: false, failure: true }), { completed: false }, role);
+  }
+  for (const failure of [false, true]) {
+    for (const role of ["unavailable", "PRIVATE_SENTINEL", null]) {
+      const retained = collectReviewDiagnostic(role, false, { previewPresent: false, failure });
+      assert.equal(retained.recognitionCoverage[0].reviewRoleDiagnostic,
+        role === "unavailable" ? role : "invalidDiagnostic");
+      assert.equal(retained.recognitionCoverage[0].previewPresent, false);
+      assert.ok(!JSON.stringify(retained).includes("PRIVATE_SENTINEL"));
+    }
+  }
+});
 
 test("review role diagnostics reject matched with a review mismatch", () => {
   assert.throws(() => collectReviewDiagnostic("matched", true),
@@ -1245,6 +1280,49 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(retained.recognitionCoverage[0].reviewRoleDiagnostic, role);
       assert.equal(retained.mismatchCount, acceptance.mismatchCount);
       assert.equal(retained.passedFixtureCount, acceptance.passedFixtureCount);
+    }
+  }
+  // A coherent failed product must not carry a computed success diagnostic.
+  // Exercise normal and fallback collection through both ownership carriers.
+  for (const compact of [false, true]) {
+    for (const role of ["matched", "unavailable", "PRIVATE_SENTINEL", undefined]) {
+      const rows = completeCoverage.map((row, index) => ({ ...row,
+        ...(index === 0 ? {
+          previewPresent: false, headerFieldStates: headerMap("noPreview"),
+          productObservation: productTuple(row, 2), uiWitness: [1, 1, 0, 0, 0, 0],
+        } : {}),
+        ...(role === undefined ? {} : { reviewRoleDiagnostic: index === 0 ? role : "matched" }),
+      }));
+      const marker = { ...acceptance,
+        mismatches: [{ fixtureId: manifestFixtureIds[0], field: "provider_status" }],
+        recognitionCoverage: compact ? rows.map(tupleRow) : rows,
+      };
+      withLog(protocolLog("SETTLEORA_OCR_ACCEPTANCE=" + JSON.stringify(marker)), (log) => {
+        const args = { ...evidenceArgs(log), "test-status": "1" };
+        if (role === "matched") {
+          let rejection;
+          assert.throws(() => {
+            try { buildEvidence(args, repoRoot); } catch (error) { rejection = error; throw error; }
+          }, /review role diagnostic is inconsistent/);
+          const failed = buildFailureEvidence(args, repoRoot, rejection);
+          assert.deepEqual(failed.acceptance, { completed: false });
+          assert.equal(failed.collectionRejection.phase, "acceptance_marker");
+          assert.equal(isCompleteEvidence(failed), false);
+        } else {
+          for (const collect of [buildEvidence, buildFailureEvidence]) {
+            const retained = collect(args, repoRoot);
+            const first = retained.acceptance.recognitionCoverage[0];
+            assert.equal(first.previewPresent, false);
+            assert.deepEqual(first.productObservation, productTuple(rows[0], 2));
+            if (role === undefined) assert.equal(Object.hasOwn(first, "reviewRoleDiagnostic"), false);
+            else assert.equal(first.reviewRoleDiagnostic, role === "unavailable" ? role : "invalidDiagnostic");
+            assert.deepEqual(retained.acceptance.mismatches, marker.mismatches);
+            assert.equal(retained.acceptance.passedFixtureCount, marker.passedFixtureCount);
+            assert.equal(isCompleteEvidence(retained), false);
+            assert.ok(!JSON.stringify(retained).includes("PRIVATE_SENTINEL"));
+          }
+        }
+      });
     }
   }
   const completeMarker = JSON.stringify({ ...acceptance, recognitionCoverage: completeCoverage });
