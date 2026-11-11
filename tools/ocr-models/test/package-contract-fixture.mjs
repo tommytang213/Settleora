@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -23,7 +23,9 @@ export function fixtureGitEnvironment() {
 
 export function withPackageContract(callback) {
   const env = fixtureGitEnvironment();
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-"));
+  // Git reports physical roots; macOS temporary directories can use aliases.
+  // Canonicalize the owned directory before any fixture Git initialization.
+  const root = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-")));
   const model = Buffer.from("model-bytes");
   try {
     mkdirSync(path.join(root, "apps/mobile/assets/receipt_ocr_models"), { recursive: true });

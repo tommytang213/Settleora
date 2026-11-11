@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -10,6 +11,34 @@ import { repoRootForCli, withPackageContract } from "./package-contract-fixture.
 
 // Independently runnable checks that do not construct or verify an Android package.
 // Android archive/signature integration remains in verify-mobile-package.test.mjs.
+test("package fixtures use physical roots with a symlinked temporary directory", () => {
+  const directory = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "settleora-fixture-tmp-")));
+  try {
+    const physical = path.join(directory, "physical");
+    const alias = path.join(directory, "alias");
+    mkdirSync(physical);
+    symlinkSync(physical, alias, "dir");
+    const script = `
+      import assert from "node:assert/strict";
+      import { realpathSync } from "node:fs";
+      import { pathToFileURL } from "node:url";
+      const { withPackageContract } = await import(pathToFileURL(process.argv[2]).href);
+      withPackageContract(({ root, git }) => {
+        assert.equal(root, realpathSync.native(root));
+        assert.equal(git("rev-parse", "--show-toplevel"), root);
+        assert.equal(process.env.TMPDIR, process.argv[3]);
+      });
+    `;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script,
+      "fixture-tmp-check", path.join(repoRootForCli(), "tools/ocr-models/test/package-contract-fixture.mjs"), alias],
+    { env: { ...process.env, TMPDIR: alias }, encoding: "utf8" });
+    assert.equal(result.status, 0, `${result.error ?? ""}${result.stdout}${result.stderr}`);
+    assert.deepEqual(readdirSync(physical), []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("fingerprinting and fixture setup resist inherited Git repository/object overrides", () => {
   withPackageContract(({ root, sourceSha }) => {
     const expected = reviewedSourceTreeFingerprint(root, sourceSha);

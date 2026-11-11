@@ -48,6 +48,10 @@ jobs:
           echo "Actual head:   ${actual_head}"
           test "${actual_head}" = "${EXPECTED_HEAD}"
 
+      - name: Verify package failure capture contracts
+        # Exercises the real Apple plist encoder before expensive SDK work.
+        run: python3 -I -S -B tools/ocr-models/test/package-failure-capture.test.py -v
+
       - name: Setup Flutter
         # Pinned from subosito/flutter-action@v2.
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2

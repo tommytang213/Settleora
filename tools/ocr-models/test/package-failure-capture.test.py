@@ -13,6 +13,7 @@ from pathlib import Path
 import plistlib
 import subprocess
 import sys
+import stat
 import tempfile
 import importlib.util
 import unittest
@@ -41,6 +42,39 @@ def public_values():
             "CFBundleName": "image_picker_ios_privacy", "CFBundlePackageType": "BNDL",
             "CFBundleInfoDictionaryVersion": "6.0", "DTXcode": "1640",
             "DTSDKName": "iphoneos18.5", "CFBundleSupportedPlatforms": ["iPhoneOS"]}
+
+
+def wider_binary_offsets(raw):
+    # A complete valid binary plist with a different offset-table width.
+    # This synthetic vector is not the unavailable hosted release plist.
+    trailer = raw[-32:]
+    width = trailer[6]
+    count = int.from_bytes(trailer[8:16], "big")
+    start = int.from_bytes(trailer[24:32], "big")
+    assert width in (1, 2, 4)
+    offsets = [int.from_bytes(raw[start + i * width:start + (i + 1) * width], "big")
+               for i in range(count)]
+    return (raw[:start] + b"".join(x.to_bytes(width * 2, "big") for x in offsets)
+            + trailer[:6] + bytes([width * 2, trailer[7]]) + trailer[8:])
+
+
+def unreachable_binary_string(raw, text):
+    # Valid but ignored object-table content must not be exported.
+    trailer = raw[-32:]
+    old_width, refs = trailer[6:8]
+    count = int.from_bytes(trailer[8:16], "big")
+    start = int.from_bytes(trailer[24:32], "big")
+    assert count + 1 < 1 << (8 * refs)
+    extra = plistlib.dumps(text, fmt=plistlib.FMT_BINARY)
+    extra_start = int.from_bytes(extra[-8:], "big")
+    object_bytes = extra[8:extra_start]
+    offsets = [int.from_bytes(raw[start + i * old_width:start + (i + 1) * old_width], "big")
+               for i in range(count)] + [start]
+    new_start = start + len(object_bytes)
+    width = next(n for n in (1, 2, 4, 8) if new_start < 1 << (8 * n))
+    return (raw[:start] + object_bytes + b"".join(x.to_bytes(width, "big") for x in offsets)
+            + trailer[:6] + bytes([width, refs]) + (count + 1).to_bytes(8, "big")
+            + trailer[16:24] + new_start.to_bytes(8, "big"))
 
 
 class CaptureContractTest(unittest.TestCase):
@@ -78,6 +112,140 @@ class CaptureContractTest(unittest.TestCase):
     def test_exact_binary_bytes_retained(self):
         raw = plistlib.dumps(public_values(), fmt=plistlib.FMT_BINARY)
         self.assertEqual(self.ios(raw)[2], raw)
+
+    def test_exact_native_serialization_receives_public_values_and_retains_original_bytes(self):
+        values = public_values()
+        raw = wider_binary_offsets(plistlib.dumps(values, fmt=plistlib.FMT_BINARY))
+        self.assertEqual(plistlib.loads(raw), values)
+        self.assertFalse(any(raw == plistlib.dumps(values, fmt=fmt, sort_keys=ordered)
+                             for fmt in (plistlib.FMT_XML, plistlib.FMT_BINARY)
+                             for ordered in (False, True)))
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module, "_apple_plist", return_value=raw) as encoder:
+            result, metadata, payload, _ = self.ios(raw)
+        encoder.assert_called_once_with(values, plistlib.FMT_BINARY, False)
+        self.assertEqual(payload, raw)
+        self.assertTrue(metadata["contentRetained"])
+        self.assertFalse(result["accepted"])
+
+    def test_ignored_binary_private_object_is_not_exported_by_native_fallback(self):
+        values = public_values()
+        raw = unreachable_binary_string(plistlib.dumps(values, fmt=plistlib.FMT_BINARY),
+                                        PRIVATE.decode())
+        self.assertEqual(plistlib.loads(raw), values)
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module, "_apple_plist",
+                             side_effect=lambda value, fmt, ordered: plistlib.dumps(
+                                 value, fmt=fmt, sort_keys=ordered)) as encoder:
+            _, metadata, payload, _ = self.ios(raw)
+        self.assertEqual(encoder.call_count, 4)
+        self.assertIsNone(payload)
+        self.assertEqual(metadata["classificationFailure"], "noncanonical_encoding")
+        self.assertNotIn(PRIVATE, (self.root / "ios-package-failure-evidence.zip").read_bytes())
+
+    def test_unknown_metadata_never_reaches_native_encoder(self):
+        values = public_values()
+        values["CFBundleName"] = PRIVATE.decode()
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module, "_apple_plist", side_effect=AssertionError("unexpected encoder")) as encoder:
+            _, metadata, payload, _ = self.ios(plistlib.dumps(values, fmt=plistlib.FMT_BINARY))
+        encoder.assert_not_called()
+        self.assertIsNone(payload)
+        self.assertEqual(metadata["classificationFailure"], "unclassified_metadata")
+        self.assertNotIn(PRIVATE, (self.root / "ios-package-failure-evidence.zip").read_bytes())
+
+    def test_native_encoder_failure_is_fixed_hash_only_metadata(self):
+        raw = wider_binary_offsets(plistlib.dumps(public_values(), fmt=plistlib.FMT_BINARY))
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module, "_apple_plist", side_effect=OSError(PRIVATE.decode())):
+            _, metadata, payload, _ = self.ios(raw)
+        self.assertIsNone(payload)
+        self.assertEqual(metadata["classificationFailure"], "native_encoder_unavailable")
+        self.assertNotIn(PRIVATE, (self.root / "ios-package-failure-evidence.zip").read_bytes())
+
+    def test_native_encoder_uses_trusted_tool_clean_input_and_private_bounded_output(self):
+        trusted = os.stat("/usr/bin/true")
+        encoded = plistlib.dumps(public_values(), fmt=plistlib.FMT_BINARY)
+        calls = []
+        waited = []
+        def launch(argv, **kwargs):
+            calls.append((argv, kwargs))
+            self.assertEqual(stat.S_IMODE(os.fstat(kwargs["stdout"].fileno()).st_mode), 0o600)
+            class Child:
+                def communicate(child, input):
+                    self.assertEqual(plistlib.loads(input), public_values())
+                    self.assertNotIn(PRIVATE, input)
+                    kwargs["stdout"].write(encoded)
+                    kwargs["stdout"].flush()
+                def wait(child):
+                    waited.append(True)
+                    return 0
+            return Child()
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module.os, "lstat", return_value=trusted), \
+                patch.object(module.subprocess, "Popen", side_effect=launch):
+            self.assertEqual(module._apple_plist(public_values(), plistlib.FMT_BINARY, False), encoded)
+        self.assertEqual(waited, [True])
+        argv, options = calls[0]
+        self.assertEqual(argv, ["/usr/bin/plutil", "-convert", "binary1", "-o", "-", "-"])
+        self.assertEqual(options["env"], {"PATH": os.defpath, "LANG": "C", "LC_ALL": "C"})
+        self.assertEqual(options["stdin"], subprocess.PIPE)
+        self.assertEqual(options["stderr"], subprocess.DEVNULL)
+        self.assertTrue(options["stdout"].closed)
+        self.assertNotIn("shell", options)
+        self.assertNotIn("timeout", options)
+
+    def test_native_encoder_rejects_unsafe_tool_platform_and_oversized_output(self):
+        trusted = os.stat("/usr/bin/true")
+        waited = []
+        def launch(argv, **kwargs):
+            class Child:
+                def communicate(child, input):
+                    kwargs["stdout"].write(b"x" * (module.MAX_PLIST + 1))
+                    kwargs["stdout"].flush()
+                def wait(child):
+                    waited.append(True)
+                    return 0
+            return Child()
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module.os, "lstat", return_value=trusted), \
+                patch.object(module.subprocess, "Popen", side_effect=launch):
+            with self.assertRaises(ValueError):
+                module._apple_plist(public_values(), plistlib.FMT_BINARY, False)
+        self.assertEqual(waited, [True])
+        unsafe = list(trusted)
+        unsafe[0] |= 0o022
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module.os, "lstat", return_value=os.stat_result(unsafe)), \
+                patch.object(module.subprocess, "Popen", side_effect=AssertionError("unexpected child")) as encoder:
+            with self.assertRaises(ValueError):
+                module._apple_plist(public_values(), plistlib.FMT_BINARY, False)
+        encoder.assert_not_called()
+        with patch.object(module.sys, "platform", "linux"), \
+                patch.object(module.subprocess, "Popen", side_effect=AssertionError("unexpected child")) as encoder:
+            with self.assertRaises(ValueError):
+                module._apple_plist(public_values(), plistlib.FMT_BINARY, False)
+        encoder.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "darwin", "requires the real Apple system plist encoder")
+    def test_real_apple_encoder_round_trip_preserves_only_complete_public_bytes(self):
+        values = public_values()
+        for fmt, name in ((plistlib.FMT_XML, "xml1"), (plistlib.FMT_BINARY, "binary1")):
+            with self.subTest(format=name):
+                raw = subprocess.check_output(
+                    ["/usr/bin/plutil", "-convert", name, "-o", "-", "-"],
+                    input=plistlib.dumps(values, fmt=plistlib.FMT_XML),
+                    stderr=subprocess.DEVNULL,
+                    env={"PATH": os.defpath, "LANG": "C", "LC_ALL": "C"})
+                self.assertEqual(plistlib.loads(raw), values)
+                self.assertTrue(module.public_plist(raw))
+                with self.assertRaises(ValueError):
+                    module.public_plist(raw + PRIVATE)
+                if fmt == plistlib.FMT_BINARY:
+                    hidden = unreachable_binary_string(raw, PRIVATE.decode())
+                    self.assertEqual(plistlib.loads(hidden), values)
+                    with self.assertRaises(ValueError):
+                        module.public_plist(hidden)
 
     def test_unknown_value_keeps_only_hash_and_fixed_reason(self):
         values = public_values(); values["CFBundleName"] = PRIVATE.decode()

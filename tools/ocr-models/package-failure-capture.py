@@ -19,6 +19,7 @@ import stat
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 MAX_APK = 400 * 1024 * 1024
@@ -549,9 +550,7 @@ def collect_context(repo, source_sha, env, git=None, diagnostics=None):
     return context
 
 
-def public_plist(data):
-    """Exact encodings only: no ignored comments, padding, objects or trailing bytes."""
-    value = plistlib.loads(data)
+def _public_plist_values(value):
     require(type(value) is dict)
     required = {"CFBundleIdentifier", "CFBundleName", "CFBundlePackageType"}
     require(required <= set(value) and len(value) <= 24)
@@ -579,9 +578,73 @@ def public_plist(data):
             require(item is True)
         else:
             raise ValueError("unclassified bundle metadata")
-    require(any(data == plistlib.dumps(value, fmt=fmt, sort_keys=ordered)
-                for fmt in (plistlib.FMT_XML, plistlib.FMT_BINARY) for ordered in (False, True)))
-    return True
+
+class PlistClassificationFailure(ValueError):
+    def __init__(self, reason):
+        require(reason in {"malformed_encoding", "unclassified_metadata",
+                           "noncanonical_encoding", "native_encoder_unavailable"})
+        self.reason = reason
+        super().__init__("public plist classification rejected")
+
+
+def _apple_plist(value, fmt, ordered):
+    # Only a clean serialization of already allowlisted values reaches the
+    # system encoder. Original bytes, including any ignored data, never do.
+    require(sys.platform == "darwin" and type(ordered) is bool
+            and fmt in (plistlib.FMT_XML, plistlib.FMT_BINARY))
+    _public_plist_values(value)
+    before = os.lstat("/usr/bin/plutil")
+    require(stat.S_ISREG(before.st_mode) and before.st_uid == 0
+            and not before.st_mode & 0o022)
+    public_xml = plistlib.dumps(value, fmt=plistlib.FMT_XML, sort_keys=ordered)
+    require(0 < len(public_xml) <= MAX_PLIST)
+    # A private descriptor keeps encoder output out of buffered memory until
+    # its complete size is checked. Always wait normally; no signals/timeouts.
+    with tempfile.TemporaryFile() as output:
+        child = subprocess.Popen(
+            ["/usr/bin/plutil", "-convert", "binary1" if fmt == plistlib.FMT_BINARY else "xml1",
+             "-o", "-", "-"],
+            stdin=subprocess.PIPE, stdout=output, stderr=subprocess.DEVNULL,
+            env={"PATH": os.defpath, "LANG": "C", "LC_ALL": "C"})
+        try:
+            child.communicate(input=public_xml)
+        finally:
+            code = child.wait()
+        require(code == 0 and identity(os.lstat("/usr/bin/plutil")) == identity(before))
+        require(0 < os.fstat(output.fileno()).st_size <= MAX_PLIST)
+        output.seek(0)
+        encoded = output.read(MAX_PLIST + 1)
+    require(0 < len(encoded) <= MAX_PLIST)
+    require(encoded.startswith(b"bplist00" if fmt == plistlib.FMT_BINARY else b"<?xml"))
+    decoded = plistlib.loads(encoded)
+    _public_plist_values(decoded)
+    require(decoded == value)
+    return encoded
+
+
+def public_plist(data):
+    """Exact public serializations only; no ignored comments/objects/padding."""
+    try:
+        require(type(data) is bytes and 0 < len(data) <= MAX_PLIST)
+        value = plistlib.loads(data)
+    except Exception:
+        raise PlistClassificationFailure("malformed_encoding") from None
+    try:
+        _public_plist_values(value)
+    except Exception:
+        raise PlistClassificationFailure("unclassified_metadata") from None
+    if any(data == plistlib.dumps(value, fmt=fmt, sort_keys=ordered)
+           for fmt in (plistlib.FMT_XML, plistlib.FMT_BINARY) for ordered in (False, True)):
+        return True
+    if sys.platform == "darwin":
+        try:
+            for fmt in (plistlib.FMT_BINARY, plistlib.FMT_XML):
+                for ordered in (False, True):
+                    if data == _apple_plist(value, fmt, ordered):
+                        return True
+        except Exception:
+            raise PlistClassificationFailure("native_encoder_unavailable") from None
+    raise PlistClassificationFailure("noncanonical_encoding")
 
 
 def atomic_output(root, name, data, limit):
@@ -642,6 +705,9 @@ def capture(platform, root, context, diagnostics=None):
                 evidence.update(status="observed", contentRetained=True, path=PRIVACY_PATH,
                                 classification="canonical_allowlisted_public_bundle_metadata")
                 payload = raw
+            except PlistClassificationFailure as error:
+                evidence.update(reason="unclassified_or_noncanonical_plist", contentRetained=False,
+                                classificationFailure=error.reason)
             except Exception:
                 evidence.update(reason="unclassified_or_noncanonical_plist", contentRetained=False)
     except Exception:
