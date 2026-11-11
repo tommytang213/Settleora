@@ -3745,7 +3745,8 @@ class ReceiptOcrParser {
       if (quantity == null ||
           int.parse(quantity.group(1)!) == 0 ||
           row.length < 3 ||
-          row.any((block) => block.points.length != 4)) {
+          row.any((block) => block.points.length != 4) ||
+          !_chargeTableCellsSharePrintedRow(row)) {
         continue;
       }
       // A bounded, unique monetary cell can establish the grouped price before
@@ -9812,7 +9813,7 @@ final _boundedPaymentMetadataLabel = RegExp(
 );
 
 bool _isBoundedCourtesyPaymentContextLine(String line) {
-  if (_isBoundedPaymentIdentityLine(line)) return true;
+  if (_isBoundedPaymentIdentityLine(line, requireMaskedCard: true)) return true;
   final text = line.trim();
   final paymentPrefix = RegExp(
     r'^(?:payment|tender)\b',
@@ -9841,12 +9842,15 @@ bool _isBoundedCourtesyPaymentContextLine(String line) {
   );
 }
 
-bool _isBoundedCourtesyApprovalIdentifierLine(String line) => RegExp(
-  r'^(?:approval|auth(?:orization)?)\b\s*'
-  r'(?:(?:code|number|no\.?)\s*)?[:#=-]?\s*'
-  r'(?=[a-z0-9-]{0,11}\d)[a-z0-9](?:[a-z0-9-]{0,10}[a-z0-9])?$',
-  caseSensitive: false,
-).hasMatch(line.trim());
+bool _isBoundedCourtesyApprovalIdentifierLine(String line) =>
+    (RegExp(r'^approved\b', caseSensitive: false).hasMatch(line.trim()) &&
+        _isBoundedPaymentIdentityLine(line, allowAmount: false)) ||
+    RegExp(
+      r'^(?:approval|auth(?:orization)?)\b\s*'
+      r'(?:(?:code|number|no\.?)\s*)?[:#=-]?\s*'
+      r'(?=[a-z0-9-]{0,11}\d)[a-z0-9](?:[a-z0-9-]{0,10}[a-z0-9])?$',
+      caseSensitive: false,
+    ).hasMatch(line.trim());
 
 bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   List<String> lines,
@@ -16282,7 +16286,9 @@ Set<int> _leadingQuantityColumnRows(
           failure = ReceiptOcrQuantityPredicate.failDigitCell;
         } else {
           diagnostics?.quantity(ReceiptOcrQuantityPredicate.separateDigitCell);
-          if (row.first.points.length != 4 || row[1].points.length != 4) {
+          if (row.first.points.length != 4 ||
+              row[1].points.length != 4 ||
+              !_chargeTableCellsSharePrintedRow([row.first, row[1]])) {
             failure = ReceiptOcrQuantityPredicate.failGeometry;
           } else {
             diagnostics?.quantity(ReceiptOcrQuantityPredicate.geometryPresent);

@@ -28,7 +28,7 @@ observe_ios_phase() {
   # A diagnostic write cannot change the existing status, trap or cleanup path.
   if test "$ios_phase_observations" -ge 32; then return 0; fi
   ios_phase_observations=$((ios_phase_observations + 1))
-  printf 'ios_capture_phase=%s\n' "$observed_phase" >&2 || :
+  ( printf 'ios_capture_phase=%s\n' "$observed_phase" >&2 ) || :
 }
 read_simulator_environment() {
   local variable="$1"

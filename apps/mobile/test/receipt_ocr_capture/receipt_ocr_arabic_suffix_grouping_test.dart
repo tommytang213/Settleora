@@ -73,6 +73,7 @@ ReceiptOcrPreview _quantityColumns(
   bool priceGeometry = true,
   bool separateQuantity = true,
   bool competingPrice = false,
+  double quantityOffsetY = 0,
 }) {
   final rows = [
     ['Corner Market'],
@@ -107,7 +108,7 @@ ReceiptOcrPreview _quantityColumns(
           : item && competingPrice && column == 2
           ? 300.0
           : 480.0;
-      final top = row * 60.0;
+      final top = row * 60.0 + (item && column == 0 ? quantityOffsetY : 0);
       final points = item && !geometry
           ? <ReceiptOcrPoint>[]
           : [
@@ -167,6 +168,66 @@ void _expectSameReviewState(
 }
 
 void main() {
+  for (final marker in ['د.إ', 'دإ']) {
+    for (final separateHeading in [false, true]) {
+      for (final offset in [-60.0, 60.0]) {
+        for (final (printed, total) in [
+          ('123.50', '123.50'),
+          ('1 234.50', '1234.50'),
+        ]) {
+          test(
+            'R17 quantity requires its physical row $marker/$separateHeading/$offset/$printed',
+            () {
+              final aligned = _quantityColumns(
+                '$printed $marker',
+                total: total,
+                separateHeading: separateHeading,
+              );
+              expect(aligned.items.single.quantity, '2');
+              for (final money in ['$printed $marker', 'AED $total']) {
+                final displaced = _quantityColumns(
+                  money,
+                  total: total,
+                  separateHeading: separateHeading,
+                  quantityOffsetY: offset,
+                );
+                expect(displaced.items, hasLength(1));
+                final unowned = _quantityColumns(
+                  money,
+                  total: total,
+                  heading: false,
+                );
+                expect(unowned.items.single.quantity, isNull);
+                expect(
+                  displaced.items.single.description,
+                  unowned.items.single.description,
+                );
+                expect(displaced.items.single.lineTotal, total);
+                expect(displaced.items.single.currency, 'AED');
+                expect(displaced.items.single.quantity, isNull);
+                expect(displaced.items.single.unitPrice, isNull);
+              }
+            },
+          );
+        }
+      }
+      test(
+        'R17 quantity keeps substantial row overlap $marker/$separateHeading',
+        () {
+          for (final offset in [5.0, 10.0]) {
+            final preview = _quantityColumns(
+              '1 234.50 $marker',
+              separateHeading: separateHeading,
+              quantityOffsetY: offset,
+            );
+            expect(preview.items.single.description, 'Coffee');
+            expect(preview.items.single.quantity, '2');
+            expect(preview.items.single.lineTotal, '1234.50');
+          }
+        },
+      );
+    }
+  }
   for (final description in ['Blend 7', 'Model 2026', 'Edition 2.5']) {
     for (final marker in ['د.إ', 'دإ']) {
       for (final (printed, total) in [

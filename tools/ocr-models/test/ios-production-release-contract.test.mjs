@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { chmodSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -1841,4 +1842,37 @@ test("IPA inspection ownership removes only its new directory after archive reje
     process.chdir(previousDirectory);
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("R17 closed diagnostic stderr cannot interrupt the shell cleanup trap", async () => {
+  const source = readFileSync(path.join(repoRoot, "tools/ocr-models/run-ios-native-acceptance.sh"), "utf8");
+  const start = source.indexOf("observe_ios_phase() {");
+  const end = source.indexOf("\nread_simulator_environment()", start);
+  assert.ok(start >= 0 && end > start);
+  const observer = source.slice(start, end);
+  const script = [
+    "set -euo pipefail",
+    "trap - PIPE",
+    "IFS= read -r fixture_ready",
+    "ios_phase_observations=0",
+    observer,
+    "trap 'status=$?; observe_ios_phase cleanup_enter; printf \"cleanup_status=%s count=%s\\n\" \"$status\" \"$ios_phase_observations\"' EXIT",
+    "observe_ios_phase debug_source",
+    "exit 17",
+  ].join("\n");
+  // Execute only the extracted diagnostic helper and this inert trap. No
+  // wrapper, SDK, simulator, provider, configuration or network operation runs.
+  const child = spawn("/bin/bash", ["-c", script], { stdio: ["pipe", "pipe", "pipe"] });
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { output += chunk; });
+  const completed = once(child, "close");
+  const stderrClosed = once(child.stderr, "close");
+  child.stderr.destroy();
+  await stderrClosed;
+  child.stdin.end("ready\n");
+  const [status, signal] = await completed;
+  assert.equal(signal, null);
+  assert.equal(status, 17);
+  assert.equal(output, "cleanup_status=17 count=2\n");
 });

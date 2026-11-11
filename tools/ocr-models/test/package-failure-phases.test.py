@@ -1321,7 +1321,7 @@ class PhaseContractTest(unittest.TestCase):
         body = source.split("observe_ios_phase() {", 1)[1].split("\nread_simulator_environment()", 1)[0]
         self.assertIn('if test "$ios_phase_observations" -ge 32; then return 0; fi', body)
         self.assertIn("*) return 0 ;;", body)
-        self.assertIn("printf 'ios_capture_phase=%s\\n' \"$observed_phase\" >&2 || :", body)
+        self.assertIn("( printf 'ios_capture_phase=%s\\n' \"$observed_phase\" >&2 ) || :", body)
         self.assertRegex(source, r"report_failure_phase\(\) \{\n  status=\$\?\n  observe_ios_phase cleanup_enter")
         calls = re.findall(r"\bobserve_ios_phase ([^;\n]+)", source)
         self.assertTrue(calls)

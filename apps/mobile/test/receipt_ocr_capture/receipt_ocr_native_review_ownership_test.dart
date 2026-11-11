@@ -684,6 +684,34 @@ void main() {
         );
       }
     }
+    for (final approval in [
+      'APPROVED AUTH # 293847',
+      'APPROVED AUTH#293847',
+      'APPROVED AUTH:293847',
+      'Approved Authorization # A29384',
+      'Approved auth code 1234',
+    ]) {
+      test('R17 approval needs independent payment $approval/$clock', () {
+        final alone = _paymentPreview(postTotalRows: [approval, clock]);
+        expect(alone.items.single.lineTotal, '10.00');
+        expect(alone.total, '10.00');
+        expect(alone.adjustmentsComplete, isFalse);
+        expect(alone.reviewHints, isNotEmpty);
+        for (final tender in ['Cash USD 10.00', 'VISA ****4321']) {
+          for (final rows in [
+            [approval, tender, clock],
+            [tender, approval, clock],
+            [tender, clock, approval],
+          ]) {
+            final withPayment = _paymentPreview(postTotalRows: rows);
+            expect(withPayment.items.single.lineTotal, '10.00');
+            expect(withPayment.total, '10.00');
+            expect(withPayment.adjustmentsComplete, isTrue);
+            expect(withPayment.reviewHints, isEmpty);
+          }
+        }
+      });
+    }
     for (final payment in [
       'Cash USD 10.00',
       'Card USD 10.00',
@@ -696,11 +724,6 @@ void main() {
       'Cash: paid USD 10.00',
       'Cash payment total USD 10.00',
       'Card charged USD 10.00',
-      'APPROVED AUTH # 293847',
-      'APPROVED AUTH#293847',
-      'APPROVED AUTH:293847',
-      'Approved Authorization # A29384',
-      'Approved auth code 1234',
     ]) {
       test(
         'whole bounded payment retains labeled metadata $payment/$clock',
