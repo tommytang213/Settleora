@@ -97,6 +97,61 @@ void _expectCompleteTax(ReceiptOcrPreview preview) {
 }
 
 void main() {
+  for (final qualifier in [
+    '2nd Edition',
+    '25th Edition',
+    '2.5th Edition',
+    '2 000th Edition',
+    '٢nd Edition',
+    '2\u0301nd Edition',
+    'DVD 2nd Edition',
+    'ZZZ2nd Edition',
+  ]) {
+    for (final money in ['AED 25.00', '25.00 د.إ']) {
+      test(
+        'R12 Arabic VAT product keeps numeric qualifier $qualifier/$money',
+        () {
+          for (final rate in ['', '(5%) ']) {
+            final description = '$_vatLabel $rate$qualifier';
+            ReceiptOcrPreview parse(
+              String name,
+            ) => const ReceiptOcrParser().parse(
+              'Bookshop\nDate: 2026-09-17\n$name $money\nSubtotal AED 25.00\nTotal AED 25.00',
+            );
+            final control = parse('Guide $description');
+            final preview = parse(description);
+            expect(control.items.single.lineTotal, '25.00');
+            expect(
+              preview.items.single.description,
+              control.items.single.description.replaceFirst('Guide ', ''),
+            );
+            expect(
+              preview.items.single.lineTotal,
+              control.items.single.lineTotal,
+            );
+            expect(
+              preview.items.single.currency,
+              control.items.single.currency,
+            );
+            expect(
+              preview.items.single.currencyUnresolved,
+              control.items.single.currencyUnresolved,
+            );
+            expect(preview.tax, isNull);
+            expect(preview.subtotal, '25.00');
+            expect(preview.total, '25.00');
+            expect(preview.adjustmentsComplete, control.adjustmentsComplete);
+            expect(
+              preview.incompleteAdjustmentReasons,
+              control.incompleteAdjustmentReasons,
+            );
+            expect(preview.reviewHints, control.reviewHints);
+            expect(preview.warnings, control.warnings);
+          }
+        },
+      );
+    }
+  }
   // Printed receipt text, not a reconstruction of retained native OCR output.
   for (final rate in ['(5%)', '（5%）', '(5.5%)']) {
     test('parenthesized Arabic VAT preserves unresolved review: $rate', () {

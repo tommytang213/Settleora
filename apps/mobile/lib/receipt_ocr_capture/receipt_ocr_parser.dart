@@ -15782,12 +15782,51 @@ final _arabicVatMoneyLabelPrefixPattern = RegExp(
 // does not match this ambiguity; DVD 1.85 and ZZZ 1.85 remain indistinguishable.
 final _arabicVatUnresolvedCodePrefixPattern = RegExp(
   '^\\s*$_arabicVatLabelPattern(?:\\s+|\\s*[:：]\\s*)'
-  r'[A-Z]{3}(?![A-Za-z])\s*[:=]?\s*[+-]?\s*\d',
+  r'[A-Z]{3}(?![A-Za-z])\s*[:=]?\s*(?=[+-]?\s*\d)',
 );
 
-bool _hasPotentialArabicVatMoneyLine(String line) =>
-    _arabicVatMoneyLabelPrefixPattern.hasMatch(line) ||
-    _arabicVatUnresolvedCodePrefixPattern.hasMatch(line);
+final _arabicVatKnownCurrencyPrefixPattern = RegExp(
+  '^(?:$_currencyTokenPattern)',
+  caseSensitive: false,
+);
+final _arabicVatNumericPrefixPattern = RegExp(r"[+\-]?\s*\d[\d\s.,'’]*");
+final _arabicVatAttachedWordPattern = RegExp(
+  r'^[\p{L}\p{M}\p{N}_]',
+  unicode: true,
+);
+final _arabicVatUnknownCurrencySuffixPattern = RegExp(
+  r'^[A-Z]{3}(?![\p{L}\p{M}\p{N}_])',
+  unicode: true,
+);
+
+bool _hasArabicVatNumericBoundary(String text) {
+  // Select the maximal numeric run before checking its boundary. A lookahead
+  // can otherwise backtrack to a shorter integer inside a numeric product word.
+  // This is presence evidence only: malformed groups and extra cells still
+  // require review; this predicate never normalizes or publishes a tax value.
+  final number = _arabicVatNumericPrefixPattern.matchAsPrefix(text);
+  if (number == null) return false;
+  final after = text.substring(number.end);
+  if (after.isEmpty || RegExp(r'\s$').hasMatch(number.group(0)!)) return true;
+  return !_arabicVatAttachedWordPattern.hasMatch(after) ||
+      _amountSuffixCurrencyPattern.hasMatch(after) ||
+      _arabicVatUnknownCurrencySuffixPattern.hasMatch(after);
+}
+
+bool _hasPotentialArabicVatMoneyLine(String line) {
+  final prefix = _arabicVatMoneyLabelPrefixPattern.firstMatch(line);
+  if (prefix != null) {
+    final remainder = line.substring(prefix.end).trimLeft();
+    // An explicit known denomination keeps malformed financial cells in
+    // review, including attached text. Bare numeric words need a real boundary.
+    return remainder.isEmpty ||
+        _arabicVatKnownCurrencyPrefixPattern.hasMatch(remainder) ||
+        _hasArabicVatNumericBoundary(remainder);
+  }
+  final unknownCode = _arabicVatUnresolvedCodePrefixPattern.firstMatch(line);
+  return unknownCode != null &&
+      _hasArabicVatNumericBoundary(line.substring(unknownCode.end).trimLeft());
+}
 
 bool _isUnresolvedArabicVatMoneyLine(String line) =>
     _hasPotentialArabicVatMoneyLine(line) &&
