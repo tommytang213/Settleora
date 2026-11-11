@@ -48,6 +48,11 @@ jobs:
           echo "Actual head:   ${actual_head}"
           test "${actual_head}" = "${EXPECTED_HEAD}"
 
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+
       - name: Verify package failure capture contracts
         # Exercises the real Apple plist encoder before expensive SDK work.
         run: python3 -I -S -B tools/ocr-models/test/package-failure-capture.test.py -v

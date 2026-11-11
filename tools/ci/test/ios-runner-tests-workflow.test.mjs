@@ -155,3 +155,40 @@ test('simulator listing, boot, and XCTest failures remain failed workflow steps'
     assert.equal(result.commands.length, count);
   }
 });
+
+const captureNodeAction = 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e';
+
+function requireCaptureNodeBaseline(steps) {
+  const nodes = steps.filter((step) => step.uses?.startsWith('actions/setup-node@'));
+  assert.equal(nodes.length, 1, 'capture contracts require one explicit Node setup');
+  const node = nodes[0];
+  assert.equal(node.uses, captureNodeAction);
+  assert.deepEqual(node.with, { 'node-version': '22' });
+  assert.equal(node.if, undefined);
+  assert.equal(node['continue-on-error'], undefined);
+  const source = steps.findIndex((step) => step.name === 'Verify expected head');
+  const capture = steps.findIndex((step) => step.name === 'Verify package failure capture contracts');
+  assert.ok(source >= 0 && source < steps.indexOf(node));
+  assert.ok(capture > steps.indexOf(node));
+}
+
+test('iOS capture contracts pin Node22 after source verification and before capture', () => {
+  requireCaptureNodeBaseline(job.steps);
+  for (const mutation of ['missing', 'action', 'version', 'conditional', 'soft-failure', 'after-capture', 'before-source']) {
+    const steps = structuredClone(job.steps);
+    const index = steps.findIndex((step) => step.uses === captureNodeAction);
+    const node = steps[index];
+    if (mutation === 'missing') steps.splice(index, 1);
+    if (mutation === 'action') node.uses = 'actions/setup-node@v6';
+    if (mutation === 'version') node.with['node-version'] = '20';
+    if (mutation === 'conditional') node.if = 'false';
+    if (mutation === 'soft-failure') node['continue-on-error'] = true;
+    if (mutation === 'after-capture' || mutation === 'before-source') {
+      steps.splice(index, 1);
+      const target = steps.findIndex((step) => step.name === (mutation === 'after-capture'
+        ? 'Verify package failure capture contracts' : 'Verify expected head'));
+      steps.splice(target + (mutation === 'after-capture' ? 1 : 0), 0, node);
+    }
+    assert.throws(() => requireCaptureNodeBaseline(steps), undefined, mutation);
+  }
+});
