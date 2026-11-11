@@ -93,6 +93,15 @@ void _expectSameReviewState(
 }
 
 void main() {
+  test('R10 subtotal context cannot authorize a trailing tax product', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market\nCoffee AED 10.00\nSubtotal AED 10.00\nGadget 1 234.50 د.إ Tax\nTotal AED 10.00',
+    );
+    expect(preview.tax, isNull);
+    expect(preview.items.any((item) => item.lineTotal == '1234.50'), isFalse);
+    expect(preview.total, '10.00');
+    expect(preview.adjustmentsComplete, isFalse);
+  });
   for (final marker in ['د.إ', 'دإ']) {
     test('R9 rated tax suffix alone retains explicit currency $marker', () {
       final preview = const ReceiptOcrParser().parse(

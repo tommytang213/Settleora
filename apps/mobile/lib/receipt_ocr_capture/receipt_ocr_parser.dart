@@ -2947,7 +2947,16 @@ class ReceiptOcrParser {
           : _lastAmountInLine(
               line,
               currency: amountCurrency,
-              hasOwnedGroupedAmount: adjustmentRole == 'tax',
+              // The general role recognizer can find a trailing tax word.
+              // Only its complete rated/contextual grammar owns a new run.
+              hasOwnedGroupedAmount:
+                  adjustmentRole == 'tax' &&
+                  _isPostSubtotalAdjustmentLine(
+                    line,
+                    allowDescriptiveTaxLabel: seenPrintedSubtotal,
+                    taxOnly: true,
+                  ) &&
+                  (seenPrintedSubtotal || _hasExplicitTaxRate(line)),
             );
       if (adjustmentRoles.length > 1) {
         adjustmentsComplete = false;
