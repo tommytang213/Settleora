@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -11,8 +11,21 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+export function fixtureGitEnvironment() {
+  // Capture a private fixture environment before init; later adversarial
+  // caller overrides must never redirect fixture writes to another repository.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_AUTHOR_NAME: "Settleora Test", GIT_AUTHOR_EMAIL: "test@example.invalid",
+    GIT_COMMITTER_NAME: "Settleora Test", GIT_COMMITTER_EMAIL: "test@example.invalid" });
+  return env;
+}
+
 export function withPackageContract(callback) {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-"));
+  const env = fixtureGitEnvironment();
+  // Git reports physical roots; macOS temporary directories can use aliases.
+  // Canonicalize the owned directory before any fixture Git initialization.
+  const root = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-")));
   const model = Buffer.from("model-bytes");
   try {
     mkdirSync(path.join(root, "apps/mobile/assets/receipt_ocr_models"), { recursive: true });
@@ -38,9 +51,7 @@ export function withPackageContract(callback) {
     writeFileSync(path.join(root, "tools/ocr-models/android-production-entry-inventory.mjs"), "reviewed inventory");
     const git = (...args) => {
       const result = spawnSync("git", ["-C", root, ...args], {
-        encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Settleora Test",
-          GIT_AUTHOR_EMAIL: "test@example.invalid", GIT_COMMITTER_NAME: "Settleora Test",
-          GIT_COMMITTER_EMAIL: "test@example.invalid" },
+        encoding: "utf8", env,
       });
       assert.equal(result.status, 0, result.stderr);
       return result.stdout.trim();

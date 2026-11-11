@@ -102,6 +102,34 @@ for argument in "$@"; do
 done
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+# Bind every Git preflight/archive to its explicit root, including object
+# lookup. This script-local environment keeps configuration and auth intact.
+git_repository_policy="$script_dir/../../../tools/ocr-models/git-repository-overrides.txt"
+[[ -f "$git_repository_policy" ]] || fail "Git environment policy is unavailable"
+git_repository_overrides=()
+git_repository_override_count=0
+seen_git_repository_overrides=" "
+while IFS= read -r override_name || [[ -n "$override_name" ]]; do
+  [[ "$override_name" =~ ^GIT_[A-Z_]+$ ]] || fail "Git environment policy is invalid"
+  case "$override_name" in
+    GIT_CONFIG*|GIT_SSH*|GIT_ASKPASS*|GIT_PROXY_COMMAND*|GIT_NO_REPLACE_OBJECTS*)
+      fail "Git environment policy is invalid" ;;
+  esac
+  [[ "$seen_git_repository_overrides" != *" $override_name "* ]] || fail "Git environment policy is invalid"
+  seen_git_repository_overrides+="$override_name "
+  git_repository_overrides+=("$override_name")
+  git_repository_override_count=$((git_repository_override_count + 1))
+done < "$git_repository_policy"
+[[ $git_repository_override_count -ge 5 && $git_repository_override_count -le 32 ]] ||
+  fail "Git environment policy is invalid"
+for required_name in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; do
+  found=false
+  for override_name in "${git_repository_overrides[@]}"; do
+    [[ "$override_name" != "$required_name" ]] || found=true
+  done
+  [[ "$found" == true ]] || fail "Git environment policy is invalid"
+done
+unset "${git_repository_overrides[@]}"
 default_mobile_root=$(cd "$script_dir/.." && pwd -P)
 mobile_root=${mobile_root:-$default_mobile_root}
 repo_root=${repo_root:-$(cd "$mobile_root/../.." && pwd -P)}
@@ -429,6 +457,15 @@ fail_unreviewed_resource_path() {
   fi
   if [[ "$relative_resource" == Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist ]]; then
     printf 'unreviewed_privacy_bundle_info_sha256=%s\n' "$(sha256_file "$candidate")" >&2
+    # Opt-in hosted diagnostic only. Original rejection below is unconditional.
+    # Unknown/noncanonical metadata produces hash-only unavailable evidence.
+    if [[ "${SETTLEORA_PACKAGE_FAILURE_CAPTURE:-}" == hosted_v1 &&
+          "$mode" == unsigned && "$artifact_class" == release-candidate ]]; then
+      if ! python3 "$tool_root/tools/ocr-models/package-failure-capture.py" \
+        --platform=ios --source-sha="$source_sha" --repo-root="${source_git_root:-$repo_root}"; then
+        printf '%s\n' 'bounded_package_failure_capture_unavailable' >&2
+      fi
+    fi
   fi
   if [[ "$resource_class" == framework ]]; then
     framework_component=${relative_resource#Frameworks/}
