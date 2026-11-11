@@ -60,6 +60,78 @@ ReceiptOcrPreview _ownedReceipt(
   );
 }
 
+ReceiptOcrPreview _quantityColumns(
+  String money, {
+  String quantity = '2',
+  bool heading = true,
+  bool separateHeading = true,
+  bool geometry = true,
+  bool overlap = false,
+  bool underItemHeading = false,
+  bool priceGeometry = true,
+  bool separateQuantity = true,
+  bool competingPrice = false,
+}) {
+  final rows = [
+    ['Corner Market'],
+    if (heading)
+      if (separateHeading) ['Qty', 'Item', 'Price'] else ['Qty Item Price'],
+    if (separateQuantity)
+      [quantity, 'Coffee', if (competingPrice) 'AED 1.00', money]
+    else
+      ['$quantity Coffee $money'],
+    ['Subtotal AED 1234.50'],
+    ['Total AED 1234.50'],
+  ];
+  final itemRow = heading ? 2 : 1;
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  for (var row = 0; row < rows.length; row++) {
+    for (var column = 0; column < rows[row].length; column++) {
+      final item = row == itemRow;
+      final price = item && separateQuantity && column >= 2;
+      final left = item && column == 0 && underItemHeading
+          ? 85.0
+          : column == 0
+          ? 20.0
+          : column == 1
+          ? (item && underItemHeading ? 120.0 : 55.0)
+          : competingPrice && item
+          ? (column == 2 ? 250.0 : 340.0)
+          : 300.0;
+      final right = column == 0 && rows[row].length > 1
+          ? (item && overlap ? 90.0 : left + 25)
+          : column == 1
+          ? 220.0
+          : item && competingPrice && column == 2
+          ? 300.0
+          : 480.0;
+      final top = row * 60.0;
+      final points = item && !geometry
+          ? <ReceiptOcrPoint>[]
+          : [
+              ReceiptOcrPoint(x: left, y: top),
+              ReceiptOcrPoint(x: right, y: top),
+              ReceiptOcrPoint(x: right, y: top + 20),
+              if (!price || priceGeometry)
+                ReceiptOcrPoint(x: left, y: top + 20),
+            ];
+      blocks.add(
+        ReceiptOcrBlockEvidence(
+          text: rows[row][column],
+          row: row,
+          order: blocks.length,
+          confidence: 0.97,
+          points: points,
+        ),
+      );
+    }
+  }
+  return const ReceiptOcrParser().parse(
+    rows.map((row) => row.join(' ')).join('\n'),
+    blocks: blocks,
+  );
+}
+
 void _expectAmount(
   ReceiptOcrPreview preview,
   String amount, {
@@ -93,6 +165,71 @@ void _expectSameReviewState(
 }
 
 void main() {
+  for (final marker in ['د.إ', 'دإ']) {
+    for (final separateHeading in [false, true]) {
+      test(
+        'R15 quantity columns retain grouped suffix $marker/$separateHeading',
+        () {
+          final prefix = _quantityColumns(
+            'AED 1234.50',
+            separateHeading: separateHeading,
+          );
+          final suffix = _quantityColumns(
+            '1 234.50 $marker',
+            separateHeading: separateHeading,
+          );
+          for (final preview in [prefix, suffix]) {
+            expect(preview.items, hasLength(1));
+            expect(preview.items.single.description, 'Coffee');
+            expect(preview.items.single.quantity, '2');
+            expect(preview.items.single.unitPrice, isNull);
+            expect(preview.items.single.lineTotal, '1234.50');
+            expect(preview.items.single.currency, 'AED');
+            expect(preview.items.single.currencyUnresolved, isFalse);
+            expect(preview.total, '1234.50');
+          }
+          _expectSameReviewState(suffix, prefix);
+        },
+      );
+    }
+    for (final invalid in [
+      'heading',
+      'geometry',
+      'overlap',
+      'item-heading',
+      'price-geometry',
+      'quantity-cell',
+      'competing-price',
+    ]) {
+      test('R15 quantity columns require complete proof $marker/$invalid', () {
+        final preview = _quantityColumns(
+          '1 234.50 $marker',
+          heading: invalid != 'heading',
+          geometry: invalid != 'geometry',
+          overlap: invalid == 'overlap',
+          underItemHeading: invalid == 'item-heading',
+          priceGeometry: invalid != 'price-geometry',
+          separateQuantity: invalid != 'quantity-cell',
+          competingPrice: invalid == 'competing-price',
+        );
+        expect(preview.items.every((item) => item.quantity == null), isTrue);
+      });
+    }
+    test('R15 text-only grouped quantity remains unowned $marker', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Market\nQty Item Price\n2 Coffee 1 234.50 $marker\nTotal AED 1234.50',
+      );
+      expect(preview.items, isEmpty);
+    });
+    test('R15 quantity layout cannot repair malformed grouping $marker', () {
+      final preview = _quantityColumns('12 34.50 $marker');
+      expect(preview.items, isEmpty);
+    });
+    test('R15 zero quantity cannot authorize a grouped price $marker', () {
+      final preview = _quantityColumns('1 234.50 $marker', quantity: '0');
+      expect(preview.items.every((item) => item.quantity == null), isTrue);
+    });
+  }
   for (final marker in ['د.إ', 'دإ']) {
     for (final row in [
       (

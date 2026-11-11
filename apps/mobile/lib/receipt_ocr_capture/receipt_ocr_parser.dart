@@ -3734,9 +3734,47 @@ class ReceiptOcrParser {
     final ambiguousLayoutItemRows = <int>{};
     final contactLayoutItemRows = <int>{};
     var afterSubtotal = false;
+    final quantityColumnAmounts = <int, ReceiptOcrItemCandidate>{};
+    for (
+      var index = 0;
+      index < lines.length && index < layoutRows.length;
+      index++
+    ) {
+      final quantity = RegExp(r'^(\d{1,2})\s+').firstMatch(lines[index]);
+      final row = layoutRows[index];
+      if (quantity == null ||
+          int.parse(quantity.group(1)!) == 0 ||
+          row.length < 3 ||
+          row.any((block) => block.points.length != 4)) {
+        continue;
+      }
+      // A bounded, unique monetary cell can establish the grouped price before
+      // the independent heading/alignment checks establish its quantity column.
+      final rejected = <int>{};
+      final ambiguous = <int>{};
+      final contact = <int>{};
+      final amount = _extractLayoutItemFallback(
+        lines,
+        layoutRows,
+        index,
+        currency,
+        rejectedRows: rejected,
+        ambiguousRows: ambiguous,
+        contactRows: contact,
+      );
+      if (amount != null &&
+          rejected.isEmpty &&
+          ambiguous.isEmpty &&
+          contact.isEmpty &&
+          !amount.currencyUnresolved &&
+          amount.currency != null) {
+        quantityColumnAmounts[index] = amount;
+      }
+    }
     final leadingQuantityRows = _leadingQuantityColumnRows(
       lines,
       layoutRows,
+      ownedAmounts: quantityColumnAmounts,
       diagnostics: diagnostics,
     );
     final hasFuelMeasurementLayout =
@@ -4184,10 +4222,16 @@ class ReceiptOcrParser {
                 line,
                 match.group(3)!,
                 hasOwnedGroupedAmount:
-                    closedParkingFee?.row == lineIndex &&
-                    closedParkingFee?.total == lineTotal &&
-                    lineCurrency == currency &&
-                    !currencyUnresolved,
+                    (closedParkingFee?.row == lineIndex &&
+                        closedParkingFee?.total == lineTotal &&
+                        lineCurrency == currency &&
+                        !currencyUnresolved) ||
+                    (leadingQuantityRows.contains(lineIndex) &&
+                        quantityColumnAmounts[lineIndex]?.lineTotal ==
+                            lineTotal &&
+                        quantityColumnAmounts[lineIndex]?.currency ==
+                            lineCurrency &&
+                        !currencyUnresolved),
               ))) {
         lineDecisions[lineIndex] = layoutFallback != null
             ? ReceiptOcrItemLineDecision.layoutFallbackSelected
@@ -16065,6 +16109,7 @@ double _blockCenterX(ReceiptOcrBlockEvidence block) {
 Set<int> _leadingQuantityColumnRows(
   List<String> lines,
   List<List<ReceiptOcrBlockEvidence>> layoutRows, {
+  Map<int, ReceiptOcrItemCandidate> ownedAmounts = const {},
   ReceiptOcrPredicateCounter? diagnostics,
 }) {
   final accepted = <int>{};
@@ -16194,7 +16239,7 @@ Set<int> _leadingQuantityColumnRows(
     }
     diagnostics?.quantity(ReceiptOcrQuantityPredicate.candidate);
     ReceiptOcrQuantityPredicate? failure;
-    if (!_isPricedItemLine(line)) {
+    if (!_isPricedItemLine(line, ownedAmount: ownedAmounts[index])) {
       failure = ReceiptOcrQuantityPredicate.failPricedRow;
     } else {
       diagnostics?.quantity(ReceiptOcrQuantityPredicate.pricedRow);
@@ -16242,7 +16287,7 @@ Set<int> _leadingQuantityColumnRows(
   return accepted;
 }
 
-bool _isPricedItemLine(String line) {
+bool _isPricedItemLine(String line, {ReceiptOcrItemCandidate? ownedAmount}) {
   if (_isAdministrativeLine(line) || _isReceiptMetadataLine(line)) {
     return false;
   }
@@ -16256,7 +16301,19 @@ bool _isPricedItemLine(String line) {
   final description = _cleanDescription(match.group(1)!);
   return _hasSubstantiveItemDescription(description) &&
       !_isLikelyNonItemDescription(description) &&
-      _hasTraceableItemAmountToken(line, match.group(3)!);
+      _hasTraceableItemAmountToken(
+        line,
+        match.group(3)!,
+        hasOwnedGroupedAmount:
+            ownedAmount != null &&
+            !ownedAmount.currencyUnresolved &&
+            ownedAmount.currency != null &&
+            ownedAmount.lineTotal ==
+                _normalizeAmount(
+                  match.group(3)!,
+                  currency: ownedAmount.currency,
+                ),
+      );
 }
 
 bool _hasShippingLabel(
