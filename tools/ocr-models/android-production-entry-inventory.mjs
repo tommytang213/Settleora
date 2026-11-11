@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 reviewed quantity-column ownership corrections source at 03185ff4.
+  // One fresh canonical Flutter 3.44.8 Release build verified 2764 tracked blobs.
+  // Real pinned signer and complete package gates passed for this exact pair.
+  // Independent review governs this pair; native/iOS/hosted/merge remain.
+  "11eec8f7ae22fc941a231766e9c8a0bf6df01b47e430dc8daf5d1dbe5527d356": Object.freeze([
+    "0faa4cec3687048c75dd8bdf7fb32a68e2c622b9e82f47bb7baf07ca44e7355c",
+  ]),
   // #1309 preview and review diagnostic consistency source at 88cc96f1.
   // One fresh canonical Flutter 3.44.8 Release build verified 2764 tracked blobs.
   // Real pinned signer and complete package gates passed for this exact pair.
