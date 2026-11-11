@@ -3968,7 +3968,7 @@ class ReceiptOcrParser {
         continue;
       }
 
-      final layoutFallback = _extractLayoutItemFallback(
+      var layoutFallback = _extractLayoutItemFallback(
         lines,
         layoutRows,
         lineIndex,
@@ -3977,6 +3977,33 @@ class ReceiptOcrParser {
         ambiguousRows: ambiguousLayoutItemRows,
         contactRows: contactLayoutItemRows,
       );
+      final quantityColumnAmount = quantityColumnAmounts[lineIndex];
+      final printedQuantity = RegExp(r'^(\d{1,2})\s+').firstMatch(line);
+      if (leadingQuantityRows.contains(lineIndex) &&
+          quantityColumnAmount != null &&
+          layoutFallback != null &&
+          layoutFallback.quantity == null &&
+          !layoutFallback.currencyUnresolved &&
+          !quantityColumnAmount.currencyUnresolved &&
+          layoutFallback.currency != null &&
+          layoutFallback.description == quantityColumnAmount.description &&
+          layoutFallback.lineTotal == quantityColumnAmount.lineTotal &&
+          layoutFallback.currency == quantityColumnAmount.currency &&
+          printedQuantity != null &&
+          int.parse(printedQuantity.group(1)!) > 0) {
+        // Enrich only the existing fallback. All rejection and selection rules
+        // below still decide whether to retain this same bounded item.
+        layoutFallback = ReceiptOcrItemCandidate(
+          description: layoutFallback.description,
+          quantity: printedQuantity.group(1),
+          unitPrice: layoutFallback.unitPrice,
+          lineTotal: layoutFallback.lineTotal,
+          currency: layoutFallback.currency,
+          currencyUnresolved: layoutFallback.currencyUnresolved,
+          confidence: layoutFallback.confidence,
+          category: layoutFallback.category,
+        );
+      }
       if (contactLayoutItemRows.remove(lineIndex)) {
         // A rejected contact cell cannot become merchandise when flattened.
         unretainedPricedItem = true;
@@ -15810,6 +15837,8 @@ final _attachedJapaneseTaxAmountLinePattern = RegExp(
 );
 
 const _arabicVatLabelPattern = r'ضريبة\s+القيمة\s+المضافة';
+const _arabicVatParenthesizedRatePattern =
+    r'[（(]\s*\d{1,3}(?:[.,]\d{1,2})?\s*%\s*[)）]';
 
 // The printed VAT phrase owns only a complete monetary cell. Product wording
 // before or after the phrase cannot become tax through substring matching.
@@ -15827,18 +15856,20 @@ final _arabicVatAmountLinePattern = RegExp(
 // a book or other product containing the phrase keeps its merchandise role.
 final _arabicVatMoneyLabelPrefixPattern = RegExp(
   '^\\s*$_arabicVatLabelPattern\\s*[:：]?\\s*'
-  '(?:[（(]\\s*\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s*[)）]\\s*)?'
+  '(?:$_arabicVatParenthesizedRatePattern\\s*)?'
   '(?=\$|(?:$_currencyTokenPattern)\\s*\$|'
   '(?:$_currencyTokenPattern)?\\s*[+\\-]?\\s*\\d)',
   caseSensitive: false,
 );
 
 // Use the existing uppercase three-letter denomination shape only after the
-// complete leading label and a separator. Unknown codes grant no tax amount.
+// complete leading label and a separator or the same bounded rate qualifier.
+// Unknown codes grant no tax amount.
 // A product suffix followed by its own explicit currency cell (DVD AED 1.85)
 // does not match this ambiguity; DVD 1.85 and ZZZ 1.85 remain indistinguishable.
 final _arabicVatUnresolvedCodePrefixPattern = RegExp(
-  '^\\s*$_arabicVatLabelPattern(?:\\s+|\\s*[:：]\\s*)'
+  '^\\s*$_arabicVatLabelPattern(?:\\s+|\\s*[:：]\\s*|'
+  '\\s*[:：]?\\s*$_arabicVatParenthesizedRatePattern\\s*)'
   r'[A-Z]{3}(?![A-Za-z])\s*[:=]?\s*(?=[+-]?\s*\d)',
 );
 
@@ -16290,6 +16321,22 @@ Set<int> _leadingQuantityColumnRows(
 bool _isPricedItemLine(String line, {ReceiptOcrItemCandidate? ownedAmount}) {
   if (_isAdministrativeLine(line) || _isReceiptMetadataLine(line)) {
     return false;
+  }
+  // The quantity-column caller supplies only a unique bounded monetary cell.
+  // Its description's trailing digits are not part of that independently
+  // validated price. Heading, cell separation and alignment still own quantity.
+  if (ownedAmount != null &&
+      !ownedAmount.currencyUnresolved &&
+      ownedAmount.currency != null &&
+      ownedAmount.lineTotal != null &&
+      ownedAmount.lineTotal ==
+          _normalizeAmount(
+            ownedAmount.lineTotal!,
+            currency: ownedAmount.currency,
+          ) &&
+      _hasSubstantiveItemDescription(ownedAmount.description) &&
+      !_isLikelyNonItemDescription(ownedAmount.description, pricedRow: true)) {
+    return true;
   }
   final match = RegExp(
     '^(.+?)\\s+($_currencyTokenPattern)?\\s*'

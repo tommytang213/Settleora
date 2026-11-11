@@ -63,6 +63,8 @@ ReceiptOcrPreview _ownedReceipt(
 ReceiptOcrPreview _quantityColumns(
   String money, {
   String quantity = '2',
+  String description = 'Coffee',
+  String total = '1234.50',
   bool heading = true,
   bool separateHeading = true,
   bool geometry = true,
@@ -77,11 +79,11 @@ ReceiptOcrPreview _quantityColumns(
     if (heading)
       if (separateHeading) ['Qty', 'Item', 'Price'] else ['Qty Item Price'],
     if (separateQuantity)
-      [quantity, 'Coffee', if (competingPrice) 'AED 1.00', money]
+      [quantity, description, if (competingPrice) 'AED 1.00', money]
     else
-      ['$quantity Coffee $money'],
-    ['Subtotal AED 1234.50'],
-    ['Total AED 1234.50'],
+      ['$quantity $description $money'],
+    ['Subtotal AED $total'],
+    ['Total AED $total'],
   ];
   final itemRow = heading ? 2 : 1;
   final blocks = <ReceiptOcrBlockEvidence>[];
@@ -165,6 +167,73 @@ void _expectSameReviewState(
 }
 
 void main() {
+  for (final description in ['Blend 7', 'Model 2026', 'Edition 2.5']) {
+    for (final marker in ['د.إ', 'دإ']) {
+      for (final (printed, total) in [
+        ('123.50', '123.50'),
+        ('1 234.50', '1234.50'),
+      ]) {
+        for (final separateHeading in [false, true]) {
+          test(
+            'R16 quantity preserves numbered description $description/$marker/$printed/$separateHeading',
+            () {
+              final prefix = _quantityColumns(
+                'AED $total',
+                description: description,
+                total: total,
+                separateHeading: separateHeading,
+              );
+              final suffix = _quantityColumns(
+                '$printed $marker',
+                description: description,
+                total: total,
+                separateHeading: separateHeading,
+              );
+              for (final preview in [prefix, suffix]) {
+                expect(preview.items, hasLength(1));
+                final item = preview.items.single;
+                expect(item.description, description);
+                expect(item.quantity, '2');
+                expect(item.unitPrice, isNull);
+                expect(item.lineTotal, total);
+                expect(item.currency, 'AED');
+                expect(item.currencyUnresolved, isFalse);
+                expect(preview.total, total);
+              }
+              _expectSameReviewState(suffix, prefix);
+            },
+          );
+        }
+      }
+    }
+  }
+  for (final marker in ['د.إ', 'دإ']) {
+    for (final (printed, total) in [
+      ('123.50', '123.50'),
+      ('1 234.50', '1234.50'),
+    ]) {
+      test('R16 numbered quantity still requires ownership $marker/$printed', () {
+        for (final missing in ['heading', 'price-geometry']) {
+          final preview = _quantityColumns(
+            '$printed $marker',
+            description: 'Blend 7',
+            total: total,
+            heading: missing != 'heading',
+            priceGeometry: missing != 'price-geometry',
+          );
+          expect(preview.items.every((item) => item.quantity == null), isTrue);
+          expect(
+            preview.items.any((item) => item.lineTotal == '7123.50'),
+            isFalse,
+          );
+        }
+        final textOnly = const ReceiptOcrParser().parse(
+          'Corner Market\nQty Item Price\n2 Blend 7 $printed $marker\nTotal AED $total',
+        );
+        expect(textOnly.items, isEmpty);
+      });
+    }
+  }
   for (final marker in ['د.إ', 'دإ']) {
     for (final separateHeading in [false, true]) {
       test(

@@ -97,6 +97,70 @@ void _expectCompleteTax(ReceiptOcrPreview preview) {
 }
 
 void main() {
+  for (final rate in ['(5%)', '（5.5%）', '( 5,5 % )', '(100.00%)']) {
+    for (final code in ['ZZZ', 'DVD']) {
+      test('R16 Arabic VAT rate unknown code stays unresolved $rate/$code', () {
+        for (final separator in [' ', '']) {
+          final preview = _receipt(
+            '$_vatLabel$separator$rate$separator$code 1.85',
+          );
+          _expectPurchasesAndTotals(preview);
+          expect(preview.items.map((item) => item.description), [
+            'شاورما',
+            'عصير',
+          ]);
+          expect(preview.tax, isNull);
+          expect(preview.taxHasExplicitCurrencyEvidence, isFalse);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            contains(
+              ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+            ),
+          );
+          expect(preview.reviewHints, isNotEmpty);
+        }
+      });
+    }
+    for (final money in ['AED 25.00', '25.00 د.إ']) {
+      test('R16 Arabic VAT rate keeps numeric merchandise $rate/$money', () {
+        for (final separator in [' ', '']) {
+          final description =
+              '$_vatLabel$separator$rate$separator'
+              'ZZZ2nd Edition';
+          ReceiptOcrPreview parse(
+            String name,
+          ) => const ReceiptOcrParser().parse(
+            'Bookshop\nDate: 2026-09-17\n$name $money\nSubtotal AED 25.00\nTotal AED 25.00',
+          );
+          final control = parse('Guide $description');
+          final preview = parse(description);
+          expect(control.items, hasLength(1));
+          expect(control.items.single.lineTotal, '25.00');
+          expect(preview.items, hasLength(1));
+          expect(
+            preview.items.single.description,
+            control.items.single.description.replaceFirst('Guide ', ''),
+          );
+          expect(preview.items.single.lineTotal, '25.00');
+          expect(preview.items.single.currency, 'AED');
+          expect(preview.items.single.currencyUnresolved, isFalse);
+          expect(preview.items.single.quantity, isNull);
+          expect(preview.items.single.unitPrice, isNull);
+          expect(preview.tax, isNull);
+          expect(preview.subtotal, '25.00');
+          expect(preview.total, '25.00');
+          expect(preview.adjustmentsComplete, control.adjustmentsComplete);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            control.incompleteAdjustmentReasons,
+          );
+          expect(preview.reviewHints, control.reviewHints);
+          expect(preview.warnings, control.warnings);
+        }
+      });
+    }
+  }
   for (final qualifier in [
     '2nd Edition',
     '25th Edition',
