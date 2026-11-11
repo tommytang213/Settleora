@@ -93,6 +93,36 @@ void _expectSameReviewState(
 }
 
 void main() {
+  for (final marker in ['د.إ', 'دإ']) {
+    test('R11 unrelated word remains blocked before repeated $marker', () {
+      final control = const ReceiptOcrParser().parse('Item 1 234.50 X $marker');
+      for (final count in [1, 2, 8, 128]) {
+        final markers = List.filled(count, marker).join(' ');
+        final preview = const ReceiptOcrParser().parse(
+          'Item 1 234.50 X $markers',
+        );
+        expect(preview.currency, 'AED');
+        expect(
+          preview.currencyProvenance,
+          ReceiptOcrCurrencyProvenance.explicit,
+        );
+        expect(preview.items, isEmpty);
+        expect(preview.subtotal, isNull);
+        expect(preview.tax, isNull);
+        expect(preview.service, isNull);
+        expect(preview.discount, isNull);
+        expect(preview.total, isNull);
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          control.incompleteAdjustmentReasons,
+        );
+        expect(preview.itemLineDecisions, control.itemLineDecisions);
+        expect(preview.itemSelectionDecisions, control.itemSelectionDecisions);
+        _expectSameReviewState(preview, control);
+      }
+    });
+  }
   test('R10 subtotal context cannot authorize a trailing tax product', () {
     final preview = const ReceiptOcrParser().parse(
       'Market\nCoffee AED 10.00\nSubtotal AED 10.00\nGadget 1 234.50 د.إ Tax\nTotal AED 10.00',

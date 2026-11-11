@@ -13064,26 +13064,37 @@ final _arabicSuffixConnectionTokenPatterns = <RegExp>[
     RegExp('${RegExp.escape(word)}\\b', caseSensitive: false, unicode: true),
 ];
 
-bool _hasArabicSuffixConnection(String prefix) {
-  // Currency symbols already belong to the non-letter/non-number class.
-  // Visit each reachable offset once instead of backtracking through duplicate
-  // symbol matches. Keep every token endpoint: a shorter token may be needed
-  // later, and operator boundaries must inspect the original complete prefix.
-  final reachable = List<bool>.filled(prefix.length + 1, false);
-  reachable[0] = true;
-  for (var offset = 0; offset < prefix.length; offset++) {
-    if (!reachable[offset]) continue;
-    final punctuation = _arabicSuffixConnectionPunctuationPattern.matchAsPrefix(
-      prefix,
-      offset,
-    );
-    if (punctuation != null) reachable[punctuation.end] = true;
-    for (final pattern in _arabicSuffixConnectionTokenPatterns) {
-      final token = pattern.matchAsPrefix(prefix, offset);
-      if (token != null) reachable[token.end] = true;
+bool Function(int) _arabicSuffixConnectionLookup(String suffix) {
+  // Keep every token endpoint and visit each reachable offset once. Queries
+  // end immediately before an Arabic marker, whose first character is not a
+  // word character for the existing operator-boundary regexes. Reading the
+  // complete suffix therefore preserves the old truncated-prefix boundaries.
+  final reachable = <bool>[true];
+  var nextOffset = 0;
+  void mark(int endpoint) {
+    while (reachable.length <= endpoint) {
+      reachable.add(false);
     }
+    reachable[endpoint] = true;
   }
-  return reachable.last;
+
+  return (int end) {
+    while (reachable.length <= end) {
+      reachable.add(false);
+    }
+    while (nextOffset < end) {
+      final offset = nextOffset++;
+      if (!reachable[offset]) continue;
+      final punctuation = _arabicSuffixConnectionPunctuationPattern
+          .matchAsPrefix(suffix, offset);
+      if (punctuation != null) mark(punctuation.end);
+      for (final pattern in _arabicSuffixConnectionTokenPatterns) {
+        final token = pattern.matchAsPrefix(suffix, offset);
+        if (token != null) mark(token.end);
+      }
+    }
+    return reachable[end];
+  };
 }
 
 final _arabicSuffixNumericRunUnitPattern = RegExp(r"[\d\s.,'’+\-]");
@@ -13142,11 +13153,12 @@ bool _hasUnownedArabicSuffixGroups(
   // narrower punctuation list here. Currency chains and existing operator
   // words may connect the marker, but another number or unrelated word may not.
   final suffix = line.substring(amountEnd);
+  final hasConnectionTo = _arabicSuffixConnectionLookup(suffix);
   final marker = _printedCurrencyMarkerMatches(suffix)
       .where(
         (marker) =>
             const {'د.إ', 'دإ'}.contains(marker.group(1)) &&
-            _hasArabicSuffixConnection(suffix.substring(0, marker.start)),
+            hasConnectionTo(marker.start),
       )
       .firstOrNull;
   if (marker == null) return false;
