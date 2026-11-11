@@ -178,6 +178,27 @@ void main() {
         );
       });
     }
+    for (final identity in [
+      'REFUND TO: Visa ****1234',
+      'refund to：Mastercard ••••5678',
+      'REFUND TOVISA ****1234',
+    ]) {
+      test('parking refund cannot prove paid total $layout/$identity', () {
+        final preview = _parkingPreview(
+          withLayout: layout,
+          changes: {'payment': identity},
+        );
+        expect(preview.total, isNull);
+        expect(preview.items.single.lineTotal, '18.00');
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.warnings,
+          contains(
+            'Some item price evidence remains unresolved. Review the original receipt before applying.',
+          ),
+        );
+      });
+    }
   }
   for (var row = 1; row <= 8; row++) {
     test('parking rejects incidental whole field edge $row', () {

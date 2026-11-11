@@ -13647,6 +13647,7 @@ final _parkingPrintedSummaryLabelPattern = RegExp(
         lines[start + 5],
         allowAmount: false,
         requireMaskedCard: true,
+        allowRefund: false,
       ) ||
       !_isBoundedCourtesyApprovalIdentifierLine(lines[start + 6]) ||
       !_isReceiptCourtesyLine(lines[start + 7]) ||
@@ -13913,8 +13914,13 @@ bool _isBoundedPaymentIdentityLine(
   String line, {
   bool allowAmount = true,
   bool requireMaskedCard = false,
+  bool allowRefund = true,
 }) {
   final normalized = line.toLowerCase().trim();
+  // A refund destination is valid metadata, but cannot prove a paid charge.
+  if (!allowRefund && RegExp(r'^refund\s+to').hasMatch(normalized)) {
+    return false;
+  }
   // A masked last-four identifier is payment evidence, not a second item
   // amount. Require the whole row: arbitrary product suffixes, extra prices,
   // unmasked numbers and longer account strings must keep their evidence.
