@@ -382,6 +382,12 @@ class ReceiptOcrParser {
       currency,
       diagnostics: diagnostics,
       selectedTotal: amounts.total,
+      closedParkingFee: closedParkingSession == null
+          ? null
+          : (
+              row: closedParkingSession.feeRow,
+              total: closedParkingSession.total,
+            ),
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       mixedMerchantRows: {
         for (var index = 0; index < layoutRows.length; index++)
@@ -2938,7 +2944,11 @@ class ReceiptOcrParser {
                 !isSubtotal &&
                 adjustmentRole == null
           ? _selectedTotalAmountInLine(line, currency: currency)
-          : _lastAmountInLine(line, currency: amountCurrency);
+          : _lastAmountInLine(
+              line,
+              currency: amountCurrency,
+              hasOwnedGroupedAmount: adjustmentRole == 'tax',
+            );
       if (adjustmentRoles.length > 1) {
         adjustmentsComplete = false;
         incompleteReasons.add(
@@ -3686,6 +3696,7 @@ class ReceiptOcrParser {
     String? currency, {
     ReceiptOcrPredicateCounter? diagnostics,
     String? selectedTotal,
+    ({int row, String total})? closedParkingFee,
     Set<int> merchantLineIndices = const {},
     Set<int> mixedMerchantRows = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
@@ -4160,7 +4171,15 @@ class ReceiptOcrParser {
           lineTotal == null ||
           _isLikelyNonItemDescription(description, pricedRow: true) ||
           (boundedCurrencyItem == null &&
-              !_hasTraceableItemAmountToken(line, match.group(3)!))) {
+              !_hasTraceableItemAmountToken(
+                line,
+                match.group(3)!,
+                hasOwnedGroupedAmount:
+                    closedParkingFee?.row == lineIndex &&
+                    closedParkingFee?.total == lineTotal &&
+                    lineCurrency == currency &&
+                    !currencyUnresolved,
+              ))) {
         lineDecisions[lineIndex] = layoutFallback != null
             ? ReceiptOcrItemLineDecision.layoutFallbackSelected
             : ReceiptOcrItemLineDecision.invalidPricedRow;
@@ -12966,7 +12985,10 @@ final _amountSuffixCurrencyChainPattern = RegExp(
 // Select the complete numeric lexeme before testing its boundaries. Putting
 // lookarounds in the amount regexp lets it restart after a grouping separator,
 // backtrack to the first group, or discard a minus sign beside an identifier.
-RegExpMatch? _lastWholeAmountMatch(String line) {
+RegExpMatch? _lastWholeAmountMatch(
+  String line, {
+  bool hasOwnedGroupedAmount = false,
+}) {
   final amount = RegExp(_amountTokenPattern).allMatches(line).lastOrNull;
   if (amount == null) return null;
   var before = line.substring(0, amount.start);
@@ -13011,6 +13033,7 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
     amount.start,
     amount.end,
     consumedLeadingPlus: consumedLeadingPlus,
+    hasOwnedGroupedAmount: hasOwnedGroupedAmount,
   )) {
     return null;
   }
@@ -13061,6 +13084,7 @@ bool _hasUnownedArabicSuffixGroups(
   int amountStart,
   int amountEnd, {
   bool consumedLeadingPlus = false,
+  bool hasOwnedGroupedAmount = false,
 }) {
   // Inspect the whole adjacent numeric run, including malformed groups. A
   // shorter valid tail cannot establish either an amount or its ownership.
@@ -13126,6 +13150,9 @@ bool _hasUnownedArabicSuffixGroups(
     printed = printed.substring(1);
   }
   if (!_hasValidAmountGrouping(printed)) return true;
+  // A contextual tax role or the validated closed parking session may own
+  // the selected span. Neither proof can repair its grouping or signs.
+  if (hasOwnedGroupedAmount) return false;
   final prefix = line.substring(0, numericRunStart).trimRight();
   if (prefix.isEmpty || _amountPrefixCurrencyPattern.hasMatch(prefix)) {
     return false;
@@ -13232,8 +13259,15 @@ String? _selectedMonetaryCurrencyCell(String line) {
   return line.substring(start, end);
 }
 
-String? _lastAmountInLine(String line, {String? currency}) {
-  final amount = _lastWholeAmountMatch(line);
+String? _lastAmountInLine(
+  String line, {
+  String? currency,
+  bool hasOwnedGroupedAmount = false,
+}) {
+  final amount = _lastWholeAmountMatch(
+    line,
+    hasOwnedGroupedAmount: hasOwnedGroupedAmount,
+  );
   return amount == null
       ? null
       : _normalizeAmount(amount.group(0)!, currency: currency);
@@ -15485,15 +15519,21 @@ bool _isDateOrTimeOnlyLine(String normalized) {
       ).hasMatch(compact);
 }
 
-bool _hasTraceableItemAmountToken(String line, String amountToken) {
+bool _hasTraceableItemAmountToken(
+  String line,
+  String amountToken, {
+  bool hasOwnedGroupedAmount = false,
+}) {
   // A bare number before an Arabic suffix price may belong to the product or
-  // quantity. Only an independently bounded layout cell can recover that row.
+  // quantity. A bounded layout cell or validated closed-session proof must
+  // establish ownership before that row can be recovered.
   final amountStart = line.lastIndexOf(amountToken);
   if (amountStart < 0 ||
       _hasUnownedArabicSuffixGroups(
         line,
         amountStart,
         amountStart + amountToken.length,
+        hasOwnedGroupedAmount: hasOwnedGroupedAmount,
       )) {
     return false;
   }

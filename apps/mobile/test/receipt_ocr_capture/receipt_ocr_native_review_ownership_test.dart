@@ -254,6 +254,63 @@ void main() {
   }
 
   for (final layout in [false, true]) {
+    for (final marker in ['د.إ', 'دإ']) {
+      test('R9 closed parking owns grouped Arabic fee $layout/$marker', () {
+        final prefix = _parkingPreview(
+          withLayout: layout,
+          changes: {'fee': 'FEE: AED 1234.50'},
+        );
+        final suffix = _parkingPreview(
+          withLayout: layout,
+          changes: {'fee': 'FEE: 1 234.50 $marker'},
+        );
+        expect(prefix.items.single.lineTotal, '1234.50');
+        expect(suffix.currency, 'AED');
+        expect(suffix.items.single.description, 'FEE:');
+        expect(suffix.items.single.lineTotal, prefix.items.single.lineTotal);
+        expect(suffix.items.single.currency, 'AED');
+        expect(suffix.total, prefix.total);
+        expect(suffix.adjustmentsComplete, isTrue);
+        expect(suffix.reviewHints, isEmpty);
+        expect(suffix.warnings, prefix.warnings);
+      });
+    }
+    test(
+      'R9 grouped parking fee requires the complete closed session $layout',
+      () {
+        for (final changes in <Map<String, String>>[
+          {'merchant': 'Corner Market'},
+          {'duration': 'DURATION: 4:22:00'},
+          {'payment': 'REFUND TO: Visa ••••• 9191'},
+          {'fee': 'FEE: 12 34.50 د.إ'},
+          {'fee': 'FEE: 1 234.50 + د.إ'},
+          {'fee': 'FEE: -1 234.50 د.إ'},
+        ]) {
+          final preview = _parkingPreview(
+            withLayout: layout,
+            changes: {'fee': 'FEE: 1 234.50 د.إ', ...changes},
+          );
+          expect(preview.total, isNull, reason: changes.toString());
+          expect(
+            preview.items.any((item) => item.lineTotal == '1234.50'),
+            isFalse,
+            reason: changes.toString(),
+          );
+        }
+        final missing = _parkingPreview(
+          withLayout: layout,
+          missing: 'payment',
+          changes: {'fee': 'FEE: 1 234.50 د.إ'},
+        );
+        expect(missing.total, isNull);
+        expect(
+          missing.items.any((item) => item.lineTotal == '1234.50'),
+          isFalse,
+        );
+      },
+    );
+  }
+  for (final layout in [false, true]) {
     for (final fee in ['USD 18.00', r'$18.00']) {
       test(
         'closed parking session owns its sole printed fee total $layout/$fee',

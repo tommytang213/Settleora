@@ -93,6 +93,75 @@ void _expectSameReviewState(
 }
 
 void main() {
+  for (final marker in ['د.إ', 'دإ']) {
+    test('R9 rated tax suffix alone retains explicit currency $marker', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nFederal Tax (5%) 1 234.50 $marker',
+      );
+      expect(preview.tax, '1234.50');
+      expect(preview.taxCurrency, 'AED');
+      expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+    });
+  }
+  for (final label in [
+    'Federal Tax (5%)',
+    'Local Tax (5.5%)',
+    'Tax (federal)',
+  ]) {
+    for (final subtotal in [false, true]) {
+      if (label == 'Tax (federal)' && !subtotal) continue;
+      test(
+        'R9 existing contextual tax owns grouped suffix $label/$subtotal',
+        () {
+          ReceiptOcrPreview parse(String money) =>
+              const ReceiptOcrParser().parse(
+                [
+                  'Market',
+                  'Coffee AED 10.00',
+                  if (subtotal) 'Subtotal AED 10.00',
+                  '$label $money',
+                  'Total AED 1244.50',
+                ].join('\n'),
+              );
+          final prefix = parse('AED 1234.50');
+          final suffix = parse('1 234.50 د.إ');
+          expect(prefix.tax, '1234.50');
+          expect(suffix.tax, prefix.tax);
+          expect(suffix.taxCurrency, prefix.taxCurrency);
+          expect(suffix.taxHasExplicitCurrencyEvidence, isTrue);
+          expect(suffix.total, prefix.total);
+          expect(
+            suffix.items.map((item) => item.description),
+            prefix.items.map((item) => item.description),
+          );
+          _expectSameReviewState(suffix, prefix);
+        },
+      );
+    }
+  }
+  test(
+    'R9 contextual tax ownership preserves malformed and merchandise guards',
+    () {
+      for (final row in [
+        'Federal Tax (5%) 12 34.50 د.إ',
+        'Federal Tax (5%) 1 234.50 + د.إ',
+        'Federal Tax (5%) Guide 1 234.50 د.إ',
+        'Tax (unknown) 1 234.50 د.إ',
+        'Gadget Tax 1 234.50 د.إ',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nCoffee AED 10.00\n$row\nTotal AED 10.00',
+        );
+        expect(preview.tax, isNull, reason: row);
+        expect(
+          preview.items.any((item) => item.lineTotal == '1234.50'),
+          isFalse,
+          reason: row,
+        );
+        expect(preview.adjustmentsComplete, isFalse, reason: row);
+      }
+    },
+  );
   // Synthetic ownership cases, not retained native OCR or geometry. An exact
   // summary label or a separate monetary cell owns the complete numeric run.
   for (final separator in [' ', '\u00a0']) {

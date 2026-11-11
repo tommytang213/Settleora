@@ -17,49 +17,68 @@ import { fixtureGitEnvironment, withPackageContract } from "./package-contract-f
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
-test("iOS wrapper checks its explicit source despite inherited Git overrides without starting an SDK", () => {
-  const bin = mkdtempSync(path.join(os.tmpdir(), "settleora-git-preflight-"));
-  try {
-    writeFileSync(path.join(bin, "git"), '#!/bin/bash\n[[ "$(/usr/bin/git config --get settleora.fixtureConfig)" == preserved && "$GIT_ASKPASS" == preserved-askpass && "$GIT_NO_REPLACE_OBJECTS" == 1 ]] || exit 97\nprintf "git-preflight\\n" >> "$SETTLEORA_FIXTURE_TRACE"\nexec /usr/bin/git "$@"\n');
-    chmodSync(path.join(bin, "git"), 0o700);
-    symlinkSync("/usr/bin/dirname", path.join(bin, "dirname"));
-    withPackageContract(({ root, git }) => {
-      mkdirSync(path.join(root, "apps/mobile/ios/Runner"), { recursive: true });
-      writeFileSync(path.join(root, "apps/mobile/pubspec.lock"), "fixture lock");
-      writeFileSync(path.join(root, "apps/mobile/ios/Podfile.lock"), "fixture pods");
-      for (const name of ["prepare-production-flutter-plugins.mjs", "verify-mobile-package.mjs"]) {
-        writeFileSync(path.join(root, "tools/ocr-models", name), "fixture tooling");
+for (const policyKind of ["original LF", "CRLF", "CRLF forbidden config", "CRLF duplicate", "CRLF missing required"]) {
+  test(`iOS wrapper checks its explicit source with ${policyKind} despite inherited Git overrides without starting an SDK`, () => {
+    const bin = mkdtempSync(path.join(os.tmpdir(), "settleora-git-preflight-"));
+    try {
+      let wrapper = path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh");
+      const invalidPolicy = policyKind.startsWith("CRLF ");
+      if (policyKind !== "original LF") {
+        const copiedRoot = path.join(bin, "copied-source");
+        wrapper = path.join(copiedRoot, "apps/mobile/tool/build-production-ios.sh");
+        mkdirSync(path.dirname(wrapper), { recursive: true });
+        mkdirSync(path.join(copiedRoot, "tools/ocr-models"), { recursive: true });
+        writeFileSync(wrapper, readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh")));
+        let names = readFileSync(path.join(repoRoot, "tools/ocr-models/git-repository-overrides.txt"), "utf8").trimEnd().split(/\r?\n/);
+        if (policyKind === "CRLF forbidden config") names.push("GIT_CONFIG_GLOBAL");
+        if (policyKind === "CRLF duplicate") names.push(names[0]);
+        if (policyKind === "CRLF missing required") names = names.filter((name) => name !== "GIT_DIR");
+        writeFileSync(path.join(copiedRoot, "tools/ocr-models/git-repository-overrides.txt"), names.join("\r\n") + "\r\n");
       }
-      git("add", ".");
-      git("commit", "-qm", "iOS source layout");
-      withPackageContract(({ root: external }) => {
-        const snapshot = () => hashDirectory(external);
-        const before = snapshot();
-        const env = { ...process.env, PATH: bin, GIT_DIR: path.join(external, ".git"),
-          GIT_WORK_TREE: external, GIT_COMMON_DIR: path.join(external, ".git"),
-          GIT_INDEX_FILE: path.join(external, ".git/index"),
-          GIT_OBJECT_DIRECTORY: path.join(external, ".git/objects"),
-          GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(external, ".git/objects"),
-          GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "settleora.fixtureConfig",
-          GIT_CONFIG_VALUE_0: "preserved", GIT_ASKPASS: "preserved-askpass",
-          GIT_NO_REPLACE_OBJECTS: "1", SETTLEORA_FIXTURE_TRACE: path.join(bin, "trace") };
-        const result = spawnSync("/bin/bash", [
-          path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"),
-          "--mode=unsigned", "--artifact-class=size-measurement",
-          `--source-sha=${git("rev-parse", "HEAD")}`,
-          `--source-tree=${git("rev-parse", "HEAD^{tree}")}`,
-          `--repo-root=${root}`, `--mobile-root=${path.join(root, "apps/mobile")}`,
-        ], { env, encoding: "utf8" });
-        assert.equal(result.status, 1);
-        assert.equal(result.stderr, "Canonical iOS production build failed: flutter is unavailable\n");
-        assert.equal(readFileSync(path.join(bin, "trace"), "utf8"), "git-preflight\n".repeat(5));
-        assert.equal(snapshot(), before);
+      writeFileSync(path.join(bin, "git"), '#!/bin/bash\n[[ "$(/usr/bin/git config --get settleora.fixtureConfig)" == preserved && "$GIT_ASKPASS" == preserved-askpass && "$GIT_NO_REPLACE_OBJECTS" == 1 ]] || exit 97\nprintf "git-preflight\\n" >> "$SETTLEORA_FIXTURE_TRACE"\nexec /usr/bin/git "$@"\n');
+      chmodSync(path.join(bin, "git"), 0o700);
+      symlinkSync("/usr/bin/dirname", path.join(bin, "dirname"));
+      withPackageContract(({ root, git }) => {
+        mkdirSync(path.join(root, "apps/mobile/ios/Runner"), { recursive: true });
+        writeFileSync(path.join(root, "apps/mobile/pubspec.lock"), "fixture lock");
+        writeFileSync(path.join(root, "apps/mobile/ios/Podfile.lock"), "fixture pods");
+        for (const name of ["prepare-production-flutter-plugins.mjs", "verify-mobile-package.mjs"]) {
+          writeFileSync(path.join(root, "tools/ocr-models", name), "fixture tooling");
+        }
+        git("add", ".");
+        git("commit", "-qm", "iOS source layout");
+        withPackageContract(({ root: external }) => {
+          const snapshot = () => hashDirectory(external);
+          const before = snapshot();
+          const env = { ...process.env, PATH: bin, GIT_DIR: path.join(external, ".git"),
+            GIT_WORK_TREE: external, GIT_COMMON_DIR: path.join(external, ".git"),
+            GIT_INDEX_FILE: path.join(external, ".git/index"),
+            GIT_OBJECT_DIRECTORY: path.join(external, ".git/objects"),
+            GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(external, ".git/objects"),
+            GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "settleora.fixtureConfig",
+            GIT_CONFIG_VALUE_0: "preserved", GIT_ASKPASS: "preserved-askpass",
+            GIT_NO_REPLACE_OBJECTS: "1", SETTLEORA_FIXTURE_TRACE: path.join(bin, "trace") };
+          const result = spawnSync("/bin/bash", [
+            wrapper,
+            "--mode=unsigned", "--artifact-class=size-measurement",
+            `--source-sha=${git("rev-parse", "HEAD")}`,
+            `--source-tree=${git("rev-parse", "HEAD^{tree}")}`,
+            `--repo-root=${root}`, `--mobile-root=${path.join(root, "apps/mobile")}`,
+          ], { env, encoding: "utf8" });
+          assert.equal(result.status, 1);
+          assert.equal(result.stderr, invalidPolicy
+            ? "Canonical iOS production build failed: Git environment policy is invalid\n"
+            : "Canonical iOS production build failed: flutter is unavailable\n");
+          if (invalidPolicy) assert.equal(existsSync(path.join(bin, "trace")), false);
+          else assert.equal(readFileSync(path.join(bin, "trace"), "utf8"), "git-preflight\n".repeat(5));
+          assert.equal(snapshot(), before);
+        });
       });
-    });
-  } finally {
-    rmSync(bin, { recursive: true, force: true });
-  }
-});
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+}
 
 test("canonical iOS wrapper pins the committed pubspec lock identity", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");

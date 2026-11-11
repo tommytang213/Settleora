@@ -110,6 +110,7 @@ git_repository_overrides=()
 git_repository_override_count=0
 seen_git_repository_overrides=" "
 while IFS= read -r override_name || [[ -n "$override_name" ]]; do
+  override_name=${override_name%$'\r'}
   [[ "$override_name" =~ ^GIT_[A-Z_]+$ ]] || fail "Git environment policy is invalid"
   case "$override_name" in
     GIT_CONFIG*|GIT_SSH*|GIT_ASKPASS*|GIT_PROXY_COMMAND*|GIT_NO_REPLACE_OBJECTS*)
