@@ -61,7 +61,7 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix=f"{PRIVATE}-")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.runner_temp = self.root / "runner-temp"
         (self.runner_temp / "android-candidate-package").mkdir(parents=True)
         self.flutter_root = self.root / "flutter"

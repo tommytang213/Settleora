@@ -13054,6 +13054,8 @@ bool _hasArabicSuffixConnection(String prefix) {
   return reachable.last;
 }
 
+final _arabicSuffixNumericRunUnitPattern = RegExp(r"[\d\s.,'’+\-]");
+
 bool _hasUnownedArabicSuffixGroups(
   String line,
   int amountStart,
@@ -13064,11 +13066,26 @@ bool _hasUnownedArabicSuffixGroups(
   // shorter valid tail cannot establish either an amount or its ownership.
   // The caller supplies its actual selected span. Stop at that span's end:
   // punctuation after it is a boundary, not part of its numeric grouping.
-  final amountSource = line.substring(0, amountEnd);
+  // Search backward to the maximal numeric tail first. Earlier numeric runs
+  // followed by a letter cannot match, and retrying them makes an unanchored
+  // scan quadratic. Keep two UTF-16 units of preceding context so the existing
+  // Unicode lookbehind still sees a complete supplementary code point.
+  var numericTailStart = amountEnd;
+  while (numericTailStart > 0 &&
+      _arabicSuffixNumericRunUnitPattern.matchAsPrefix(
+            line,
+            numericTailStart - 1,
+          ) !=
+          null) {
+    numericTailStart--;
+  }
+  final numericContextStart = numericTailStart > 1 ? numericTailStart - 2 : 0;
+  final amountSource = line.substring(numericContextStart, amountEnd);
+  final selectedAmountStart = amountStart - numericContextStart;
   final wholeNumericRun = RegExp(
     r"[+\-\d][\d\s.,'’+\-]*$",
   ).firstMatch(amountSource);
-  if (wholeNumericRun == null || wholeNumericRun.start > amountStart) {
+  if (wholeNumericRun == null || wholeNumericRun.start > selectedAmountStart) {
     return false;
   }
   // Digits joined to description letters, marks or numbers are not separate
@@ -13079,9 +13096,11 @@ bool _hasUnownedArabicSuffixGroups(
     unicode: true,
   ).firstMatch(amountSource);
   final numericRun =
-      boundedNumericRun != null && boundedNumericRun.start <= amountStart
+      boundedNumericRun != null &&
+          boundedNumericRun.start <= selectedAmountStart
       ? boundedNumericRun
       : wholeNumericRun;
+  final numericRunStart = numericContextStart + numericRun.start;
   var printed = numericRun.group(0)!;
   if (!RegExp(r'\d\s+\d').hasMatch(printed)) return false;
 
@@ -13102,12 +13121,12 @@ bool _hasUnownedArabicSuffixGroups(
   // Only the scalar selector can authorize its single attached leading plus.
   // The stricter item grammar does not acquire that admission as a side effect.
   if (consumedLeadingPlus &&
-      numericRun.start == amountStart - 1 &&
+      numericRunStart == amountStart - 1 &&
       printed.startsWith('+')) {
     printed = printed.substring(1);
   }
   if (!_hasValidAmountGrouping(printed)) return true;
-  final prefix = line.substring(0, numericRun.start).trimRight();
+  final prefix = line.substring(0, numericRunStart).trimRight();
   if (prefix.isEmpty || _amountPrefixCurrencyPattern.hasMatch(prefix)) {
     return false;
   }
@@ -15684,11 +15703,13 @@ final _arabicVatAmountLinePattern = RegExp(
 );
 
 // A missing or malformed cell still needs review, including a currency-only
-// remainder or extra amounts.
+// remainder or extra amounts. A bounded parenthesized rate is review evidence,
+// never a scalar tax amount.
 // Require the leading phrase to end the row or directly precede monetary text;
 // a book or other product containing the phrase keeps its merchandise role.
 final _arabicVatMoneyLabelPrefixPattern = RegExp(
   '^\\s*$_arabicVatLabelPattern\\s*[:：]?\\s*'
+  '(?:[（(]\\s*\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s*[)）]\\s*)?'
   '(?=\$|(?:$_currencyTokenPattern)\\s*\$|'
   '(?:$_currencyTokenPattern)?\\s*[+\\-]?\\s*\\d)',
   caseSensitive: false,

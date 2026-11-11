@@ -98,6 +98,52 @@ void _expectCompleteTax(ReceiptOcrPreview preview) {
 
 void main() {
   // Printed receipt text, not a reconstruction of retained native OCR output.
+  for (final rate in ['(5%)', '（5%）', '(5.5%)']) {
+    test('parenthesized Arabic VAT preserves unresolved review: $rate', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nDate: 2026-09-17\n'
+        'Tea AED 25.00\nJuice AED 12.00\n'
+        '$_vatLabel $rate AED 1.85\nTotal AED 38.85',
+      );
+      expect(preview.total, '38.85');
+      expect(preview.tax, isNull);
+      expect(preview.items.map((item) => item.description), ['Tea', 'Juice']);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+      );
+      expect(preview.reviewHints, isNotEmpty);
+    });
+  }
+
+  for (final description in [
+    '$_vatLabel (5%) Guide',
+    'Guide $_vatLabel (5%)',
+  ]) {
+    test(
+      'parenthesized Arabic VAT merchandise keeps its item: $description',
+      () {
+        final preview = const ReceiptOcrParser().parse(
+          'Bookshop\nDate: 2026-09-17\n$description AED 1.85\nTotal AED 1.85',
+        );
+        expect(preview.tax, isNull);
+        expect(preview.items.single.description, description);
+        expect(preview.items.single.lineTotal, '1.85');
+        expect(
+          preview.incompleteAdjustmentReasons,
+          isNot(
+            contains(
+              ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   test(
     'complete Arabic VAT phrase owns its printed tax rather than an item',
     () {

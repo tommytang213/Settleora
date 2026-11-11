@@ -385,7 +385,7 @@ export function reviewedSourceTreeFingerprint(gitRoot, sourceSha, runCommand = e
   // The explicit Git root must also own object lookup and discovery. Leave
   // configuration/authentication and the caller's process environment intact.
   const overrides = readFileSync(new URL("./git-repository-overrides.txt", import.meta.url), "utf8")
-    .trimEnd().split("\n");
+    .trimEnd().split(/\r?\n/);
   if (overrides.length < 5 || overrides.length > 32 || new Set(overrides).size !== overrides.length ||
       !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]
         .every((name) => overrides.includes(name)) ||

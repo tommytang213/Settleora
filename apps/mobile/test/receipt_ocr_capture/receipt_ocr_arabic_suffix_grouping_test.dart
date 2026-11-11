@@ -182,7 +182,15 @@ void main() {
   }
 
   for (final marker in ['د.إ', 'دإ']) {
-    for (final joined in ['é1', '商品1', 'é\u03011', '²1']) {
+    for (final joined in [
+      'é1',
+      '商品1',
+      'é\u03011',
+      '²1',
+      '𐐀1',
+      '𝟙1',
+      '𐐀\u03011',
+    ]) {
       test(
         'Arabic suffix $marker does not skip inside selected $joined grouping',
         () {

@@ -109,6 +109,48 @@ test("APK signer rejects missing and same-size altered jar bytes", () => {
   assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1074241)), /toolchain is unreviewed/);
 });
 
+test("fingerprinting accepts CRLF policy and retains namespace validation", () => {
+  withPackageContract(({ root, sourceSha }) => {
+    const expected = reviewedSourceTreeFingerprint(root, sourceSha);
+    const reader = path.join(root, "policy-reader");
+    mkdirSync(reader);
+    for (const name of ["verify-mobile-package.mjs", "android-v2-framing.mjs",
+      "mobile-model-catalog.mjs", "android-production-entry-inventory.mjs"]) {
+      writeFileSync(path.join(reader, name),
+        readFileSync(path.join(repoRootForCli(), "tools/ocr-models", name)));
+    }
+    const original = readFileSync(path.join(repoRootForCli(),
+      "tools/ocr-models/git-repository-overrides.txt"), "utf8");
+    const policy = path.join(reader, "git-repository-overrides.txt");
+    const script = String.raw`
+      import assert from "node:assert/strict";
+      import { pathToFileURL } from "node:url";
+      const { reviewedSourceTreeFingerprint } = await import(pathToFileURL(process.argv[2]).href);
+      if (process.argv[6] === "valid") {
+        assert.equal(reviewedSourceTreeFingerprint(process.argv[3], process.argv[4]), process.argv[5]);
+        assert.equal(process.env.GIT_ASKPASS, "preserved-askpass");
+        assert.equal(process.env.GIT_NO_REPLACE_OBJECTS, "1");
+      } else {
+        assert.throws(() => reviewedSourceTreeFingerprint(process.argv[3], process.argv[4]),
+          /Git environment policy is invalid/);
+      }
+    `;
+    const run = mode => spawnSync(process.execPath, ["--input-type=module", "-e", script,
+      "policy-reader-check", path.join(reader, "verify-mobile-package.mjs"), root, sourceSha, expected, mode],
+    { env: { ...process.env, GIT_ASKPASS: "preserved-askpass", GIT_NO_REPLACE_OBJECTS: "1" },
+      encoding: "utf8" });
+    writeFileSync(policy, original.replace(/\r?\n/g, "\r\n"));
+    let result = run("valid");
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    for (const extra of ["GIT_CONFIG_GLOBAL", "NOT_A_REPOSITORY_OVERRIDE"]) {
+      writeFileSync(policy, original.replace(/\r?\n/g, "\r\n") + extra + "\r\n");
+      result = run("invalid");
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+    }
+    assert.equal(reviewedSourceTreeFingerprint(root, sourceSha), expected);
+  });
+});
+
 test("verifies the catalog, every model, and concrete fixture absence in iOS apps", () => {
   withPackageContract(({ root, model, catalog }) => {
     const app = path.join(root, "Runner.app");

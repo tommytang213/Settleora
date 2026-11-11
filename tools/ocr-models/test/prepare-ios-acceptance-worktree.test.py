@@ -104,10 +104,17 @@ class IsolationTest(unittest.TestCase):
         with self.assertRaises(MODULE.IsolationError):
             MODULE.prepare(self.repo, self.runner_temp, self.sha)
         self.assertEqual((self.target / "active-work").read_text(), "preserve")
+        fresh_runner_temp = self.root / "fresh-runner-temp"
+        fresh_runner_temp.mkdir()
         alias = self.root / "runner-alias"
-        alias.symlink_to(self.runner_temp, target_is_directory=True)
+        alias.symlink_to(fresh_runner_temp, target_is_directory=True)
+        vacant_target = fresh_runner_temp / MODULE.DIRECTORY
+        self.assertFalse(vacant_target.exists())
         with self.assertRaises(MODULE.IsolationError):
             MODULE.prepare(self.repo, alias, self.sha)
+        self.assertFalse(vacant_target.exists())
+        self.assertTrue(alias.is_symlink())
+        self.assertEqual((self.target / "active-work").read_text(), "preserve")
 
     def test_wrong_head_and_unrelated_repository_are_rejected(self):
         with self.assertRaises(MODULE.IsolationError):

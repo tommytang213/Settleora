@@ -14,30 +14,39 @@ void main() {
     'opt-in parser observations ignore arbitrary native diagnostic fields',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final blocks = [
+        {'text': 'Market', 'row': 0, 'order': 0},
+        {'text': 'Tea USD 5.00', 'row': 1, 'order': 1},
+        {'text': 'Total USD 5.00', 'row': 2, 'order': 2},
+      ];
+      Future<ReceiptOcrResult> extract(Map<String, Object?> nativeFields) =>
+          PaddleReceiptOcrProvider(
+            parser: const ReceiptOcrParser(collectDiagnostics: true),
+            channel: _FakeChannel({'blocks': blocks, ...nativeFields}),
+          ).extractReceipt(
+            ReceiptOcrRequest(bytes: const [1], contentType: 'image/jpeg'),
+          );
+      final baseline = await extract({});
+      final expectedDiagnostics = baseline.preview!.parserDiagnostics!
+          .toBoundedEvidence();
+      expect(expectedDiagnostics['status'], 'observed');
       for (final value in [
         null,
         'PRIVATE_SENTINEL',
         {'raw': 'PRIVATE_SENTINEL'},
       ]) {
-        final result =
-            await PaddleReceiptOcrProvider(
-              parser: const ReceiptOcrParser(collectDiagnostics: true),
-              channel: _FakeChannel({
-                'blocks': [
-                  {'text': 'Market', 'row': 0, 'order': 0},
-                  {'text': 'Tea USD 5.00', 'row': 1, 'order': 1},
-                  {'text': 'Total USD 5.00', 'row': 2, 'order': 2},
-                ],
-                'parserDiagnostics': value,
-                'numericRoutingObservation': value,
-              }),
-            ).extractReceipt(
-              ReceiptOcrRequest(bytes: const [1], contentType: 'image/jpeg'),
-            );
+        final result = await extract({
+          'parserDiagnostics': value,
+          'numericRoutingObservation': value,
+        });
         expect(result.status, ReceiptOcrStatus.extracted);
         expect(result.preview!.total, '5.00');
         expect(result.preview!.items.single.description, 'Tea');
         expect(result.preview!.parserDiagnostics, isNotNull);
+        expect(
+          result.preview!.parserDiagnostics!.toBoundedEvidence(),
+          expectedDiagnostics,
+        );
         expect(
           result.preview!.parserDiagnostics!.toBoundedEvidence().toString(),
           isNot(contains('PRIVATE_SENTINEL')),
