@@ -18,6 +18,33 @@ PRIVATE = "private-receipt-sentinel"
 
 
 class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
+    def test_fixed_build_root_setup_preserves_existing_work(self):
+        workflow = WORKFLOW.read_text()
+        root = "/tmp/settleora-ocr-android-production-v1"
+        setup = workflow.split(f"candidate_dir={root}\n", 1)[1]
+        setup = setup.split('git archive "$EXPECTED_HEAD"', 1)[0]
+        setup = 'candidate_dir="$TEST_CANDIDATE"\n' + setup
+        destination = self.root / "candidate"
+        def run():
+            return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", setup],
+                                  env={**os.environ, "TEST_CANDIDATE": str(destination)},
+                                  capture_output=True, text=True)
+        self.assertEqual(run().returncode, 0)
+        self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
+        marker = destination / "existing-work"
+        marker.write_text(PRIVATE)
+        self.assertNotEqual(run().returncode, 0)
+        self.assertEqual(marker.read_text(), PRIVATE)
+        destination = self.root / "file"
+        destination.write_text(PRIVATE)
+        self.assertNotEqual(run().returncode, 0)
+        self.assertEqual(destination.read_text(), PRIVATE)
+        destination = self.root / "link"
+        destination.symlink_to(marker.parent, target_is_directory=True)
+        self.assertNotEqual(run().returncode, 0)
+        self.assertTrue(destination.is_symlink())
+        self.assertEqual(marker.read_text(), PRIVATE)
+
     def test_workflow_collects_provenance_before_apk_comparison(self):
         workflow = WORKFLOW.read_text()
         step = workflow.split("- name: Record bounded Android package comparison after failed measurement", 1)[1]
@@ -167,7 +194,7 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
             "selectedVersion": "28.2.13676358",
             "installedVersion": "28.2.13676358", "linkerVersion": "19.0.1"})
         self.assertEqual(value["gradleVerification"], {"settleoraReleaseEvidence": True})
-        identity = str(self.runner_temp / "android-candidate-package").encode()
+        identity = b"/tmp/settleora-ocr-android-production-v1"
         self.assertEqual(value["buildRoot"], {
             "role": "android_candidate_package", "byteLength": len(identity),
             "sha256": hashlib.sha256(identity).hexdigest()})

@@ -3,6 +3,41 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 preview and review diagnostic consistency source at 88cc96f1.
+  // One fresh canonical Flutter 3.44.8 Release build verified 2764 tracked blobs.
+  // Real pinned signer and complete package gates passed for this exact pair.
+  // Independent review governs this pair; native/iOS/hosted/merge remain.
+  "c350854987a44b837fe90907756ac990f4b52b63b9dd49a004226990adda632b": Object.freeze([
+    "ce8e20cea206622334bb4aadcaa703ceb9f0f8ec4ccb449e2f1ac066ccb2e4ce",
+  ]),
+  // #1309 refund guard and macOS native-readiness source at 65f71439.
+  // One fresh canonical Flutter 3.44.8 Release build verified 2764 tracked blobs.
+  // Real pinned signer and complete package gates passed for this exact pair.
+  // Independent review governs this pair; native/iOS/hosted/merge remain.
+  "c6c29ef5b976ae8e8b1932edc8c3780d09e464724050d59c7a42ec9f8be0fb49": Object.freeze([
+    "ce8e20cea206622334bb4aadcaa703ceb9f0f8ec4ccb449e2f1ac066ccb2e4ce",
+  ]),
+  // #1309 shared Git repository environment isolation source at d12e913a.
+  // One fresh canonical Flutter 3.44.8 Release build verified 2764 tracked blobs.
+  // Real pinned signer and complete package gates passed for this exact pair.
+  // Independent review governs this pair; native/iOS/hosted/merge remain.
+  "2fc205dab2e9ba29c5b8e924ab5ec1514f55357e4539db995aae1b8d19a4e6e3": Object.freeze([
+    "0fbb8c5bf1809e2e1126f8f4587e9d7701112865a3b8d7d0a58535c7e456282c",
+  ]),
+  // #1309 explicit-repository Git isolation source at bc12c264.
+  // One fresh canonical Flutter 3.44.8 Release build verified 2763 tracked blobs.
+  // It reproduced the prior APK; real pinned signer and complete gates passed.
+  // Independent review governs this exact pair; native/iOS/hosted/merge remain.
+  "ff4d0842c969fb2da2aaae0dd72d1871b6a04fb36414a951c4d0c70985983ba1": Object.freeze([
+    "0fbb8c5bf1809e2e1126f8f4587e9d7701112865a3b8d7d0a58535c7e456282c",
+  ]),
+  // #1309 run428 follow-up canonical-root package source at a11a7694.
+  // One exact-source Flutter 3.44.8 Release archive verified 2763 tracked blobs.
+  // Real pinned signer/v2 and complete entry/model/legal/fixture checks passed.
+  // Independent review governs this exact pair; native/iOS/hosted/merge remain.
+  "2341017f850ac3603cc214fc8d7f4db6717ce4529a3f1e7cc770f75127c548aa": Object.freeze([
+    "0fbb8c5bf1809e2e1126f8f4587e9d7701112865a3b8d7d0a58535c7e456282c",
+  ]),
   // #1309 independently reviewed 0b4274c3 evidence-contract repair source.
   // One strict offline Flutter 3.44.8 Release build verified 2749 tracked blobs.
   // Real pinned signer and v2 structure passed; previous bindings/APKs retained.

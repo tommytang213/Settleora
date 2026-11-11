@@ -44,6 +44,7 @@ class ReceiptOcrPreview {
     this.items = const [],
     this.blocks = const [],
     this.runEvidence,
+    this.parserDiagnostics,
   });
 
   final String? merchant;
@@ -98,6 +99,7 @@ class ReceiptOcrPreview {
   final List<ReceiptOcrItemCandidate> items;
   final List<ReceiptOcrBlockEvidence> blocks;
   final ReceiptOcrRunEvidence? runEvidence;
+  final ReceiptOcrParserDiagnostics? parserDiagnostics;
 
   List<String> get reviewHints {
     return _receiptOcrReviewHints(this);
@@ -357,6 +359,109 @@ class ReceiptOcrNumericRoutingObservation {
       'bins': [for (final key in binKeys) selectedDigitCountBins[key]!],
     },
   };
+}
+
+// Fixed tuple vocabulary: counts only, never source text, values or geometry.
+// Opt-in parser observations cannot participate in selection or review policy.
+enum ReceiptOcrQuantityPredicate {
+  candidate,
+  pricedRow,
+  rowMatched,
+  separateDigitCell,
+  geometryPresent,
+  separatedCells,
+  headingFound,
+  headingGeometry,
+  underQuantityHeading,
+  underItemHeading,
+  alignedRun,
+  accepted,
+  failPricedRow,
+  failRowMatch,
+  failDigitCell,
+  failGeometry,
+  failSeparatedCells,
+  failHeading,
+  failHeadingGeometry,
+  failHeadingOwnership,
+  failRunAlignment,
+}
+
+enum ReceiptOcrDateStage { original, normalized, projected }
+
+enum ReceiptOcrDatePredicate {
+  namedMonth,
+  eastAsian,
+  yearFirst,
+  slash,
+  separated,
+  middleDot,
+  validCandidate,
+  invalidCandidate,
+  stayExcluded,
+  primaryRole,
+  secondaryRole,
+  otherRole,
+  conflict,
+  selected,
+  stayOnly,
+  noSelection,
+  selectedPrimary,
+  selectedSecondary,
+  selectedOther,
+}
+
+class ReceiptOcrParserDiagnostics {
+  ReceiptOcrParserDiagnostics._(this.quantity, this.dates, this._invalid);
+  final bool _invalid;
+  final List<int> quantity;
+  final List<List<int>> dates;
+  Map<String, Object> toBoundedEvidence() => {
+    'schemaVersion': 1,
+    'status': _invalid ? 'invalid' : 'observed',
+    if (!_invalid) ...{'quantity': quantity, 'dates': dates},
+  };
+  static const Map<String, Object> unavailable = {
+    'schemaVersion': 1,
+    'status': 'unavailable',
+  };
+}
+
+// Only typed fixed enum increments are accepted. No externally supplied keys,
+// strings, callbacks or channel payload can be retained by this collector.
+class ReceiptOcrPredicateCounter {
+  bool _invalid = false;
+  void invalidate() {
+    _invalid = true;
+  }
+
+  final _quantity = List<int>.filled(
+    ReceiptOcrQuantityPredicate.values.length,
+    0,
+  );
+  final _dates = List.generate(
+    ReceiptOcrDateStage.values.length,
+    (_) => List<int>.filled(ReceiptOcrDatePredicate.values.length, 0),
+  );
+  void quantity(ReceiptOcrQuantityPredicate predicate) {
+    final i = predicate.index;
+    if (_quantity[i] < 256) _quantity[i]++;
+  }
+
+  void date(ReceiptOcrDateStage stage, ReceiptOcrDatePredicate predicate) {
+    final counts = _dates[stage.index];
+    if (counts[predicate.index] < 256) counts[predicate.index]++;
+  }
+
+  ReceiptOcrParserDiagnostics freeze() => ReceiptOcrParserDiagnostics._(
+    _invalid ? const [] : List.unmodifiable(_quantity),
+    _invalid
+        ? const []
+        : List.unmodifiable(
+            _dates.map((counts) => List<int>.unmodifiable(counts)),
+          ),
+    _invalid,
+  );
 }
 
 class ReceiptOcrRunEvidence {
