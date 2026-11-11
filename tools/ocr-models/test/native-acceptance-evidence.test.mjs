@@ -90,6 +90,71 @@ function evidenceArgs(log, platform = "android") {
   };
 }
 
+function producerReviewRoleNames() {
+  const source = readFileSync(path.join(repoRoot,
+    "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart"), "utf8");
+  const match = source.match(/enum ReceiptOcrReviewRoleFailure\s*\{([^}]+)\}/);
+  assert.ok(match, "real producer review-role enum must be available");
+  const names = match[1].split(",").map((name) => name.trim()).filter(Boolean);
+  assert.ok(names.every((name) => /^[a-z][A-Za-z]+$/.test(name)));
+  assert.ok(names.includes("matched") && names.includes("unavailable") && names.includes("invalidContract"));
+  return names;
+}
+
+function collectReviewDiagnostic(role, reviewMismatch) {
+  const acceptance = {
+    schemaVersion: 1, platform: "android", completed: true, networkIsolated: true,
+    fixtureCount: 101, passedFixtureCount: reviewMismatch ? 100 : 101,
+    mismatchCount: reviewMismatch ? 1 : 0,
+    mismatches: reviewMismatch ? [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }] : [],
+    recognitionCoverage: manifestFixtureIds.map((fixtureId, index) => ({
+      fixtureId, blockCount: 12, merchantExactTextSeen: true, totalExactTokenSeen: true,
+      expectedItemCount: 2, itemDescriptionsExactTextSeen: 1,
+      reviewRoleDiagnostic: index === 0 ? role : "matched",
+    })),
+    runtime: "onnxruntime-android:1.21.1:cpu", coldLoadTimeMs: 25,
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    peakRssBytes: 123456, perScript: { Latin: { total: 101, passed: reviewMismatch ? 100 : 101 } },
+  };
+  return withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`),
+    (log) => buildEvidence(evidenceArgs(log), repoRoot).acceptance);
+}
+
+test("review role diagnostics reject matched with a review mismatch", () => {
+  assert.throws(() => collectReviewDiagnostic("matched", true),
+    /review role diagnostic is inconsistent/);
+});
+
+test("review role diagnostics reject producer failures without a review mismatch", () => {
+  for (const role of producerReviewRoleNames().filter((name) => !["matched", "unavailable"].includes(name))) {
+    assert.throws(() => collectReviewDiagnostic(role, false),
+      /review role diagnostic is inconsistent/, role);
+  }
+});
+
+test("review role diagnostics retain coherent producer roles and sanitized observations", () => {
+  const check = (role, mismatch, expected) => {
+    const retained = collectReviewDiagnostic(role, mismatch);
+    assert.equal(retained.recognitionCoverage[0].reviewRoleDiagnostic, expected);
+    assert.equal(retained.passedFixtureCount, mismatch ? 100 : 101);
+    assert.equal(retained.mismatchCount, mismatch ? 1 : 0);
+    assert.deepEqual(retained.mismatches, mismatch
+      ? [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }] : []);
+    assert.ok(!JSON.stringify(retained).includes("PRIVATE_SENTINEL"));
+  };
+  check("matched", false, "matched");
+  for (const role of producerReviewRoleNames().filter((name) => !["matched", "unavailable"].includes(name))) {
+    check(role, true, role);
+  }
+  for (const mismatch of [false, true]) {
+    check("unavailable", mismatch, "unavailable");
+    for (const value of [null, 7, { raw: "PRIVATE_SENTINEL" }, ["PRIVATE_SENTINEL"], "PRIVATE_SENTINEL", "invalidDiagnostic"]) {
+      check(value, mismatch, "invalidDiagnostic");
+    }
+  }
+});
+
 test("accepts Flutter 3.44.8 start events with a null runner version", () => {
   withLog(protocolLog(), (log) => {
     assert.doesNotThrow(() => buildEvidence(evidenceArgs(log), repoRoot));
@@ -500,21 +565,23 @@ test("retains only the bounded native acceptance schema", () => {
   }
   for (const role of ["invalidContract", "unavailable", null, 7,
     { raw: "PRIVATE_SENTINEL" }, ["PRIVATE_SENTINEL"], "PRIVATE_SENTINEL"]) {
-    const recognitionCoverage = acceptance.recognitionCoverage.map((entry) => ({
-      ...entry, reviewRoleDiagnostic: role,
+    const roleAcceptance = role === "invalidContract" ? { ...acceptance,
+      mismatches: [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }] } : acceptance;
+    const recognitionCoverage = roleAcceptance.recognitionCoverage.map((entry, index) => ({
+      ...entry, reviewRoleDiagnostic: role === "invalidContract" && index > 0 ? "matched" : role,
     }));
     withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
-      ...acceptance, recognitionCoverage,
+      ...roleAcceptance, recognitionCoverage,
     })}`), (log) => {
       const result = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
-      const stripped = result.recognitionCoverage.map(({ reviewRoleDiagnostic, ...rest }) => {
-        assert.equal(reviewRoleDiagnostic, role === "invalidContract" || role === "unavailable"
-          ? role : "invalidDiagnostic");
+      const stripped = result.recognitionCoverage.map(({ reviewRoleDiagnostic, ...rest }, index) => {
+        assert.equal(reviewRoleDiagnostic, role === "invalidContract"
+          ? index === 0 ? role : "matched" : role === "unavailable" ? role : "invalidDiagnostic");
         return rest;
       });
-      assert.deepEqual(stripped, acceptance.recognitionCoverage);
-      assert.deepEqual(result.mismatches, acceptance.mismatches);
-      assert.equal(result.mismatchCount, acceptance.mismatchCount);
+      assert.deepEqual(stripped, roleAcceptance.recognitionCoverage);
+      assert.deepEqual(result.mismatches, roleAcceptance.mismatches);
+      assert.equal(result.mismatchCount, roleAcceptance.mismatchCount);
       assert.ok(!JSON.stringify(result).includes("PRIVATE_SENTINEL"));
     });
   }
@@ -1157,6 +1224,29 @@ test("retains only the bounded native acceptance schema", () => {
     numericRoutingObservation: { ...numericRoutingObservation,
       counts: [256, 256, 224, 224, 224, 192, 192], bins: Array(8).fill(32) },
   }));
+  for (const compact of [false, true]) {
+    const collect = (role, mismatch) => {
+      const rows = completeCoverage.map((row, index) => ({ ...row,
+        productObservation: productTuple(row, 3, index === 0 && mismatch ? 2 : 1),
+        reviewRoleDiagnostic: index === 0 ? role : "matched",
+      }));
+      const marker = { ...acceptance,
+        mismatches: mismatch ? [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }]
+          : acceptance.mismatches,
+        recognitionCoverage: compact ? rows.map(tupleRow) : rows,
+      };
+      return withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(marker)}`),
+        (log) => buildEvidence(evidenceArgs(log), repoRoot).acceptance);
+    };
+    assert.throws(() => collect("matched", true), /review role diagnostic is inconsistent/);
+    assert.throws(() => collect("warningMismatch", false), /review role diagnostic is inconsistent/);
+    for (const [role, mismatch] of [["matched", false], ["warningMismatch", true]]) {
+      const retained = collect(role, mismatch);
+      assert.equal(retained.recognitionCoverage[0].reviewRoleDiagnostic, role);
+      assert.equal(retained.mismatchCount, acceptance.mismatchCount);
+      assert.equal(retained.passedFixtureCount, acceptance.passedFixtureCount);
+    }
+  }
   const completeMarker = JSON.stringify({ ...acceptance, recognitionCoverage: completeCoverage });
   assert.ok(Buffer.byteLength(completeMarker) > 480_000, "capacity control must include realistic complete coverage");
   assert.ok(Buffer.byteLength(completeMarker) < 512 * 1024, "full tuple evidence must fit the unchanged marker bound");
@@ -1166,7 +1256,7 @@ test("retains only the bounded native acceptance schema", () => {
   const diagnosticCoverage = completeCoverage.map((row)=>({...row,
     parserDiagnostics:{schemaVersion:1,status:'observed',quantity:Array(21).fill(256),
       dates:Array.from({length:3},()=>Array(19).fill(256))},
-    reviewRoleDiagnostic:'forbiddenIncompleteReason',
+    reviewRoleDiagnostic:'matched',
   }));
   const oversizedMapMarker=JSON.stringify({...acceptance,recognitionCoverage:diagnosticCoverage});
   assert.ok(Buffer.byteLength(oversizedMapMarker)>524288,'old carrier plus new counters must reproduce the size blocker');

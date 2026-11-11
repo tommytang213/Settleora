@@ -809,6 +809,17 @@ const reviewRoleDiagnosticNames = new Set(["unavailable", "matched", "invalidCon
   "roleRowAbsent", "ambiguousRoleRow", "contextMismatch", "amountBoundaryMismatch",
   "extraneousColumn", "forbiddenIncompleteReason", "warningMismatch", "decisionHintMismatch"]);
 
+function sanitizeReviewRoleDiagnostic(value, hasReviewMismatch) {
+  const role = reviewRoleDiagnosticNames.has(value) ? value : "invalidDiagnostic";
+  if (role === "unavailable" || role === "invalidDiagnostic") return role;
+  // The producer uses the same matcher for this diagnostic and the mismatch.
+  if ((role === "matched" && hasReviewMismatch) ||
+      (role !== "matched" && !hasReviewMismatch)) {
+    throw new Error("Recognition coverage review role diagnostic is inconsistent");
+  }
+  return role;
+}
+
 const fixtureProcessingFailureFields = new Set(["normalization","provider_status","provider_exception","ocr_resource_lookup","ocr_model_open","ocr_model_configuration","ocr_runtime_initialization","ocr_runtime_initialization_opencv","ocr_runtime_initialization_onnxruntime","ocr_input_validation","ocr_postprocessing","ocr_detection_inference","ocr_recognition_inference","ocr_output_decode"]);
 
 function sanitizeProductObservation(value, entry, expectedKind, mismatches) {
@@ -906,6 +917,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
     }
     return { fixtureId, field };
   });
+  const reviewMismatchFixtures = new Set(mismatches
+    .filter((entry) => entry.field === "review_condition").map((entry) => entry.fixtureId));
   const recognitionCoverage = Object.hasOwn(value, "recognitionCoverage") ? value.recognitionCoverage : [];
   if (!Array.isArray(recognitionCoverage) || recognitionCoverage.length > 101) {
     throw new Error("Recognition coverage evidence is not bounded");
@@ -1174,8 +1187,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds, repoRoot) {
         entry.productObservation, entry, expectedReviewKinds.get(fixtureId), mismatches) } : {}),
       ...(hasUiWitness ? { uiWitness: sanitizeUiWitness(entry.uiWitness, entry) } : {}),
       ...(hasParserDiagnostics ? { parserDiagnostics: boundedParserDiagnostics(entry.parserDiagnostics) } : {}),
-      ...(hasReviewRoleDiagnostic ? { reviewRoleDiagnostic: reviewRoleDiagnosticNames.has(entry.reviewRoleDiagnostic)
-        ? entry.reviewRoleDiagnostic : "invalidDiagnostic" } : {}),
+      ...(hasReviewRoleDiagnostic ? { reviewRoleDiagnostic: sanitizeReviewRoleDiagnostic(
+        entry.reviewRoleDiagnostic, reviewMismatchFixtures.has(fixtureId)) } : {}),
       ...(hasNumericRoutingObservation ? {
         numericRoutingObservation: sanitizeNumericRoutingObservation(entry.numericRoutingObservation) } : {}),
       ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),
