@@ -38,10 +38,13 @@ def context(platform="ios"):
 
 
 def public_values():
+    # Synthetic public resource-bundle metadata, including CocoaPods 1.17.0's
+    # exact empty principal-class placeholder; not the withheld release plist.
     return {"CFBundleIdentifier": "org.cocoapods.image-picker-ios-privacy",
             "CFBundleName": "image_picker_ios_privacy", "CFBundlePackageType": "BNDL",
             "CFBundleInfoDictionaryVersion": "6.0", "DTXcode": "1640",
-            "DTSDKName": "iphoneos18.5", "CFBundleSupportedPlatforms": ["iPhoneOS"]}
+            "DTSDKName": "iphoneos18.5", "CFBundleSupportedPlatforms": ["iPhoneOS"],
+            "NSPrincipalClass": ""}
 
 
 def wider_binary_offsets(raw):
@@ -112,6 +115,42 @@ class CaptureContractTest(unittest.TestCase):
     def test_exact_binary_bytes_retained(self):
         raw = plistlib.dumps(public_values(), fmt=plistlib.FMT_BINARY)
         self.assertEqual(self.ios(raw)[2], raw)
+
+    def assert_cocoapods_empty_principal_class_retained(self, fmt):
+        values = public_values()
+        self.assertEqual(values["NSPrincipalClass"], "")
+        raw = plistlib.dumps(values, fmt=fmt)
+        result, metadata, payload, names = self.ios(raw)
+        self.assertEqual(names, ["provenance.json", "Info.plist"])
+        self.assertEqual(payload, raw)
+        self.assertEqual(metadata["file"], {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+        self.assertEqual(metadata["classification"], "canonical_allowlisted_public_bundle_metadata")
+        self.assertTrue(result["contentRetained"])
+        self.assertFalse(metadata["accepted"])
+
+    def test_cocoapods_principal_class_empty_xml_retains_original_bytes(self):
+        self.assert_cocoapods_empty_principal_class_retained(plistlib.FMT_XML)
+
+    def test_cocoapods_principal_class_empty_binary_retains_original_bytes(self):
+        self.assert_cocoapods_empty_principal_class_retained(plistlib.FMT_BINARY)
+
+    def test_cocoapods_principal_class_rejects_nonempty_or_nonstrings(self):
+        invalid = ["NSApplication", "UIApplication", " ", PRIVATE.decode(), False, 0, 1.25, [], {}]
+        with patch.object(module.sys, "platform", "darwin"), \
+                patch.object(module, "_apple_plist", side_effect=AssertionError("unexpected encoder")) as encoder:
+            for index, value in enumerate(invalid):
+                with self.subTest(index=index, value_type=type(value).__name__):
+                    values = public_values(); values["NSPrincipalClass"] = value
+                    with self.assertRaises(module.PlistClassificationFailure) as failure:
+                        module.public_plist(plistlib.dumps(values, fmt=plistlib.FMT_BINARY))
+                    self.assertEqual(failure.exception.reason, "unclassified_metadata")
+            encoder.assert_not_called()
+        values = public_values(); values["NSPrincipalClass"] = PRIVATE.decode()
+        _, metadata, payload, names = self.ios(plistlib.dumps(values, fmt=plistlib.FMT_BINARY))
+        self.assertEqual(names, ["provenance.json"])
+        self.assertIsNone(payload)
+        self.assertEqual(metadata["classificationFailure"], "unclassified_metadata")
+        self.assertNotIn(PRIVATE, (self.root / "ios-package-failure-evidence.zip").read_bytes())
 
     def test_exact_native_serialization_receives_public_values_and_retains_original_bytes(self):
         values = public_values()

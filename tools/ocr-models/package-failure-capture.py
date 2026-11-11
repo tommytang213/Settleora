@@ -557,7 +557,8 @@ def _public_plist_values(value):
     exact = {"CFBundleIdentifier": "org.cocoapods.image-picker-ios-privacy",
              "CFBundleName": "image_picker_ios_privacy", "CFBundlePackageType": "BNDL",
              "CFBundleInfoDictionaryVersion": "6.0", "CFBundleDevelopmentRegion": "en",
-             "CFBundleSignature": "????", "DTCompiler": "com.apple.compilers.llvm.clang.1_0",
+             "CFBundleSignature": "????", "NSPrincipalClass": "",
+             "DTCompiler": "com.apple.compilers.llvm.clang.1_0",
              "DTPlatformName": "iphoneos", "DTXcode": "1640"}
     versions = {"CFBundleShortVersionString", "CFBundleVersion", "MinimumOSVersion", "DTPlatformVersion"}
     builds = {"BuildMachineOSBuild", "DTPlatformBuild", "DTSDKBuild", "DTXcodeBuild"}
