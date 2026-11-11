@@ -1575,6 +1575,62 @@ test("retains only an allowlisted Android preflight failure phase", () => {
   });
 });
 
+test("retains every literal runner preflight phase through normal and failure collection", () => {
+  for (const platform of ["android", "ios"]) {
+    const runner = readFileSync(path.join(repoRoot,
+      `tools/ocr-models/run-${platform}-native-acceptance.sh`), "utf8");
+    const phases = [...new Set([...runner.matchAll(/^\s*phase=([a-z_]+)\s*$/gm)]
+      .map((match) => match[1]))].filter((phase) => phase !== "complete");
+    assert.ok(phases.includes("initialize") && phases.includes("execute_flutter_test"));
+    if (platform === "ios") assert.ok(phases.includes("verify_isolated_acceptance_source"));
+    withLog(protocolLog(), (log) => {
+      for (const phase of phases) {
+        const args = { ...evidenceArgs(log, platform), "test-status": "98", "failure-phase": phase };
+        const normal = buildEvidence(args, repoRoot);
+        const failure = buildFailureEvidence(args, repoRoot);
+        assert.equal(normal.execution.preflightFailurePhase, phase);
+        assert.equal(failure.execution.preflightFailurePhase, phase);
+        assert.equal(normal.execution.testExitStatus, 98);
+        assert.equal(failure.execution.testExitStatus, 98);
+        assert.equal(isCompleteEvidence(normal), false);
+        assert.equal(isCompleteEvidence(failure), false);
+      }
+      for (const phase of ["complete", "PRIVATE_SENTINEL"]) {
+        const args = { ...evidenceArgs(log, platform), "test-status": "98", "failure-phase": phase };
+        assert.throws(() => buildEvidence(args, repoRoot), /Preflight failure phase is invalid/);
+        const failure = buildFailureEvidence(args, repoRoot);
+        assert.equal(failure.execution.preflightFailurePhase, null);
+        assert.ok(!JSON.stringify(failure).includes("PRIVATE_SENTINEL"));
+      }
+    });
+  }
+});
+
+test("iOS isolation failure cause survives invalid protocol recovery and stays platform-specific", () => {
+  const phase = "verify_isolated_acceptance_source";
+  const args = { platform: "ios", "source-sha": sourceSha, "test-status": "98", "failure-phase": phase };
+  const missingLog = buildFailureEvidence(args, repoRoot);
+  assert.equal(missingLog.execution.preflightFailurePhase, phase);
+  assert.equal(missingLog.execution.testExitStatus, 98);
+  assert.equal(isCompleteEvidence(missingLog), false);
+  withLog("not protocol JSON\n", (log) => {
+    const source = { ...evidenceArgs(log, "ios"), ...args };
+    let rejected;
+    assert.throws(() => {
+      try { buildEvidence(source, repoRoot); } catch (error) { rejected = error; throw error; }
+    }, /not protocol JSON/);
+    const failure = buildFailureEvidence(source, repoRoot, rejected);
+    assert.equal(failure.execution.preflightFailurePhase, phase);
+    assert.equal(failure.collectionRejection.phase, "runner_protocol");
+    assert.equal(isCompleteEvidence(failure), false);
+  });
+  withLog(protocolLog(), (log) => {
+    const android = { ...evidenceArgs(log), "test-status": "98", "failure-phase": phase };
+    assert.throws(() => buildEvidence(android, repoRoot), /Preflight failure phase is invalid/);
+    assert.equal(buildFailureEvidence(android, repoRoot).execution.preflightFailurePhase, null);
+  });
+});
+
 test("retains only an allowlisted iOS preflight failure phase", () => {
   withLog(protocolLog(), (logPath) => {
     for (const phase of [

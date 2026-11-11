@@ -79,6 +79,7 @@ const androidPreflightFailurePhases = new Set([
 const iosPreflightFailurePhases = new Set([
   "initialize",
   "validate_environment",
+  "verify_isolated_acceptance_source",
   "build_network_isolation",
   "build_simulator_link_anchor",
   "verify_simulator_link_anchor_object",
