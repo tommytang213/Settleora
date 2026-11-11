@@ -13105,6 +13105,7 @@ bool _hasUnownedArabicSuffixGroups(
   int amountEnd, {
   bool consumedLeadingPlus = false,
   bool hasOwnedGroupedAmount = false,
+  bool hasOwnedQuantityPrice = false,
 }) {
   // Inspect the whole adjacent numeric run, including malformed groups. A
   // shorter valid tail cannot establish either an amount or its ownership.
@@ -13169,6 +13170,12 @@ bool _hasUnownedArabicSuffixGroups(
       numericRunStart == amountStart - 1 &&
       printed.startsWith('+')) {
     printed = printed.substring(1);
+  }
+  // The complete printed quantity/rate grammar owns its preceding unit price.
+  // Validate the selected line total independently without repairing its groups
+  // or allowing the quantity proof to bypass the suffix-sign check above.
+  if (hasOwnedQuantityPrice) {
+    return !_hasValidAmountGrouping(line.substring(amountStart, amountEnd));
   }
   if (!_hasValidAmountGrouping(printed)) return true;
   // A contextual tax role or the validated closed parking session may own
@@ -15546,15 +15553,21 @@ bool _hasTraceableItemAmountToken(
   bool hasOwnedGroupedAmount = false,
 }) {
   // A bare number before an Arabic suffix price may belong to the product or
-  // quantity. A bounded layout cell or validated closed-session proof must
-  // establish ownership before that row can be recovered.
+  // quantity. Require its complete printed quantity/rate grammar, a bounded
+  // layout cell or validated closed-session proof before recovering that row.
   final amountStart = line.lastIndexOf(amountToken);
+  final hasOwnedQuantityPrice =
+      amountStart >= 0 &&
+      _quantityItemDescriptionPattern.hasMatch(
+        line.substring(0, amountStart).trimRight(),
+      );
   if (amountStart < 0 ||
       _hasUnownedArabicSuffixGroups(
         line,
         amountStart,
         amountStart + amountToken.length,
         hasOwnedGroupedAmount: hasOwnedGroupedAmount,
+        hasOwnedQuantityPrice: hasOwnedQuantityPrice,
       )) {
     return false;
   }

@@ -94,6 +94,81 @@ void _expectSameReviewState(
 
 void main() {
   for (final marker in ['د.إ', 'دإ']) {
+    for (final row in [
+      (
+        description: 'Coffee 2 x 6.25',
+        name: 'Coffee',
+        quantity: '2',
+        unitPrice: '6.25',
+        printedTotal: '12.50',
+        total: '12.50',
+      ),
+      (
+        description: 'Apples 1.250 kg @ 3.99',
+        name: 'Apples',
+        quantity: '1.250',
+        unitPrice: '3.99',
+        printedTotal: '4.99',
+        total: '4.99',
+      ),
+      (
+        description: 'Bulk coffee 2 x 617.25',
+        name: 'Bulk coffee',
+        quantity: '2',
+        unitPrice: '617.25',
+        printedTotal: '1 234.50',
+        total: '1234.50',
+      ),
+    ]) {
+      test(
+        'R14 existing quantity grammar owns line total ${row.name}/$marker',
+        () {
+          final prefix = _receipt(
+            'AED ${row.total}',
+            description: row.description,
+          );
+          final suffix = _receipt(
+            '${row.printedTotal} $marker',
+            description: row.description,
+          );
+          expect(prefix.items, hasLength(1), reason: 'prefix reference');
+          for (final preview in [prefix, suffix]) {
+            expect(preview.items, hasLength(1));
+            final item = preview.items.single;
+            expect(item.description, row.name);
+            expect(item.quantity, row.quantity);
+            expect(item.unitPrice, row.unitPrice);
+            expect(item.lineTotal, row.total);
+            expect(item.currency, 'AED');
+            expect(item.currencyUnresolved, isFalse);
+            expect(preview.subtotal, row.total);
+            expect(preview.total, row.total);
+          }
+          _expectSameReviewState(suffix, prefix);
+        },
+      );
+    }
+    for (final line in [
+      'Coffee 2 6.25 12.50',
+      'Coffee 2 x 6.25 1 23.50',
+      'Coffee 2 x 6.25 12 34.50',
+      'Coffee 2 x 6.25 - 12.50',
+      'Coffee 2 x 6.25 1 234.50 7.00',
+    ]) {
+      test(
+        'R14 quantity proof does not repair malformed or unowned $line/$marker',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'Market\n$line $marker',
+          );
+          expect(preview.items, isEmpty);
+          expect(preview.subtotal, isNull);
+          expect(preview.total, isNull);
+        },
+      );
+    }
+  }
+  for (final marker in ['د.إ', 'دإ']) {
     test('R11 unrelated word remains blocked before repeated $marker', () {
       final control = const ReceiptOcrParser().parse('Item 1 234.50 X $marker');
       for (final count in [1, 2, 8, 128]) {

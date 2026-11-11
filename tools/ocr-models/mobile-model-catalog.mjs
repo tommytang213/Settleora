@@ -4,7 +4,7 @@ import path from "node:path";
 
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
 const mobileRelativePath = "apps/mobile";
-const trustedCatalogSha256 = "3b9db937d27f8a359ab00a2a445fffd7ffeea5830b1b32f8c1ef9d1539a4e3df";
+const trustedCatalogSha256 = "e135e06289e747560331e706d1f145613eaa7b178bcb379ebcd2524e1c4bc3d6";
 export const trustedLegalArtifacts = [
   { path: "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt", bytes: 11376, sha256: "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e" },
   { path: "assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt", bytes: 1073, sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c" },
