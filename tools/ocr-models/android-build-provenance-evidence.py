@@ -109,7 +109,7 @@ def _build_root(candidate_present):
     if candidate_present != "true" or not runner_temp or not Path(runner_temp).is_absolute():
         return None
     # This fixed role matches candidate_dir in mobile-ocr-native-acceptance.yml.
-    root = Path(os.path.normpath(os.path.join(runner_temp, "android-candidate-package")))
+    root = Path("/tmp/settleora-ocr-android-production-v1")
     encoded = os.fsencode(root)
     if len(encoded) > 1024:
         return None

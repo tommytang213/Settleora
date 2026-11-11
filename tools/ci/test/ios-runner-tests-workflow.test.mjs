@@ -63,6 +63,22 @@ else:
   }
 }
 
+test('macOS capture contracts run unconditionally after exact-source verification and before Flutter', () => {
+  const captureSteps = job.steps.filter((step) => step.name === 'Verify package failure capture contracts');
+  assert.equal(captureSteps.length, 1);
+  const capture = captureSteps[0];
+  assert.equal(capture.run, 'python3 -I -S -B tools/ocr-models/test/package-failure-capture.test.py -v');
+  assert.equal(capture.if, undefined);
+  assert.equal(capture['continue-on-error'], undefined);
+  assert.equal(capture['working-directory'], undefined);
+  const source = job.steps.findIndex((step) => step.name === 'Verify expected head');
+  const flutter = job.steps.findIndex((step) => step.name === 'Setup Flutter');
+  assert.ok(source >= 0 && source < job.steps.indexOf(capture));
+  assert.ok(flutter > job.steps.indexOf(capture));
+  assert.equal(workflow.on.workflow_call.inputs.expected_head.required, true);
+  assert.deepEqual(workflow.permissions, { contents: 'read' });
+});
+
 test('Swift unit execution keeps the original compile and exact-source gates', () => {
   assert.ok(unitStep, 'RunnerTests must have an executable workflow step');
   assert.equal(unitStep['working-directory'], 'apps/mobile/ios');

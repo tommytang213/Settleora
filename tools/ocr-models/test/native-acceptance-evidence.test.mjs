@@ -26,6 +26,13 @@ test("iOS simulator acceptance resolves its test-only link before running the pr
     runner.indexOf("phase=execute_flutter_test"));
 });
 
+test("iOS simulator source isolation survives real Git and generator mutations", () => {
+  const result = spawnSync("python3", [
+    "-I", "-S", "-B", "tools/ocr-models/test/prepare-ios-acceptance-worktree.test.py", "-v",
+  ], { cwd: repoRoot, encoding: "utf8", maxBuffer: 1024 * 1024 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
 function withLog(contents, callback) {
   const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "settleora-ocr-evidence-"));
   try {
@@ -82,6 +89,106 @@ function evidenceArgs(log, platform = "android") {
     "base-dependency-lock-sha256": "9".repeat(64),
   };
 }
+
+function producerReviewRoleNames() {
+  const source = readFileSync(path.join(repoRoot,
+    "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart"), "utf8");
+  const match = source.match(/enum ReceiptOcrReviewRoleFailure\s*\{([^}]+)\}/);
+  assert.ok(match, "real producer review-role enum must be available");
+  const names = match[1].split(",").map((name) => name.trim()).filter(Boolean);
+  assert.ok(names.every((name) => /^[a-z][A-Za-z]+$/.test(name)));
+  assert.ok(names.includes("matched") && names.includes("unavailable") && names.includes("invalidContract"));
+  return names;
+}
+
+function collectReviewDiagnostic(role, reviewMismatch, options = {}) {
+  const acceptance = {
+    schemaVersion: 1, platform: "android", completed: true, networkIsolated: true,
+    fixtureCount: 101, passedFixtureCount: reviewMismatch ? 100 : 101,
+    mismatchCount: reviewMismatch ? 1 : 0,
+    mismatches: reviewMismatch ? [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }] : [],
+    recognitionCoverage: manifestFixtureIds.map((fixtureId, index) => ({
+      fixtureId, blockCount: 12, merchantExactTextSeen: true, totalExactTokenSeen: true,
+      expectedItemCount: 2, itemDescriptionsExactTextSeen: 1,
+      reviewRoleDiagnostic: index === 0 ? role : "matched",
+      ...(Object.hasOwn(options, "previewPresent") ? {
+        previewPresent: index === 0 ? options.previewPresent : true,
+        previewWarningCount: 0,
+        previewWarningCategoryCounts: Object.fromEntries([
+          "noReadableText", "dccAmountMissing", "itemChargedCurrencyConflict",
+          "itemReceiptCurrencyConflict", "noItems", "ratedTaxAmbiguity",
+          "untraceableItemAmount", "noTotal", "currencyFallback",
+          "symbolCurrencyUnresolved", "conflictingDate", "stayOnlyDate", "unknownWarning",
+        ].map((name) => [name, 0])),
+      } : {}),
+    })),
+    runtime: "onnxruntime-android:1.21.1:cpu", coldLoadTimeMs: 25,
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    peakRssBytes: 123456, perScript: { Latin: { total: 101, passed: reviewMismatch ? 100 : 101 } },
+  };
+  return withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`),
+    (log) => (options.failure ? buildFailureEvidence : buildEvidence)(
+      { ...evidenceArgs(log), ...(options.failure ? { "test-status": "1" } : {}) },
+      repoRoot).acceptance);
+}
+
+test("review role diagnostics reject computed roles without a preview", () => {
+  for (const role of producerReviewRoleNames().filter((name) => name !== "unavailable")) {
+    assert.throws(() => collectReviewDiagnostic(role, role !== "matched", { previewPresent: false }),
+      /review role diagnostic is inconsistent/, role);
+  }
+});
+
+test("review role diagnostics failure recovery rejects computed roles without a preview", () => {
+  for (const role of producerReviewRoleNames().filter((name) => name !== "unavailable")) {
+    assert.deepEqual(collectReviewDiagnostic(role, role !== "matched",
+      { previewPresent: false, failure: true }), { completed: false }, role);
+  }
+  for (const failure of [false, true]) {
+    for (const role of ["unavailable", "PRIVATE_SENTINEL", null]) {
+      const retained = collectReviewDiagnostic(role, false, { previewPresent: false, failure });
+      assert.equal(retained.recognitionCoverage[0].reviewRoleDiagnostic,
+        role === "unavailable" ? role : "invalidDiagnostic");
+      assert.equal(retained.recognitionCoverage[0].previewPresent, false);
+      assert.ok(!JSON.stringify(retained).includes("PRIVATE_SENTINEL"));
+    }
+  }
+});
+
+test("review role diagnostics reject matched with a review mismatch", () => {
+  assert.throws(() => collectReviewDiagnostic("matched", true),
+    /review role diagnostic is inconsistent/);
+});
+
+test("review role diagnostics reject producer failures without a review mismatch", () => {
+  for (const role of producerReviewRoleNames().filter((name) => !["matched", "unavailable"].includes(name))) {
+    assert.throws(() => collectReviewDiagnostic(role, false),
+      /review role diagnostic is inconsistent/, role);
+  }
+});
+
+test("review role diagnostics retain coherent producer roles and sanitized observations", () => {
+  const check = (role, mismatch, expected) => {
+    const retained = collectReviewDiagnostic(role, mismatch);
+    assert.equal(retained.recognitionCoverage[0].reviewRoleDiagnostic, expected);
+    assert.equal(retained.passedFixtureCount, mismatch ? 100 : 101);
+    assert.equal(retained.mismatchCount, mismatch ? 1 : 0);
+    assert.deepEqual(retained.mismatches, mismatch
+      ? [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }] : []);
+    assert.ok(!JSON.stringify(retained).includes("PRIVATE_SENTINEL"));
+  };
+  check("matched", false, "matched");
+  for (const role of producerReviewRoleNames().filter((name) => !["matched", "unavailable"].includes(name))) {
+    check(role, true, role);
+  }
+  for (const mismatch of [false, true]) {
+    check("unavailable", mismatch, "unavailable");
+    for (const value of [null, 7, { raw: "PRIVATE_SENTINEL" }, ["PRIVATE_SENTINEL"], "PRIVATE_SENTINEL", "invalidDiagnostic"]) {
+      check(value, mismatch, "invalidDiagnostic");
+    }
+  }
+});
 
 test("accepts Flutter 3.44.8 start events with a null runner version", () => {
   withLog(protocolLog(), (log) => {
@@ -451,6 +558,68 @@ test("retains only the bounded native acceptance schema", () => {
       assert.deepEqual(evidence.acceptance.recognitionCoverage, acceptance.recognitionCoverage);
     },
   );
+  // Optional diagnostics are backward compatible only as complete inventories.
+  for (const field of ["parserDiagnostics", "reviewRoleDiagnostic"]) {
+    const recognitionCoverage = acceptance.recognitionCoverage.map((entry, index) => ({
+      ...entry,
+      ...(index === 0 ? { [field]: field === "parserDiagnostics"
+        ? { schemaVersion: 1, status: "unavailable" } : "unavailable" } : {}),
+    }));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage,
+    })}`), (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+        field === "parserDiagnostics" ? /parser diagnostics are incomplete/
+          : /review role diagnostics are incomplete/);
+    });
+  }
+  // Optional diagnostics never change corpus/result decisions or echo input.
+  for (const parserDiagnostics of [
+    { schemaVersion: 1, status: "observed", quantity: Array(21).fill(256),
+      dates: Array.from({ length: 3 }, () => Array(19).fill(256)) },
+    { schemaVersion: 1, status: "unavailable" },
+    { schemaVersion: 1, status: "observed", raw: "PRIVATE_SENTINEL" },
+  ]) {
+    const diagnosticCoverage = acceptance.recognitionCoverage.map((entry) => ({
+      ...entry, parserDiagnostics, reviewRoleDiagnostic: "PRIVATE_SENTINEL",
+    }));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: diagnosticCoverage,
+    })}`), (log) => {
+      const result = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
+      const stripped = result.recognitionCoverage.map(({ parserDiagnostics: d,
+        reviewRoleDiagnostic: r, ...rest }) => {
+        assert.equal(r, "invalidDiagnostic");
+        assert.ok(!JSON.stringify(d).includes("PRIVATE_SENTINEL"));
+        return rest;
+      });
+      assert.deepEqual(stripped, acceptance.recognitionCoverage);
+      assert.equal(result.mismatchCount, acceptance.mismatchCount);
+      assert.deepEqual(result.mismatches, acceptance.mismatches);
+    });
+  }
+  for (const role of ["invalidContract", "unavailable", null, 7,
+    { raw: "PRIVATE_SENTINEL" }, ["PRIVATE_SENTINEL"], "PRIVATE_SENTINEL"]) {
+    const roleAcceptance = role === "invalidContract" ? { ...acceptance,
+      mismatches: [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }] } : acceptance;
+    const recognitionCoverage = roleAcceptance.recognitionCoverage.map((entry, index) => ({
+      ...entry, reviewRoleDiagnostic: role === "invalidContract" && index > 0 ? "matched" : role,
+    }));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...roleAcceptance, recognitionCoverage,
+    })}`), (log) => {
+      const result = buildEvidence(evidenceArgs(log), repoRoot).acceptance;
+      const stripped = result.recognitionCoverage.map(({ reviewRoleDiagnostic, ...rest }, index) => {
+        assert.equal(reviewRoleDiagnostic, role === "invalidContract"
+          ? index === 0 ? role : "matched" : role === "unavailable" ? role : "invalidDiagnostic");
+        return rest;
+      });
+      assert.deepEqual(stripped, roleAcceptance.recognitionCoverage);
+      assert.deepEqual(result.mismatches, roleAcceptance.mismatches);
+      assert.equal(result.mismatchCount, roleAcceptance.mismatchCount);
+      assert.ok(!JSON.stringify(result).includes("PRIVATE_SENTINEL"));
+    });
+  }
   const numericRoutingObservation = {
     schemaVersion: 1, stage: "selectedOrientationPreRecovery", status: "observed",
     counts: [3, 3, 3, 2, 1, 1, 2], bins: [0, 0, 3, 0, 0, 0, 0, 0],
@@ -943,6 +1112,14 @@ test("retains only the bounded native acceptance schema", () => {
   const unresolvedBranches = ["explicitModifier", "ordinaryCourtesy", "otherDescription"];
   const emptyOtherDecisions = () => Object.fromEntries(unresolvedBranches.map((branch) => [branch,
     Object.fromEntries(itemDecisionNames.map((decision) => [decision, 0]))]));
+  const branchTuple = (counts) => unresolvedBranches.map((branch) =>
+    itemDecisionNames.map((decision) => counts[branch][decision]));
+  const tupleRow = (row) => ({ ...row,
+    unresolvedOtherBranchDecisionCounts: branchTuple(row.unresolvedOtherBranchDecisionCounts) });
+  const assertTupleRoundTrip = (rows) => withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: rows.map(tupleRow),
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
   const withOtherDecisions = withUnresolvedOwnership.map((entry) => ({ ...entry,
     unresolvedOtherBranchDecisionCounts: emptyOtherDecisions() }));
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
@@ -961,6 +1138,7 @@ test("retains only the bounded native acceptance schema", () => {
         ...acceptance, recognitionCoverage: rows,
       })}`), (log) => assert.deepEqual(
         buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
+      assertTupleRoundTrip(rows);
     }
   }
   const mixedOtherDecisions = emptyOtherDecisions();
@@ -973,6 +1151,38 @@ test("retains only the bounded native acceptance schema", () => {
     ...acceptance, recognitionCoverage: mixedOtherRows,
   })}`), (log) => assert.deepEqual(
     buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, mixedOtherRows));
+  assertTupleRoundTrip(withOtherDecisions);
+  assertTupleRoundTrip(mixedOtherRows);
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: mixedOtherRows.map((row, i) => i % 2 ? row : tupleRow(row)),
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, mixedOtherRows));
+  const atCap = emptyOtherDecisions(); atCap.explicitModifier.unclassified = 256;
+  const capRows = [{ ...withOtherDecisions[0], blockCount:256, rowCount:256, parserLineCount:256,
+    itemLineDecisionCounts:Object.fromEntries(itemDecisionNames.map((name)=>[name,name==='unclassified'?256:0])),
+    unresolvedItemLikeCount:256, unresolvedItemLikeRoleCounts:{nordicCourtesy:0,other:256},
+    incompleteAdjustmentReasons:['unresolvedItemLikeLine'], unresolvedOtherBranchDecisionCounts:atCap,
+  }, ...withOtherDecisions.slice(1)];
+  assertTupleRoundTrip(capRows);
+  const invalidTuples = [null, [], Array(42).fill(0), [[],[],[]],
+    Array.from({length:2},()=>Array(14).fill(0)), Array.from({length:4},()=>Array(14).fill(0)),
+    [Array(13).fill(0),Array(14).fill(0),Array(14).fill(0)],
+    [Array(15).fill(0),Array(14).fill(0),Array(14).fill(0)],
+    ['PRIVATE_SENTINEL',Array(14).fill(0),Array(14).fill(0)],
+    ...[-1,0.5,'PRIVATE_SENTINEL',null,257].map((value)=>{
+      const tuple=branchTuple(atCap);tuple[0][0]=value;return tuple;
+    }),
+    // Valid dimensions and counters still must satisfy the original sums and
+    // per-decision ownership gates; decoding is never evidence repair.
+    [[1,...Array(13).fill(0)],Array(14).fill(0),Array(14).fill(0)],
+  ];
+  for (const tuple of invalidTuples) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance,recognitionCoverage:[{...capRows[0],unresolvedOtherBranchDecisionCounts:tuple},
+        ...withOtherDecisions.slice(1).map(tupleRow)],
+    })}`), (log) => assert.throws(()=>buildEvidence(evidenceArgs(log),repoRoot),
+      (error)=>!String(error).includes('PRIVATE_SENTINEL')));
+  }
   const invalidOtherMaps = [
     null, [], {}, { ...emptyOtherDecisions(), rawText: {} },
     { ...emptyOtherDecisions(), explicitModifier: null },
@@ -1010,6 +1220,9 @@ test("retains only the bounded native acceptance schema", () => {
   ];
   for (const entry of invalidOtherEntries) {
     withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [tupleRow(entry), ...withOtherDecisions.slice(1).map(tupleRow)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
       ...acceptance, recognitionCoverage: [entry, ...withOtherDecisions.slice(1)],
     })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
   }
@@ -1046,12 +1259,104 @@ test("retains only the bounded native acceptance schema", () => {
     numericRoutingObservation: { ...numericRoutingObservation,
       counts: [256, 256, 224, 224, 224, 192, 192], bins: Array(8).fill(32) },
   }));
+  for (const compact of [false, true]) {
+    const collect = (role, mismatch) => {
+      const rows = completeCoverage.map((row, index) => ({ ...row,
+        productObservation: productTuple(row, 3, index === 0 && mismatch ? 2 : 1),
+        reviewRoleDiagnostic: index === 0 ? role : "matched",
+      }));
+      const marker = { ...acceptance,
+        mismatches: mismatch ? [{ fixtureId: manifestFixtureIds[0], field: "review_condition" }]
+          : acceptance.mismatches,
+        recognitionCoverage: compact ? rows.map(tupleRow) : rows,
+      };
+      return withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(marker)}`),
+        (log) => buildEvidence(evidenceArgs(log), repoRoot).acceptance);
+    };
+    assert.throws(() => collect("matched", true), /review role diagnostic is inconsistent/);
+    assert.throws(() => collect("warningMismatch", false), /review role diagnostic is inconsistent/);
+    for (const [role, mismatch] of [["matched", false], ["warningMismatch", true]]) {
+      const retained = collect(role, mismatch);
+      assert.equal(retained.recognitionCoverage[0].reviewRoleDiagnostic, role);
+      assert.equal(retained.mismatchCount, acceptance.mismatchCount);
+      assert.equal(retained.passedFixtureCount, acceptance.passedFixtureCount);
+    }
+  }
+  // A coherent failed product must not carry a computed success diagnostic.
+  // Exercise normal and fallback collection through both ownership carriers.
+  for (const compact of [false, true]) {
+    for (const role of ["matched", "unavailable", "PRIVATE_SENTINEL", undefined]) {
+      const rows = completeCoverage.map((row, index) => ({ ...row,
+        ...(index === 0 ? {
+          previewPresent: false, headerFieldStates: headerMap("noPreview"),
+          productObservation: productTuple(row, 2), uiWitness: [1, 1, 0, 0, 0, 0],
+        } : {}),
+        ...(role === undefined ? {} : { reviewRoleDiagnostic: index === 0 ? role : "matched" }),
+      }));
+      const marker = { ...acceptance,
+        mismatches: [{ fixtureId: manifestFixtureIds[0], field: "provider_status" }],
+        recognitionCoverage: compact ? rows.map(tupleRow) : rows,
+      };
+      withLog(protocolLog("SETTLEORA_OCR_ACCEPTANCE=" + JSON.stringify(marker)), (log) => {
+        const args = { ...evidenceArgs(log), "test-status": "1" };
+        if (role === "matched") {
+          let rejection;
+          assert.throws(() => {
+            try { buildEvidence(args, repoRoot); } catch (error) { rejection = error; throw error; }
+          }, /review role diagnostic is inconsistent/);
+          const failed = buildFailureEvidence(args, repoRoot, rejection);
+          assert.deepEqual(failed.acceptance, { completed: false });
+          assert.equal(failed.collectionRejection.phase, "acceptance_marker");
+          assert.equal(isCompleteEvidence(failed), false);
+        } else {
+          for (const collect of [buildEvidence, buildFailureEvidence]) {
+            const retained = collect(args, repoRoot);
+            const first = retained.acceptance.recognitionCoverage[0];
+            assert.equal(first.previewPresent, false);
+            assert.deepEqual(first.productObservation, productTuple(rows[0], 2));
+            if (role === undefined) assert.equal(Object.hasOwn(first, "reviewRoleDiagnostic"), false);
+            else assert.equal(first.reviewRoleDiagnostic, role === "unavailable" ? role : "invalidDiagnostic");
+            assert.deepEqual(retained.acceptance.mismatches, marker.mismatches);
+            assert.equal(retained.acceptance.passedFixtureCount, marker.passedFixtureCount);
+            assert.equal(isCompleteEvidence(retained), false);
+            assert.ok(!JSON.stringify(retained).includes("PRIVATE_SENTINEL"));
+          }
+        }
+      });
+    }
+  }
   const completeMarker = JSON.stringify({ ...acceptance, recognitionCoverage: completeCoverage });
   assert.ok(Buffer.byteLength(completeMarker) > 480_000, "capacity control must include realistic complete coverage");
   assert.ok(Buffer.byteLength(completeMarker) < 512 * 1024, "full tuple evidence must fit the unchanged marker bound");
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${completeMarker}`), (log) => {
     assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, completeCoverage);
   });
+  const diagnosticCoverage = completeCoverage.map((row)=>({...row,
+    parserDiagnostics:{schemaVersion:1,status:'observed',quantity:Array(21).fill(256),
+      dates:Array.from({length:3},()=>Array(19).fill(256))},
+    reviewRoleDiagnostic:'matched',
+  }));
+  const oversizedMapMarker=JSON.stringify({...acceptance,recognitionCoverage:diagnosticCoverage});
+  assert.ok(Buffer.byteLength(oversizedMapMarker)>524288,'old carrier plus new counters must reproduce the size blocker');
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${oversizedMapMarker}`),
+    (log)=>assert.throws(()=>buildEvidence(evidenceArgs(log),repoRoot)));
+  const compactMarker=JSON.stringify({...acceptance,recognitionCoverage:diagnosticCoverage.map(tupleRow)});
+  assert.ok(Buffer.byteLength(compactMarker)<524288,'all101 dense rows plus maximum new counters fit the same cap');
+  console.log(`marker_budget map=${Buffer.byteLength(oversizedMapMarker)} tuple=${Buffer.byteLength(compactMarker)} cap=524288 fixtures=101`);
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${compactMarker}`),(log)=>{
+    const retained=buildEvidence(evidenceArgs(log),repoRoot).acceptance;
+    assert.deepEqual(retained.recognitionCoverage,diagnosticCoverage);
+    assert.equal(retained.mismatchCount,acceptance.mismatchCount);
+    assert.deepEqual(retained.mismatches,acceptance.mismatches);
+    assert.equal(retained.passedFixtureCount,acceptance.passedFixtureCount);
+  });
+  // Unknown optional diagnostic data is still sanitized, even with compact
+  // ownership counts. This must not alter any original retained field.
+  const unavailableCoverage=completeCoverage.map((row)=>({...row,
+    parserDiagnostics:{schemaVersion:1,status:'unavailable'},reviewRoleDiagnostic:'unavailable'}));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({...acceptance,
+    recognitionCoverage:unavailableCoverage.map(tupleRow)})}`),(log)=>
+      assert.deepEqual(buildEvidence(evidenceArgs(log),repoRoot).acceptance.recognitionCoverage,unavailableCoverage));
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
     ...acceptance, recognitionCoverage: [{ ...withRowShapes[0],
       expectedUnretainedPatternReasonCounts }, ...withRowShapes.slice(1)],
@@ -1345,6 +1650,62 @@ test("retains only an allowlisted Android preflight failure phase", () => {
       ),
       /Preflight failure phase is invalid/,
     );
+  });
+});
+
+test("retains every literal runner preflight phase through normal and failure collection", () => {
+  for (const platform of ["android", "ios"]) {
+    const runner = readFileSync(path.join(repoRoot,
+      `tools/ocr-models/run-${platform}-native-acceptance.sh`), "utf8");
+    const phases = [...new Set([...runner.matchAll(/^\s*phase=([a-z_]+)\s*$/gm)]
+      .map((match) => match[1]))].filter((phase) => phase !== "complete");
+    assert.ok(phases.includes("initialize") && phases.includes("execute_flutter_test"));
+    if (platform === "ios") assert.ok(phases.includes("verify_isolated_acceptance_source"));
+    withLog(protocolLog(), (log) => {
+      for (const phase of phases) {
+        const args = { ...evidenceArgs(log, platform), "test-status": "98", "failure-phase": phase };
+        const normal = buildEvidence(args, repoRoot);
+        const failure = buildFailureEvidence(args, repoRoot);
+        assert.equal(normal.execution.preflightFailurePhase, phase);
+        assert.equal(failure.execution.preflightFailurePhase, phase);
+        assert.equal(normal.execution.testExitStatus, 98);
+        assert.equal(failure.execution.testExitStatus, 98);
+        assert.equal(isCompleteEvidence(normal), false);
+        assert.equal(isCompleteEvidence(failure), false);
+      }
+      for (const phase of ["complete", "PRIVATE_SENTINEL"]) {
+        const args = { ...evidenceArgs(log, platform), "test-status": "98", "failure-phase": phase };
+        assert.throws(() => buildEvidence(args, repoRoot), /Preflight failure phase is invalid/);
+        const failure = buildFailureEvidence(args, repoRoot);
+        assert.equal(failure.execution.preflightFailurePhase, null);
+        assert.ok(!JSON.stringify(failure).includes("PRIVATE_SENTINEL"));
+      }
+    });
+  }
+});
+
+test("iOS isolation failure cause survives invalid protocol recovery and stays platform-specific", () => {
+  const phase = "verify_isolated_acceptance_source";
+  const args = { platform: "ios", "source-sha": sourceSha, "test-status": "98", "failure-phase": phase };
+  const missingLog = buildFailureEvidence(args, repoRoot);
+  assert.equal(missingLog.execution.preflightFailurePhase, phase);
+  assert.equal(missingLog.execution.testExitStatus, 98);
+  assert.equal(isCompleteEvidence(missingLog), false);
+  withLog("not protocol JSON\n", (log) => {
+    const source = { ...evidenceArgs(log, "ios"), ...args };
+    let rejected;
+    assert.throws(() => {
+      try { buildEvidence(source, repoRoot); } catch (error) { rejected = error; throw error; }
+    }, /not protocol JSON/);
+    const failure = buildFailureEvidence(source, repoRoot, rejected);
+    assert.equal(failure.execution.preflightFailurePhase, phase);
+    assert.equal(failure.collectionRejection.phase, "runner_protocol");
+    assert.equal(isCompleteEvidence(failure), false);
+  });
+  withLog(protocolLog(), (log) => {
+    const android = { ...evidenceArgs(log), "test-status": "98", "failure-phase": phase };
+    assert.throws(() => buildEvidence(android, repoRoot), /Preflight failure phase is invalid/);
+    assert.equal(buildFailureEvidence(android, repoRoot).execution.preflightFailurePhase, null);
   });
 });
 
