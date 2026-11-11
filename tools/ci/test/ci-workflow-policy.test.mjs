@@ -388,7 +388,6 @@ test('stack source binding preserves merge validation and the exact owned target
   assert.equal(binding.if, "${{ github.event.pull_request.base.ref == 'ai/task/1324-included-tax-contract-on-1308-20261002' }}");
   assert.equal(binding.shell, 'bash');
   assert.deepEqual(binding.env, {
-    EXPECTED_BASE: '${{ github.event.pull_request.base.sha }}',
     EXPECTED_HEAD: '${{ github.event.pull_request.head.sha }}',
     EXPECTED_MERGE: '${{ github.sha }}',
   });
@@ -420,7 +419,7 @@ test('routing amendment leaves push skips and PR aggregate enforcement intact', 
   }).ok, true);
 });
 
-function stackedSourceFixture(t, { advanceBase = false } = {}) {
+function stackedSourceFixture(t, { advanceBase = false, advanceBaseBeforeHead = false } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-stack-source-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = {
@@ -436,6 +435,11 @@ function stackedSourceFixture(t, { advanceBase = false } = {}) {
   git('init', '--initial-branch=base');
   writeFileSync(path.join(root, 'source.txt'), 'base\n');
   git('add', 'source.txt'); git('commit', '--no-gpg-sign', '-m', 'base');
+  const eventBase = git('rev-parse', 'HEAD');
+  if (advanceBaseBeforeHead) {
+    writeFileSync(path.join(root, 'included-base.txt'), 'base advancement already in reviewed head\n');
+    git('add', 'included-base.txt'); git('commit', '--no-gpg-sign', '-m', 'included base advancement');
+  }
   git('checkout', '-b', 'candidate');
   writeFileSync(path.join(root, 'source.txt'), 'reviewed candidate\n');
   git('commit', '--no-gpg-sign', '-am', 'candidate');
@@ -448,7 +452,7 @@ function stackedSourceFixture(t, { advanceBase = false } = {}) {
   const base = git('rev-parse', 'HEAD');
   git('merge', '--no-ff', '--no-gpg-sign', '-m', 'synthetic PR merge', 'candidate');
   const merge = git('rev-parse', 'HEAD');
-  return { root, env, git, identities: { EXPECTED_BASE: base, EXPECTED_HEAD: head, EXPECTED_MERGE: merge } };
+  return { root, env, git, eventBase, identities: { EXPECTED_BASE: base, EXPECTED_HEAD: head, EXPECTED_MERGE: merge } };
 }
 
 function runStackBinding(fixture, overrides = {}, cwd = fixture.root) {
@@ -466,7 +470,7 @@ function runStackBinding(fixture, overrides = {}, cwd = fixture.root) {
 
 test('stack source binding accepts an exact merge/head tree and records its identities', (t) => {
   const fixture = stackedSourceFixture(t);
-  const result = runStackBinding(fixture);
+  const result = runStackBinding(fixture, { EXPECTED_BASE: undefined });
   assert.equal(result.status, 0, result.stderr);
   for (const sha of Object.values(fixture.identities)) assert.ok(result.stdout.includes(sha));
   assert.ok(result.stdout.includes(fixture.git('rev-parse', 'HEAD^{tree}')));
@@ -485,6 +489,36 @@ test('stack source binding succeeds with the workflow depth-two checkout and bot
   for (const sha of Object.values(fixture.identities)) assert.ok(result.stdout.includes(sha));
 });
 
+test('R13 stack binding uses the actual first parent despite stale available event base', (t) => {
+  const fixture = stackedSourceFixture(t, { advanceBaseBeforeHead: true });
+  assert.notEqual(fixture.eventBase, fixture.identities.EXPECTED_BASE);
+  assert.equal(fixture.git('cat-file', '-t', fixture.eventBase), 'commit');
+  const result = runStackBinding(fixture, { EXPECTED_BASE: fixture.eventBase });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes(`base=${fixture.identities.EXPECTED_BASE} `));
+  assert.ok(result.stdout.includes(`head=${fixture.identities.EXPECTED_HEAD} `));
+});
+
+test('R13 depth-two binding accepts stale event base absent from fetched objects', (t) => {
+  const fixture = stackedSourceFixture(t, { advanceBaseBeforeHead: true });
+  const shallow = path.join(fixture.root, 'depth-two-stale');
+  fixture.git('clone', '--no-local', '--depth=2', '--branch=base', fixture.root, shallow);
+  const missing = spawnSync('git', ['-C', shallow, 'cat-file', '-e', `${fixture.eventBase}^{commit}`], { env: fixture.env, encoding: 'utf8' });
+  assert.equal(missing.signal, null);
+  assert.notEqual(missing.status, 0);
+  const result = runStackBinding(fixture, { EXPECTED_BASE: fixture.eventBase }, shallow);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes(`base=${fixture.identities.EXPECTED_BASE} `));
+});
+
+test('R13 binding rejects a single-parent checkout even when its tree is the reviewed head', (t) => {
+  const fixture = stackedSourceFixture(t);
+  fixture.git('checkout', '--detach', fixture.identities.EXPECTED_HEAD);
+  const result = runStackBinding(fixture, { EXPECTED_MERGE: fixture.identities.EXPECTED_HEAD });
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, 'Stacked PR parent identities mismatch\n');
+});
+
 test('binding harness propagates process-start errors instead of counting a rejection', (t) => {
   const fixture = stackedSourceFixture(t);
   assert.throws(() => runStackBinding(fixture, { PATH: path.join(fixture.root, 'unavailable-bin') }), { code: 'ENOENT' });
@@ -492,7 +526,7 @@ test('binding harness propagates process-start errors instead of counting a reje
 
 test('stack source binding rejects missing, malformed, zero and unavailable identities', (t) => {
   const fixture = stackedSourceFixture(t);
-  for (const key of Object.keys(fixture.identities)) {
+  for (const key of ['EXPECTED_HEAD', 'EXPECTED_MERGE']) {
     for (const value of [undefined, '', '0'.repeat(40), 'a'.repeat(39), 'A'.repeat(40), '--upload-pack=bad', '$(touch unexpected)', 'f'.repeat(40)]) {
       const result = runStackBinding(fixture, { [key]: value });
       assert.notEqual(result.status, 0, `${key}/${value}`);
@@ -505,7 +539,6 @@ test('stack source binding rejects a wrong checkout merge and wrong parent ident
   const fixture = stackedSourceFixture(t);
   for (const [overrides, diagnostic] of [
     [{ EXPECTED_MERGE: fixture.identities.EXPECTED_HEAD }, 'Stacked PR checkout merge mismatch'],
-    [{ EXPECTED_BASE: fixture.identities.EXPECTED_HEAD }, 'Stacked PR parent identities mismatch'],
     [{ EXPECTED_HEAD: fixture.identities.EXPECTED_BASE }, 'Stacked PR parent identities mismatch'],
   ]) {
     const result = runStackBinding(fixture, overrides);

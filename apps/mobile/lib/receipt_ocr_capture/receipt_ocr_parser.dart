@@ -15789,6 +15789,12 @@ final _arabicVatKnownCurrencyPrefixPattern = RegExp(
   '^(?:$_currencyTokenPattern)',
   caseSensitive: false,
 );
+final _arabicVatKnownCurrencySuffixPattern = RegExp(
+  '^(?:$_currencyTokenPattern)'
+  r'(?![\p{L}\p{M}\p{N}_])',
+  caseSensitive: false,
+  unicode: true,
+);
 final _arabicVatNumericPrefixPattern = RegExp(r"[+\-]?\s*\d[\d\s.,'’]*");
 final _arabicVatAttachedWordPattern = RegExp(
   r'^[\p{L}\p{M}\p{N}_]',
@@ -15809,7 +15815,7 @@ bool _hasArabicVatNumericBoundary(String text) {
   final after = text.substring(number.end);
   if (after.isEmpty || RegExp(r'\s$').hasMatch(number.group(0)!)) return true;
   return !_arabicVatAttachedWordPattern.hasMatch(after) ||
-      _amountSuffixCurrencyPattern.hasMatch(after) ||
+      _arabicVatKnownCurrencySuffixPattern.hasMatch(after) ||
       _arabicVatUnknownCurrencySuffixPattern.hasMatch(after);
 }
 

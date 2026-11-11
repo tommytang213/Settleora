@@ -265,11 +265,12 @@ void main() {
           changes: {'fee': 'FEE: 1 234.50 $marker'},
         );
         expect(prefix.items.single.lineTotal, '1234.50');
+        expect(prefix.total, '1234.50');
         expect(suffix.currency, 'AED');
         expect(suffix.items.single.description, 'FEE:');
         expect(suffix.items.single.lineTotal, prefix.items.single.lineTotal);
         expect(suffix.items.single.currency, 'AED');
-        expect(suffix.total, prefix.total);
+        expect(suffix.total, '1234.50');
         expect(suffix.adjustmentsComplete, isTrue);
         expect(suffix.reviewHints, isEmpty);
         expect(suffix.warnings, prefix.warnings);
@@ -965,7 +966,7 @@ ReceiptOcrPreview _parkingColumns({
                 text: b.text,
                 row: b.row,
                 order: b.order,
-                confidence: 0.3,
+                confidence: issue == 'weak' ? 0.3 : b.confidence,
                 points: issue == 'missing-points'
                     ? b.points.take(3).toList()
                     : b.points,

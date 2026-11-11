@@ -106,6 +106,8 @@ void main() {
     '2\u0301nd Edition',
     'DVD 2nd Edition',
     'ZZZ2nd Edition',
+    '2AED_guide',
+    '2AED\u0301guide',
   ]) {
     for (final money in ['AED 25.00', '25.00 د.إ']) {
       test(

@@ -130,12 +130,11 @@ jobs:
         if: ${{ github.event.pull_request.base.ref == 'ai/task/1324-included-tax-contract-on-1308-20261002' }}
         shell: bash
         env:
-          EXPECTED_BASE: ${{ github.event.pull_request.base.sha }}
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
           EXPECTED_MERGE: ${{ github.sha }}
         run: |
           set -euo pipefail
-          for sha in "$EXPECTED_BASE" "$EXPECTED_HEAD" "$EXPECTED_MERGE"; do
+          for sha in "$EXPECTED_HEAD" "$EXPECTED_MERGE"; do
             if [[ ! "$sha" =~ ^[0-9a-f]{40}$ || "$sha" == 0000000000000000000000000000000000000000 ]]; then
               echo "Invalid stacked PR source identity" >&2
               exit 1
@@ -147,7 +146,8 @@ jobs:
             echo "Stacked PR checkout merge mismatch" >&2
             exit 1
           }
-          test "$(git show -s --format=%P HEAD)" = "$EXPECTED_BASE $EXPECTED_HEAD" || {
+          actual_base="$(git rev-parse --verify 'HEAD^1^{commit}')"
+          test "$(git show -s --format=%P HEAD)" = "$actual_base $EXPECTED_HEAD" || {
             echo "Stacked PR parent identities mismatch" >&2
             exit 1
           }
@@ -158,7 +158,7 @@ jobs:
             exit 1
           }
           printf 'stacked_source_binding base=%s head=%s merge=%s tree=%s\n' \
-            "$EXPECTED_BASE" "$EXPECTED_HEAD" "$actual_merge" "$merge_tree"
+            "$actual_base" "$EXPECTED_HEAD" "$actual_merge" "$merge_tree"
 
       - name: Validate package failure phase contracts
         run: python3 -I -S -B -X pycache_prefix=/dev/null tools/ocr-models/test/package-failure-phases.test.py -v
