@@ -13,6 +13,13 @@ private let purpose = "arm64_ridge_runtime_v1"
 private func requireRuntime(_ value: Bool) throws {
   if !value { throw ArmRuntimeFailure.rejected }
 }
+private func beginNativeBudget(_ seconds: UInt32) throws {
+  var signals = sigset_t()
+  try requireRuntime(sigemptyset(&signals) == 0 && sigaddset(&signals, SIGALRM) == 0)
+  try requireRuntime(pthread_sigmask(SIG_UNBLOCK, &signals, nil) == 0)
+  _ = Darwin.signal(SIGALRM, SIG_DFL)
+  _ = Darwin.alarm(seconds)
+}
 private func digest(_ data: Data) -> String {
   SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
@@ -129,9 +136,12 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
       calls = 1
       let coldStart = DispatchTime.now().uptimeNanoseconds
       failureStage = "engine_initialization"
+      // Independent kernel deadline: native work cannot outlive host polling.
+      try beginNativeBudget(600)
       let engine = try await SettleoraPaddleOcrEngine.make()
       failureStage = "first_recognition"
       let first = try await engine.recognize(image)
+      _ = Darwin.alarm(0)
       let firstWall = milliseconds(coldStart)
       failureStage = "first_capture"
       let firstData = try privateJSON(envelope("first", first, firstWall, true),
@@ -152,9 +162,11 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
       }
       try requireRuntime(calls == 1 && digest(image) == expectedImageSHA)
       calls = 2
+      try beginNativeBudget(300)
       let warmStart = DispatchTime.now().uptimeNanoseconds
       failureStage = "warm_recognition"
       let warm = try await engine.recognize(image)
+      _ = Darwin.alarm(0)
       let warmWall = milliseconds(warmStart)
       failureStage = "warm_capture"
       let warmData = try privateJSON(envelope("warm", warm, warmWall, false),
@@ -165,6 +177,7 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
         "wallTimeMs": warmWall, "blockCount": warm.blocks.count,
       ], at: documents.appendingPathComponent("warm-ready.json"), maximum: 4096)
     } catch {
+      _ = Darwin.alarm(0)
       // No exception messages, paths, image bytes or recognized text in logs.
       _ = try? privateJSON([
         "schemaVersion": 1, "purpose": purpose, "stage": "failed",

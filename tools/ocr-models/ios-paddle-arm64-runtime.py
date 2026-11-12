@@ -128,7 +128,7 @@ def retain_capture(documents, private, phase, receipt, identity, model_ids, veri
     exclusive(private / (phase + ".json"), raw, maximum)
     return value
 
-def collect_captures(documents, private, identity, model_ids, verifier, deadline, pid, report, remaining):
+def collect_captures(documents, private, identity, model_ids, verifier, deadline, pid, report, remaining, stop_owned):
     captures = {}
     warm_status = "not_admitted"
     receipt, failure = ready(documents, "first", min(deadline, time.time() + 10 * 60), pid)
@@ -161,7 +161,22 @@ def collect_captures(documents, private, identity, model_ids, verifier, deadline
     else:
         try: exclusive(documents / "stop-after-first", b"1", 1)
         except OSError: report["nativeFailure"] = {"failureCode": "stop_signal_rejected"}
+    if warm_status == "failed":
+        # Stop only this fresh device/bundle before any source scan or packaging.
+        # The harness's independent SIGALRM is the hard native-call deadline.
+        try: stop_owned()
+        except Exception: report["ownedRuntimeStopUnconfirmed"] = True
     return captures, warm_status
+
+def capture_and_package(documents, private, identity, model_ids, model_hash, verifier,
+                        deadline, pid, report, remaining, stop_owned, verify_source, capture_start):
+    captures, warm_status = collect_captures(documents, private, identity, model_ids,
+        verifier, deadline, pid, report, remaining, stop_owned)
+    # Never let warm recovery hide a changed source checkout.
+    verify_source()
+    bundle = build_private_bundle(private, identity, captures, report["providerCallsAdmitted"],
+        warm_status, model_ids, model_hash, capture_start, verifier)
+    return bundle, warm_status
 
 def build_private_bundle(private, identity, captures, calls_admitted, warm_status,
                          model_ids, model_hash, capture_start, verifier):
@@ -362,12 +377,21 @@ def main():
         match = re.fullmatch(re.escape(BUNDLE_ID) + r": ([1-9][0-9]*)\s*", output)
         require(match)
         pid = int(match[1]); report["appLaunches"] = 1; report["providerCallsAdmitted"] = 1
-        captures, warm_status = collect_captures(documents, private, identity, model_ids,
-            verifier, deadline, pid, report, base.remaining_seconds)
-        # Source-integrity failure is outside the warm fallback and prevents publication.
-        require(base.verify_source(repo, identity["sourceHead"], deadline=deadline) == files)
-        report["privateBundle"] = build_private_bundle(private, identity, captures,
-            report["providerCallsAdmitted"], warm_status, model_ids, model_hash, start, verifier)
+        def stop_owned():
+            require(owned_device and re.fullmatch(r"[A-Fa-f0-9-]{36}", owned_device))
+            try: os.kill(pid, 0)
+            except ProcessLookupError:
+                report["ownedRuntimeStopped"] = True
+                return
+            report["stages"]["owned-runtime-stop"] = base.execute(
+                ["xcrun", "simctl", "terminate", owned_device, BUNDLE_ID], root, root,
+                min(time.time() + 2, deadline), "owned-runtime-stop")
+            report["ownedRuntimeStopped"] = True
+        def verify_unchanged():
+            require(base.verify_source(repo, identity["sourceHead"], deadline=deadline) == files)
+        report["privateBundle"], warm_status = capture_and_package(documents, private, identity,
+            model_ids, model_hash, verifier, deadline, pid, report, base.remaining_seconds,
+            stop_owned, verify_unchanged, start)
         output_file = env.get("GITHUB_OUTPUT")
         if output_file:
             with open(output_file, "a") as output: output.write("bundle_ready=true\n")
@@ -380,6 +404,7 @@ def main():
             for label, argv in [("owned-terminate", ["xcrun", "simctl", "terminate", owned_device, BUNDLE_ID]),
                                 ("owned-shutdown", ["xcrun", "simctl", "shutdown", owned_device]),
                                 ("owned-delete", ["xcrun", "simctl", "delete", owned_device])]:
+                if label == "owned-terminate" and report.get("ownedRuntimeStopped") is True: continue
                 try: report["stages"][label] = base.execute(argv, root, root, cleanup_deadline, label)
                 except Exception: report.setdefault("cleanupUnconfirmed", []).append(label)
         report["finishedAt"] = int(time.time())

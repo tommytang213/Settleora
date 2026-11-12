@@ -114,42 +114,95 @@ class RuntimeControllerTests(unittest.TestCase):
         self.assertEqual(r.returncode,98);self.assertEqual(r.stdout,b"")
         self.assertEqual(r.stderr,b"arm64_runtime_failed\n")
 
-    def test_controller_retains_valid_first_artifact_after_warm_readiness_capture_or_read_exception(self):
-        from unittest.mock import patch
+
+    @staticmethod
+    def capture_fixture(root, bad_warm=False):
         fixture=m.load_module(MODULE.parent/"test/ios-paddle-arm64-runtime-bundle.test.py","runtime_synthetic_bundle")
-        verifier=fixture.m
-        for failure in ("readiness","capture","read"):
+        documents=root/"Documents";documents.mkdir()
+        private=root/"private";private.mkdir(mode=0o700)
+        first=fixture.capture();warm=fixture.capture("warm")
+        if bad_warm:warm["inputSha256"]="0"*64
+        raw=fixture.encode(first);warm_raw=fixture.encode(warm)
+        for phase,data in [("first",raw),("warm",warm_raw)]:
+            (documents/(phase+".json")).write_bytes(data);(documents/(phase+".json")).chmod(0o400)
+        def receipt(data,calls):
+            return dict(schemaVersion=1,purpose=m.MODE,providerCalls=calls,bytes=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),wallTimeMs=100,blockCount=1)
+        return fixture,documents,private,first,raw,warm_raw,receipt
+
+    def test_warm_timeout_readiness_capture_or_read_failure_stops_before_source_and_bundle(self):
+        from unittest.mock import patch
+        for failure in ("timeout","readiness","capture","read","stop"):
             with self.subTest(failure=failure),tempfile.TemporaryDirectory() as temporary:
-                root=Path(temporary);documents=root/"Documents";documents.mkdir()
-                private=root/"private";private.mkdir(mode=0o700)
-                first=fixture.capture();raw=fixture.encode(first)
-                (documents/"first.json").write_bytes(raw);(documents/"first.json").chmod(0o400)
-                warm=fixture.capture("warm")
-                if failure=="capture":warm["inputSha256"]="0"*64
-                warm_raw=fixture.encode(warm)
-                (documents/"warm.json").write_bytes(warm_raw);(documents/"warm.json").chmod(0o400)
-                def receipt(data,calls):
-                    return dict(schemaVersion=1,purpose=m.MODE,providerCalls=calls,
-                      bytes=len(data),sha256=hashlib.sha256(data).hexdigest(),wallTimeMs=100,blockCount=1)
+                fixture,documents,private,first,raw,warm_raw,receipt=self.capture_fixture(
+                    Path(temporary),bad_warm=failure=="capture")
                 def readiness(documents,phase,*_):
                     if phase=="first":return receipt(raw,1),None
                     if failure=="readiness":raise ValueError("SYNTHETIC_PRIVATE")
+                    if failure in ("timeout","stop"):return None,{"failureCode":"native_call_deadline"}
                     return receipt(warm_raw,2),None
-                original=m.read_owned
+                original_read=m.read_owned;original_bundle=m.build_private_bundle
                 def read(path,*args):
                     if failure=="read" and path.name=="warm.json":raise OSError("SYNTHETIC_PRIVATE")
-                    return original(path,*args)
+                    return original_read(path,*args)
+                events=[]
+                def stop():
+                    events.append("terminate-owned")
+                    if failure=="stop":raise OSError("SYNTHETIC_PRIVATE")
+                def verify():events.append("verify-source")
+                def bundle(*args):
+                    events.append("bundle");return original_bundle(*args)
                 report=dict(providerCallsAdmitted=1,completedCalls=0)
-                with patch.object(m,"ready",side_effect=readiness),patch.object(m,"read_owned",side_effect=read):
-                    captures,status=m.collect_captures(documents,private,fixture.IDENTITY,fixture.MODELS,
-                      verifier,time.time()+1000,os.getpid(),report,lambda _:1000)
-                self.assertEqual(captures,{"first":raw});self.assertEqual(status,"failed")
-                self.assertEqual(report["nativeFailure"],{"failureCode":"warm_capture_rejected"})
-                m.build_private_bundle(private,fixture.IDENTITY,captures,report["providerCallsAdmitted"],
-                  status,fixture.MODELS,first["modelManifestSha256"],
-                  dict(startedAt=fixture.START,expiresAt=fixture.START+24*60*60*1000),verifier)
-                manifest=verifier.validate_zip((private/"bundle.zip").read_bytes(),fixture.IDENTITY)
+                with patch.object(m,"ready",side_effect=readiness),patch.object(m,"read_owned",side_effect=read),patch.object(m,"build_private_bundle",side_effect=bundle):
+                    _,status=m.capture_and_package(documents,private,fixture.IDENTITY,fixture.MODELS,
+                        first["modelManifestSha256"],fixture.m,time.time()+1000,os.getpid(),report,
+                        lambda _:1000,stop,verify,dict(startedAt=fixture.START,
+                        expiresAt=fixture.START+24*60*60*1000))
+                self.assertEqual(events,["terminate-owned","verify-source","bundle"])
+                self.assertEqual(status,"failed")
+                if failure=="stop":self.assertTrue(report["ownedRuntimeStopUnconfirmed"])
+                manifest=fixture.m.validate_zip((private/"bundle.zip").read_bytes(),fixture.IDENTITY)
                 self.assertEqual((manifest["providerCalls"],manifest["completedCalls"],manifest["warmStatus"]),(2,1,"failed"))
                 self.assertEqual((private/"first.json").read_bytes(),raw)
+
+    def test_recovered_first_never_bypasses_source_failure_or_creates_ready_bundle(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture,documents,private,first,raw,warm_raw,receipt=self.capture_fixture(Path(temporary))
+            events=[]
+            def ready(documents,phase,*_):
+                return (receipt(raw,1),None) if phase=="first" else (None,{"failureCode":"native_call_deadline"})
+            def verify():
+                events.append("verify-source");raise ValueError("source_changed")
+            with patch.object(m,"ready",side_effect=ready),patch.object(m,"build_private_bundle") as bundle:
+                with self.assertRaises(ValueError):
+                    m.capture_and_package(documents,private,fixture.IDENTITY,fixture.MODELS,
+                        first["modelManifestSha256"],fixture.m,time.time()+1000,os.getpid(),
+                        dict(providerCallsAdmitted=1,completedCalls=0),lambda _:1000,
+                        lambda:events.append("terminate-owned"),verify,
+                        dict(startedAt=fixture.START,expiresAt=fixture.START+24*60*60*1000))
+                bundle.assert_not_called()
+            self.assertEqual(events,["terminate-owned","verify-source"])
+            self.assertEqual((private/"first.json").read_bytes(),raw)
+            self.assertFalse((private/"bundle.zip").exists())
+
+    def test_completed_or_unadmitted_warm_has_no_failure_stop_and_keeps_supported_state(self):
+        from unittest.mock import patch
+        for remaining in (1000,100):
+            with self.subTest(remaining=remaining),tempfile.TemporaryDirectory() as temporary:
+                fixture,documents,private,first,raw,warm_raw,receipt=self.capture_fixture(Path(temporary))
+                def ready(documents,phase,*_):
+                    return (receipt(raw,1),None) if phase=="first" else (receipt(warm_raw,2),None)
+                events=[];report=dict(providerCallsAdmitted=1,completedCalls=0)
+                with patch.object(m,"ready",side_effect=ready):
+                    _,status=m.capture_and_package(documents,private,fixture.IDENTITY,fixture.MODELS,
+                        first["modelManifestSha256"],fixture.m,time.time()+1000,os.getpid(),report,
+                        lambda _:remaining,lambda:events.append("unexpected-stop"),
+                        lambda:events.append("verify-source"),
+                        dict(startedAt=fixture.START,expiresAt=fixture.START+24*60*60*1000))
+                self.assertEqual(events,["verify-source"])
+                self.assertEqual(status,"completed" if remaining==1000 else "not_admitted")
+                manifest=fixture.m.validate_zip((private/"bundle.zip").read_bytes(),fixture.IDENTITY)
+                self.assertEqual(manifest["completedCalls"],2 if remaining==1000 else 1)
 
 if __name__=="__main__":unittest.main()
