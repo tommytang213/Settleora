@@ -30,6 +30,15 @@ on:
         required: true
         type: string
 
+      mode:
+        description: "Execution purpose."
+        required: false
+        type: choice
+        default: full101
+        options:
+          - full101
+          - paddle_arm64_compile_v1
+
 permissions:
   contents: read
 
@@ -43,6 +52,7 @@ env:
 
 jobs:
   android-native-acceptance:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'full101') }}
     name: Android 101-image real-provider acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -423,6 +433,7 @@ jobs:
         run: test "${{ steps.acceptance.outputs.status }}" = "0"
 
   ios-native-acceptance:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'full101') }}
     name: iOS 101-image real-provider acceptance
     runs-on: macos-15
     timeout-minutes: 360
@@ -658,3 +669,61 @@ jobs:
       - name: Enforce iOS acceptance result
         if: always()
         run: test "${{ steps.acceptance.outputs.status }}" = "0"
+
+  # Compile/link only; zero app launches, simulator boots, or OCR calls.
+  ios-paddle-arm64-compatibility:
+    name: Paddle-only ARM64 iOS simulator compile and link
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'paddle_arm64_compile_v1' }}
+    runs-on: macos-15
+    timeout-minutes: 35
+    concurrency:
+      group: paddle-arm64-compile-${{ inputs.expected_head }}
+      cancel-in-progress: false
+    env:
+      SETTLEORA_ARM64_MODE: paddle_arm64_compile_v1
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      COCOAPODS_DISABLE_STATS: "true"
+
+    steps:
+      - name: Start the bounded compatibility job clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 -I -B - <<'PY'
+          import json,os,re,time
+          from pathlib import Path
+          e=os.environ
+          assert e['GITHUB_ACTIONS']=='true'
+          assert e['GITHUB_EVENT_NAME']=='workflow_dispatch'
+          assert e['GITHUB_REPOSITORY']=='tommytang213/Settleora'
+          assert e['GITHUB_JOB']=='ios-paddle-arm64-compatibility'
+          assert e['GITHUB_RUN_ATTEMPT']=='1'
+          assert e['SETTLEORA_ARM64_MODE']=='paddle_arm64_compile_v1'
+          head=e['EXPECTED_HEAD']
+          assert re.fullmatch(r'[0-9a-f]{40}',head)
+          assert head==e['GITHUB_SHA']==e['CAPTURE_WORKFLOW_SHA']
+          p=Path(e['RUNNER_TEMP'])/'ios-paddle-arm64-job-start.json'
+          with p.open('x') as output:
+              json.dump({'head':head,'startedAt':int(time.time())},output)
+          PY
+
+      - name: Checkout the exact compatibility candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup the existing pinned Flutter toolchain without caching
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: "3.44.8"
+          cache: false
+
+      - name: Compile official OpenCV and the real Paddle target for ARM64 simulator
+        run: python3 -I -B tools/ocr-models/ios-paddle-arm64-compatibility.py
+
+      # Metadata and bounded build logs stay in ordinary job logs/summary.
+      # No artifact upload or cache write is needed for this compatibility probe.
