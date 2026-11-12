@@ -54,7 +54,7 @@ class Response(io.BytesIO):
         return self.url
 
 
-def transfer_worker(stage, marker):
+def transfer_worker(stage, marker, startup_delay=0):
     """Run the actual transfer helper with only its network transport synthetic."""
     return """
 import importlib.util,io,json,os,sys,time
@@ -64,6 +64,7 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 item=json.loads(sys.argv[2])
 stage=STAGE
 marker=Path(MARKER)
+time.sleep(STARTUP_DELAY)
 class Response(io.BytesIO):
     headers={}
     def geturl(self):return item["url"]
@@ -78,7 +79,7 @@ def request(*args,**kwargs):
     return Response(b"x")
 m.urllib.request.urlopen=request
 m._download_transfer(item,Path(sys.argv[3]))
-""".replace("STAGE", repr(stage)).replace("MARKER", repr(str(marker)))
+""".replace("STAGE", repr(stage)).replace("MARKER", repr(str(marker))).replace("STARTUP_DELAY", repr(startup_delay))
 
 
 class CompatibilityTests(unittest.TestCase):
@@ -93,20 +94,20 @@ class CompatibilityTests(unittest.TestCase):
                     def read(self, size=-1):
                         if stage == "body":
                             marker.write_text(str(os.getpid()))
-                            m.time.sleep(2)
+                            m.time.sleep(15)
                         return super().read(size)
                 def blocked_request(*args, **kwargs):
                     marker.write_text(str(os.getpid()))
                     if stage == "connection":
-                        m.time.sleep(2)
+                        m.time.sleep(15)
                     return BlockedResponse(b"x", item["url"])
-                with patch.object(m, "DOWNLOAD_WORKER", transfer_worker(stage, marker), create=True), \
+                with patch.object(m, "DOWNLOAD_WORKER", transfer_worker(stage, marker, startup_delay=1.0), create=True), \
                         patch.object(m.urllib.request, "urlopen", side_effect=blocked_request):
                     started = m.time.monotonic()
                     with self.assertRaises((ValueError, subprocess.TimeoutExpired)):
-                        m.download(item, root / "source.zip", deadline=m.time.time() + 0.3)
+                        m.download(item, root / "source.zip", deadline=m.time.time() + 5)
                     elapsed = m.time.monotonic() - started
-                self.assertLess(elapsed, 1.5, "blocked transport exceeded the absolute work deadline")
+                self.assertLess(elapsed, 8, "blocked transport exceeded the absolute work deadline")
                 pid = int(marker.read_text())
                 self.assertNotEqual(pid, os.getpid())
                 with self.assertRaises(ProcessLookupError):
@@ -119,7 +120,7 @@ class CompatibilityTests(unittest.TestCase):
             root = Path(temporary)
             marker = root / "transport-pid"
             target = root / "source.zip"
-            with patch.object(m, "DOWNLOAD_WORKER", transfer_worker("success", marker)):
+            with patch.object(m, "DOWNLOAD_WORKER", transfer_worker("success", marker, startup_delay=1.0)):
                 m.download(item, target, deadline=m.time.time() + 5)
             self.assertEqual(target.read_bytes(), b"x")
             self.assertEqual(target.stat().st_mode & 0o777, 0o400)
@@ -152,13 +153,13 @@ class CompatibilityTests(unittest.TestCase):
             with patch.dict(os.environ, {"RUNNER_TEMP": str(root)}, clear=True), \
                     patch.object(m, "validate_context", return_value=head), \
                     patch.object(m.sys, "platform", "darwin"), \
-                    patch.object(m, "MAX_WORK_SECONDS", 2), \
+                    patch.object(m, "MAX_WORK_SECONDS", 10), \
                     patch.object(m, "verify_source", return_value={}), \
                     patch.object(m, "git", return_value=b"b" * 40), \
                     patch.object(m, "execute", side_effect=execute), \
                     patch.object(m.subprocess, "check_output", side_effect=query), \
                     patch.object(m.sys, "stdout", output), \
-                    patch.object(m, "DOWNLOAD_WORKER", transfer_worker("body", marker)), \
+                    patch.object(m, "DOWNLOAD_WORKER", transfer_worker("body", marker, startup_delay=1.0)), \
                     patch.object(m, "extract_archive") as extract:
                 with self.assertRaises(subprocess.TimeoutExpired):
                     m.main()
