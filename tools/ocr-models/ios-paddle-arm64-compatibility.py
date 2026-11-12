@@ -231,7 +231,47 @@ def verify_source(repo, head, deadline=None):
     return files
 
 
+DOWNLOAD_WORKER = r"""
+import importlib.util,json,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("paddle_archive_transfer",sys.argv[1])
+module=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module._download_transfer(json.loads(sys.argv[2]),Path(sys.argv[3]),deadline=float(sys.argv[4]))
+"""
+
+
 def download(item, destination, deadline=None):
+    # A socket inactivity timeout cannot bound DNS, connection or trickling reads.
+    # Own the whole transfer in a fresh group so the controller keeps its deadline.
+    deadline = time.time() + 60 if deadline is None else deadline
+    remaining_seconds(deadline)
+    process = subprocess.Popen(
+        [sys.executable, "-I", "-B", "-c", DOWNLOAD_WORKER,
+         str(Path(__file__).resolve()), json.dumps(item), str(destination), str(deadline)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env=git_environment(), start_new_session=True)
+    try:
+        require(process.wait(timeout=remaining_seconds(deadline)) == 0)
+        remaining_seconds(deadline)
+    except BaseException:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=1)
+        raise
+
+
+def _download_transfer(item, destination, deadline=None):
     require(type(item["bytes"]) is int and 0 < item["bytes"] <= MAX_ARCHIVE)
     require(re.fullmatch("[0-9a-f]{64}", item["sha256"]))
     require(item["url"].startswith(("https://codeload.github.com/", "https://download.onnxruntime.ai/")))

@@ -54,7 +54,127 @@ class Response(io.BytesIO):
         return self.url
 
 
+def transfer_worker(stage, marker):
+    """Run the actual transfer helper with only its network transport synthetic."""
+    return """
+import importlib.util,io,json,os,sys,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("synthetic_transfer",sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+item=json.loads(sys.argv[2])
+stage=STAGE
+marker=Path(MARKER)
+class Response(io.BytesIO):
+    headers={}
+    def geturl(self):return item["url"]
+    def read(self,size=-1):
+        if stage=="body":
+            marker.write_text(str(os.getpid()))
+            time.sleep(60)
+        return super().read(size)
+def request(*args,**kwargs):
+    marker.write_text(str(os.getpid()))
+    if stage=="connection":time.sleep(60)
+    return Response(b"x")
+m.urllib.request.urlopen=request
+m._download_transfer(item,Path(sys.argv[3]))
+""".replace("STAGE", repr(stage)).replace("MARKER", repr(str(marker)))
+
+
 class CompatibilityTests(unittest.TestCase):
+    def test_absolute_download_deadline_interrupts_blocked_connection_and_body(self):
+        item = {"bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest(),
+                "url": "https://download.onnxruntime.ai/synthetic.zip"}
+        for stage in ("connection", "body"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                marker = root / "transport-pid"
+                class BlockedResponse(Response):
+                    def read(self, size=-1):
+                        if stage == "body":
+                            marker.write_text(str(os.getpid()))
+                            m.time.sleep(2)
+                        return super().read(size)
+                def blocked_request(*args, **kwargs):
+                    marker.write_text(str(os.getpid()))
+                    if stage == "connection":
+                        m.time.sleep(2)
+                    return BlockedResponse(b"x", item["url"])
+                with patch.object(m, "DOWNLOAD_WORKER", transfer_worker(stage, marker), create=True), \
+                        patch.object(m.urllib.request, "urlopen", side_effect=blocked_request):
+                    started = m.time.monotonic()
+                    with self.assertRaises((ValueError, subprocess.TimeoutExpired)):
+                        m.download(item, root / "source.zip", deadline=m.time.time() + 0.3)
+                    elapsed = m.time.monotonic() - started
+                self.assertLess(elapsed, 1.5, "blocked transport exceeded the absolute work deadline")
+                pid = int(marker.read_text())
+                self.assertNotEqual(pid, os.getpid())
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pid, 0)
+
+    def test_bounded_worker_preserves_verified_download_and_makes_one_request(self):
+        item = {"bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest(),
+                "url": "https://download.onnxruntime.ai/synthetic.zip"}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            marker = root / "transport-pid"
+            target = root / "source.zip"
+            with patch.object(m, "DOWNLOAD_WORKER", transfer_worker("success", marker)):
+                m.download(item, target, deadline=m.time.time() + 5)
+            self.assertEqual(target.read_bytes(), b"x")
+            self.assertEqual(target.stat().st_mode & 0o777, 0o400)
+            pid = int(marker.read_text())
+            self.assertNotEqual(pid, os.getpid())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+
+    def test_blocked_download_returns_control_to_main_final_failure_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            head = "a" * 40
+            clock = root / "ios-paddle-arm64-job-start.json"
+            clock.write_text(json.dumps({"head": head, "startedAt": int(m.time.time())}))
+            clock.chmod(0o600)
+            marker = root / "transport-pid"
+            output = io.StringIO()
+            manifest = json.loads(MODULE.with_name("ios-paddle-arm64-dependencies.json").read_bytes())
+            flutter = dict(manifest["flutter"], dartSdkVersion="3.12.2")
+            def execute(argv, cwd, build_root, deadline, label):
+                if label == "toolchain":
+                    (build_root / (label + ".log")).write_text("Xcode 16.4\nBuild version 16F6\n")
+                return {"seconds": 0, "logSha256": "0" * 64, "exitCode": 0}
+            def query(argv, **options):
+                self.assertGreater(options["timeout"], 0)
+                if argv == ["pod", "--version"]:
+                    return "1.17.0"
+                self.assertEqual(argv, ["flutter", "--version", "--machine"])
+                return json.dumps(flutter)
+            with patch.dict(os.environ, {"RUNNER_TEMP": str(root)}, clear=True), \
+                    patch.object(m, "validate_context", return_value=head), \
+                    patch.object(m.sys, "platform", "darwin"), \
+                    patch.object(m, "MAX_WORK_SECONDS", 2), \
+                    patch.object(m, "verify_source", return_value={}), \
+                    patch.object(m, "git", return_value=b"b" * 40), \
+                    patch.object(m, "execute", side_effect=execute), \
+                    patch.object(m.subprocess, "check_output", side_effect=query), \
+                    patch.object(m.sys, "stdout", output), \
+                    patch.object(m, "DOWNLOAD_WORKER", transfer_worker("body", marker)), \
+                    patch.object(m, "extract_archive") as extract:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    m.main()
+                extract.assert_not_called()
+            lines = output.getvalue().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertTrue(lines[0].startswith("SETTLEORA_ARM64_COMPATIBILITY="))
+            report = json.loads(lines[0].split("=", 1)[1])
+            self.assertFalse(report["complete"])
+            self.assertEqual(report["sourceHead"], head)
+            self.assertEqual([report[name] for name in
+                              ["providerCalls", "appLaunches", "simulatorBoots"]], [0, 0, 0])
+            pid = int(marker.read_text())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+
     def test_git_output_has_a_separate_finite_timeout(self):
         with patch.object(m.subprocess, "check_output", return_value=b"synthetic") as process:
             self.assertEqual(m.git(Path("/SYNTHETIC_UNUSED"), "rev-parse", "HEAD"), b"synthetic")
@@ -226,7 +346,7 @@ sys.exit(1)
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "source.zip"
             with patch.object(m.urllib.request, "urlopen", return_value=Response(raw, url)) as request:
-                m.download(item, target)
+                m._download_transfer(item, target)
             self.assertEqual(request.call_count, 1)
             self.assertEqual(target.read_bytes(), raw)
             self.assertEqual(target.stat().st_mode & 0o777, 0o400)
@@ -239,7 +359,7 @@ sys.exit(1)
                 target = Path(temporary) / "source.zip"
                 with patch.object(m.urllib.request, "urlopen", return_value=response):
                     with self.assertRaises(ValueError):
-                        m.download(item, target)
+                        m._download_transfer(item, target)
                 self.assertFalse(target.exists())
 
     def test_download_mismatch_never_becomes_verified_source(self):
@@ -248,7 +368,7 @@ sys.exit(1)
         with tempfile.TemporaryDirectory() as temporary:
             with patch.object(m.urllib.request, "urlopen", return_value=Response(raw, url)):
                 with self.assertRaises(ValueError):
-                    m.download(item, Path(temporary) / "source.zip")
+                    m._download_transfer(item, Path(temporary) / "source.zip")
 
     def test_expired_download_deadline_makes_no_request(self):
         with patch.object(m.urllib.request, "urlopen") as request:

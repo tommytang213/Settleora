@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       checkout_ref:
-        description: "Branch, tag, or SHA to validate."
+        description: "full101: branch, tag, or SHA to validate. ARM64 compile: must resolve to the same commit as the dispatched ref."
         required: true
         type: string
       expected_head:
