@@ -336,6 +336,123 @@ def simulator_framework(xcframework):
     return xcframework / item["LibraryIdentifier"] / item["LibraryPath"]
 
 
+def build_target(repo, head, root, manifest, files, report, deadline, main_source=None):
+    report["stages"]["toolchain"] = execute(
+        ["xcodebuild", "-version"], repo, root, deadline, "toolchain")
+    require((root / "toolchain.log").read_text().strip() == "Xcode 16.4\nBuild version 16F6")
+    require(subprocess.check_output(["pod", "--version"], text=True,
+                                    timeout=remaining_seconds(deadline)).strip() == "1.17.0")
+    flutter = json.loads(subprocess.check_output(["flutter", "--version", "--machine"], text=True,
+                                                 timeout=remaining_seconds(deadline)))
+    require(flutter["frameworkRevision"] == manifest["flutter"]["frameworkRevision"]
+            and flutter["engineRevision"] == manifest["flutter"]["engineRevision"]
+            and flutter["dartSdkVersion"] == "3.12.2")
+    (root / "project-generator.rb").write_text(RUBY_PROJECT)
+    report["stages"]["ruby-syntax"] = execute(
+        ["ruby", "-c", str(root / "project-generator.rb")], repo, root, deadline, "ruby-syntax")
+    report["stages"]["flutter-precache"] = execute(
+        ["flutter", "precache", "--ios"], repo, root, deadline, "flutter-precache")
+    sources = {}
+    require(sum(item["bytes"] for item in manifest["archives"].values()) <= 160 * 1024 * 1024)
+    extracted = 0
+    for name, item in manifest["archives"].items():
+        archive = root / (name + (".zip" if item["url"].endswith(".zip") else ".tar.gz"))
+        download(item, archive, deadline)
+        destination = root / name
+        extracted += extract_archive(archive, destination)
+        require(extracted <= MAX_EXTRACTED)
+        sources[name] = destination
+    opencv = single_directory(sources["opencv"])
+    yams = single_directory(sources["yams"])
+    output = root / "opencv-build"
+    excluded = sorted(p.name for p in (opencv / "modules").iterdir()
+                      if p.is_dir() and p.name not in ("core", "imgproc"))
+    argv = [sys.executable, str(opencv / "platforms/apple/build_xcframework.py"),
+            "--out", str(output), "--iphonesimulator_archs", "arm64",
+            "--build_only_specified_archs", "--iphoneos_deployment_target", "15.5",
+            "--disable-bitcode", "--disable-swift", "--without", "objc"]
+    for name in excluded:
+        if name != "objc":
+            argv.extend(["--without", name])
+    for feature in ("IPP", "ITT", "OPENCL", "TBB", "OPENMP", "EIGEN", "LAPACK", "PROTOBUF", "ADE"):
+        argv.extend(["--disable", feature])
+    report["stages"]["opencv-build"] = execute(argv, root, root, deadline, "opencv-build")
+    cv = simulator_framework(output / "opencv2.xcframework")
+    cv_platforms = macho_platforms((cv / "opencv2").read_bytes())
+    report["opencvObjectCount"] = len(cv_platforms)
+    report["opencvPlatformIds"] = sorted(set(cv_platforms))
+    report["opencvBinarySha256"] = hashlib.sha256((cv / "opencv2").read_bytes()).hexdigest()
+    c_root, objc_root = sources["ort-c"], sources["ort-objc"]
+    ort = simulator_framework(c_root / "onnxruntime.xcframework")
+    report["ortSimulatorMachOImageCount"] = len(macho_platforms((ort / "onnxruntime").read_bytes()))
+    for name, directory in (("onnxruntime-c", c_root), ("onnxruntime-objc", objc_root)):
+        (directory / (name + ".podspec.json")).write_text(json.dumps(manifest["podspecs"][name]))
+    sdk_root = Path(subprocess.check_output(["which", "flutter"], text=True,
+                                            timeout=remaining_seconds(deadline)).strip()).resolve().parents[1]
+    flutter_xc = sdk_root / "bin/cache/artifacts/engine/ios/Flutter.xcframework"
+    flutter_framework = simulator_framework(flutter_xc)
+    macho_platforms((flutter_framework / "Flutter").read_bytes())
+    target = root / "paddle-only"
+    target.mkdir(mode=0o700)
+    runner = repo / "apps/mobile/ios/Runner"
+    compiled = sorted(list((runner / "PaddleOCR").rglob("*.swift"))
+                      + list((runner / "PaddleOCR").rglob("*.mm"))
+                      + list((runner / "PaddleOCR").rglob("*.cpp"))
+                      + [runner / "SettleoraReceiptOcrPlugin.swift"])
+    report["compiledSources"] = {str(path.relative_to(repo)): files[str(path.relative_to(repo))]
+                                 for path in compiled}
+    original_bridge = (runner / "Runner-Bridging-Header.h").read_text()
+    require(original_bridge.count('#import "GeneratedPluginRegistrant.h"\n') == 1)
+    (target / "Bridge.h").write_text(original_bridge.replace('#import "GeneratedPluginRegistrant.h"\n', ""))
+    if main_source is None:
+        (target / "main.swift").write_text('import Foundation\nlet _ = SettleoraReceiptOcrPlugin.self\n')
+    else:
+        relative = "tools/ocr-models/ios-paddle-arm64-runtime-main.swift"
+        require(main_source == repo / relative and relative in files)
+        raw_main = main_source.read_bytes()
+        require(hashlib.sha256(raw_main).hexdigest() == files[relative])
+        (target / "main.swift").write_bytes(raw_main)
+        report["runtimeHarnessSourceSha256"] = files[relative]
+    project = {"sources": [str(path) for path in compiled],
+               "runnerTests": str(repo / "apps/mobile/ios/RunnerTests/RunnerTests.swift"),
+               "flutter": str(flutter_xc), "opencv": str(output / "opencv2.xcframework"),
+               "runnerHeaders": str(runner), "target": str(target)}
+    (target / "project.json").write_text(json.dumps(project))
+    (target / "create.rb").write_text(RUBY_PROJECT)
+    report["stages"]["project"] = execute(["ruby", "create.rb"], target, root, deadline, "project")
+    (target / "Podfile").write_text(
+        "ENV['COCOAPODS_DISABLE_STATS']='true'\nplatform :ios, '15.5'\n"
+        "project 'PaddleCompatibility'\nuse_frameworks! :linkage => :static\n"
+        "target 'PaddleCompatibility' do\n"
+        + "".join("  pod " + repr(name) + ", :path => " + repr(str(path)) + "\n"
+                  for name, path in [("onnxruntime-c", c_root), ("onnxruntime-objc", objc_root), ("Yams", yams)])
+        + "  target 'PaddleCompatibilityTests' do\n    inherit! :search_paths\n  end\nend\n")
+    report["stages"]["pods"] = execute(
+        ["pod", "install", "--no-repo-update"], target, root, deadline, "pods")
+    lock = (target / "Podfile.lock").read_text()
+    require(all(value in lock for value in ["onnxruntime-c (1.24.3)", "onnxruntime-objc (1.24.3)",
+                                            "Yams (5.0.6)"]) and "MLKit" not in lock and "Google" not in lock)
+    report["stages"]["paddle-build"] = execute(
+        ["xcodebuild", "-workspace", "PaddleCompatibility.xcworkspace",
+         "-scheme", "PaddleCompatibility", "-configuration", "Debug",
+         "-sdk", "iphonesimulator", "-destination", "generic/platform=iOS Simulator",
+         "-derivedDataPath", str(target / "DerivedData"), "ARCHS=arm64", "ONLY_ACTIVE_ARCH=YES",
+         "CODE_SIGNING_ALLOWED=NO", "build-for-testing"], target, root, deadline, "paddle-build")
+    binary = target / "DerivedData/Build/Products/Debug-iphonesimulator/PaddleCompatibility.app/PaddleCompatibility"
+    macho_platforms(binary.read_bytes())
+    linked = subprocess.check_output(["xcrun", "otool", "-L", str(binary)], text=True,
+                                      timeout=remaining_seconds(deadline))
+    symbols = subprocess.check_output(["xcrun", "nm", "-u", str(binary)], text=True,
+                                       timeout=remaining_seconds(deadline))
+    require(not re.search("mlkit|googleml|gmlkit", linked + symbols + lock, re.IGNORECASE))
+    report["paddleBinarySha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
+    catalog = json.loads((repo / "apps/mobile/assets/receipt_ocr_models/catalog.json").read_bytes())
+    report["modelPackIds"] = [pack["modelPackId"] for pack in catalog["packs"]]
+    require(len(report["modelPackIds"]) == 8)
+    require(verify_source(repo, head, deadline=deadline) == files)
+    return target
+
+
 def main():
     env = os.environ
     head = validate_context(env)
@@ -362,111 +479,7 @@ def main():
               "hostArchitecture": os.uname().machine, "shippingAcceptance": False,
               "stages": {}, "complete": False}
     try:
-        report["stages"]["toolchain"] = execute(
-            ["xcodebuild", "-version"], repo, root, deadline, "toolchain")
-        require((root / "toolchain.log").read_text().strip() == "Xcode 16.4\nBuild version 16F6")
-        require(subprocess.check_output(["pod", "--version"], text=True,
-                                        timeout=remaining_seconds(deadline)).strip() == "1.17.0")
-        flutter = json.loads(subprocess.check_output(["flutter", "--version", "--machine"], text=True,
-                                                     timeout=remaining_seconds(deadline)))
-        require(flutter["frameworkRevision"] == manifest["flutter"]["frameworkRevision"]
-                and flutter["engineRevision"] == manifest["flutter"]["engineRevision"]
-                and flutter["dartSdkVersion"] == "3.12.2")
-        (root / "project-generator.rb").write_text(RUBY_PROJECT)
-        report["stages"]["ruby-syntax"] = execute(
-            ["ruby", "-c", str(root / "project-generator.rb")], repo, root, deadline, "ruby-syntax")
-        report["stages"]["flutter-precache"] = execute(
-            ["flutter", "precache", "--ios"], repo, root, deadline, "flutter-precache")
-        sources = {}
-        require(sum(item["bytes"] for item in manifest["archives"].values()) <= 160 * 1024 * 1024)
-        extracted = 0
-        for name, item in manifest["archives"].items():
-            archive = root / (name + (".zip" if item["url"].endswith(".zip") else ".tar.gz"))
-            download(item, archive, deadline)
-            destination = root / name
-            extracted += extract_archive(archive, destination)
-            require(extracted <= MAX_EXTRACTED)
-            sources[name] = destination
-        opencv = single_directory(sources["opencv"])
-        yams = single_directory(sources["yams"])
-        output = root / "opencv-build"
-        excluded = sorted(p.name for p in (opencv / "modules").iterdir()
-                          if p.is_dir() and p.name not in ("core", "imgproc"))
-        argv = [sys.executable, str(opencv / "platforms/apple/build_xcframework.py"),
-                "--out", str(output), "--iphonesimulator_archs", "arm64",
-                "--build_only_specified_archs", "--iphoneos_deployment_target", "15.5",
-                "--disable-bitcode", "--disable-swift", "--without", "objc"]
-        for name in excluded:
-            if name != "objc":
-                argv.extend(["--without", name])
-        for feature in ("IPP", "ITT", "OPENCL", "TBB", "OPENMP", "EIGEN", "LAPACK", "PROTOBUF", "ADE"):
-            argv.extend(["--disable", feature])
-        report["stages"]["opencv-build"] = execute(argv, root, root, deadline, "opencv-build")
-        cv = simulator_framework(output / "opencv2.xcframework")
-        cv_platforms = macho_platforms((cv / "opencv2").read_bytes())
-        report["opencvObjectCount"] = len(cv_platforms)
-        report["opencvPlatformIds"] = sorted(set(cv_platforms))
-        report["opencvBinarySha256"] = hashlib.sha256((cv / "opencv2").read_bytes()).hexdigest()
-        c_root, objc_root = sources["ort-c"], sources["ort-objc"]
-        ort = simulator_framework(c_root / "onnxruntime.xcframework")
-        report["ortSimulatorMachOImageCount"] = len(macho_platforms((ort / "onnxruntime").read_bytes()))
-        for name, directory in (("onnxruntime-c", c_root), ("onnxruntime-objc", objc_root)):
-            (directory / (name + ".podspec.json")).write_text(json.dumps(manifest["podspecs"][name]))
-        sdk_root = Path(subprocess.check_output(["which", "flutter"], text=True,
-                                                timeout=remaining_seconds(deadline)).strip()).resolve().parents[1]
-        flutter_xc = sdk_root / "bin/cache/artifacts/engine/ios/Flutter.xcframework"
-        flutter_framework = simulator_framework(flutter_xc)
-        macho_platforms((flutter_framework / "Flutter").read_bytes())
-        target = root / "paddle-only"
-        target.mkdir(mode=0o700)
-        runner = repo / "apps/mobile/ios/Runner"
-        compiled = sorted(list((runner / "PaddleOCR").rglob("*.swift"))
-                          + list((runner / "PaddleOCR").rglob("*.mm"))
-                          + list((runner / "PaddleOCR").rglob("*.cpp"))
-                          + [runner / "SettleoraReceiptOcrPlugin.swift"])
-        report["compiledSources"] = {str(path.relative_to(repo)): files[str(path.relative_to(repo))]
-                                     for path in compiled}
-        original_bridge = (runner / "Runner-Bridging-Header.h").read_text()
-        require(original_bridge.count('#import "GeneratedPluginRegistrant.h"\n') == 1)
-        (target / "Bridge.h").write_text(original_bridge.replace('#import "GeneratedPluginRegistrant.h"\n', ""))
-        (target / "main.swift").write_text("import Foundation\nlet _ = SettleoraReceiptOcrPlugin.self\n")
-        project = {"sources": [str(path) for path in compiled],
-                   "runnerTests": str(repo / "apps/mobile/ios/RunnerTests/RunnerTests.swift"),
-                   "flutter": str(flutter_xc), "opencv": str(output / "opencv2.xcframework"),
-                   "runnerHeaders": str(runner), "target": str(target)}
-        (target / "project.json").write_text(json.dumps(project))
-        (target / "create.rb").write_text(RUBY_PROJECT)
-        report["stages"]["project"] = execute(["ruby", "create.rb"], target, root, deadline, "project")
-        (target / "Podfile").write_text(
-            "ENV['COCOAPODS_DISABLE_STATS']='true'\nplatform :ios, '15.5'\n"
-            "project 'PaddleCompatibility'\nuse_frameworks! :linkage => :static\n"
-            "target 'PaddleCompatibility' do\n"
-            + "".join("  pod " + repr(name) + ", :path => " + repr(str(path)) + "\n"
-                      for name, path in [("onnxruntime-c", c_root), ("onnxruntime-objc", objc_root), ("Yams", yams)])
-            + "  target 'PaddleCompatibilityTests' do\n    inherit! :search_paths\n  end\nend\n")
-        report["stages"]["pods"] = execute(
-            ["pod", "install", "--no-repo-update"], target, root, deadline, "pods")
-        lock = (target / "Podfile.lock").read_text()
-        require(all(value in lock for value in ["onnxruntime-c (1.24.3)", "onnxruntime-objc (1.24.3)",
-                                                "Yams (5.0.6)"]) and "MLKit" not in lock and "Google" not in lock)
-        report["stages"]["paddle-build"] = execute(
-            ["xcodebuild", "-workspace", "PaddleCompatibility.xcworkspace",
-             "-scheme", "PaddleCompatibility", "-configuration", "Debug",
-             "-sdk", "iphonesimulator", "-destination", "generic/platform=iOS Simulator",
-             "-derivedDataPath", str(target / "DerivedData"), "ARCHS=arm64", "ONLY_ACTIVE_ARCH=YES",
-             "CODE_SIGNING_ALLOWED=NO", "build-for-testing"], target, root, deadline, "paddle-build")
-        binary = target / "DerivedData/Build/Products/Debug-iphonesimulator/PaddleCompatibility.app/PaddleCompatibility"
-        macho_platforms(binary.read_bytes())
-        linked = subprocess.check_output(["xcrun", "otool", "-L", str(binary)], text=True,
-                                          timeout=remaining_seconds(deadline))
-        symbols = subprocess.check_output(["xcrun", "nm", "-u", str(binary)], text=True,
-                                           timeout=remaining_seconds(deadline))
-        require(not re.search("mlkit|googleml|gmlkit", linked + symbols + lock, re.IGNORECASE))
-        report["paddleBinarySha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
-        catalog = json.loads((repo / "apps/mobile/assets/receipt_ocr_models/catalog.json").read_bytes())
-        report["modelPackIds"] = [pack["modelPackId"] for pack in catalog["packs"]]
-        require(len(report["modelPackIds"]) == 8)
-        require(verify_source(repo, head, deadline=deadline) == files)
+        build_target(repo, head, root, manifest, files, report, deadline)
         report["complete"] = True
     finally:
         report["finishedAt"] = int(time.time())

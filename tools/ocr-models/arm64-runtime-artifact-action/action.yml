@@ -1,0 +1,9 @@
+name: Settleora bounded private OCR diagnostic artifact
+description: Prepare before capture and finalize the same private protocol4 artifact without resetting expiry.
+inputs:
+  phase:
+    description: prepare or finalize
+    required: true
+runs:
+  using: node24
+  main: index.mjs
