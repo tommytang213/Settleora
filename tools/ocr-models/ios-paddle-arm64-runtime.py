@@ -160,14 +160,21 @@ def build_private_bundle(private, identity, captures, calls_admitted, warm_statu
     return {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 def input_project(repo, root, tracked):
-    project = root / "input-project"; project.mkdir(mode=0o700)
-    # A fresh private copy avoids plugin/localization generation in the frozen checkout.
+    checkout = root / "input-source"; checkout.mkdir(mode=0o700)
+    project = checkout / "apps/mobile"
+    project.mkdir(parents=True, mode=0o700)
+    # Preserve original path-dependency layout and exact lockfile in a fresh copy.
+    mobile = "apps/mobile/"
+    package_prefixes = ("packages/client-dart/", "packages/google_mlkit_commons/")
     for relative in tracked:
-        prefix = "apps/mobile/"
-        if relative in (prefix + "pubspec.yaml", prefix + "pubspec.lock", prefix + "l10n.yaml") or relative.startswith(prefix + "lib/"):
-            target = project / relative[len(prefix):]
+        selected = (relative in (mobile + "pubspec.yaml", mobile + "pubspec.lock", mobile + "l10n.yaml") or
+                    relative.startswith((mobile + "lib/", mobile + "l10n/")) or relative.startswith(package_prefixes))
+        if selected:
+            target = checkout / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes((repo / relative).read_bytes())
+            data = (repo / relative).read_bytes()
+            require(hashlib.sha256(data).hexdigest() == tracked[relative])
+            exclusive(target, data, 16 * 1024 * 1024)
     return project
 
 

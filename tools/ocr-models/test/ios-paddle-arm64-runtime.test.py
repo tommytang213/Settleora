@@ -60,6 +60,28 @@ class RuntimeControllerTests(unittest.TestCase):
             file.write_bytes(b"changed")
             with self.assertRaises(ValueError):m.model_rows(repo,tracked)
 
+    def test_private_input_checkout_retains_original_local_dependency_layout_and_hashes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);repo=root/"repo";repo.mkdir();owned=root/"owned";owned.mkdir()
+            files={"apps/mobile/pubspec.yaml":b"synthetic pubspec",
+              "apps/mobile/pubspec.lock":b"synthetic lock",
+              "apps/mobile/lib/normalizer.dart":b"synthetic normalizer",
+              "apps/mobile/l10n/app_en.arb":b"synthetic localization",
+              "packages/client-dart/pubspec.yaml":b"synthetic client",
+              "packages/google_mlkit_commons/pubspec.yaml":b"synthetic local override",
+              "apps/mobile/assets/unrelated":b"not a runtime dependency"}
+            tracked={}
+            for name,data in files.items():
+                file=repo/name;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(data)
+                tracked[name]=hashlib.sha256(data).hexdigest()
+            project=m.input_project(repo,owned,tracked)
+            self.assertEqual((project/"pubspec.lock").read_bytes(),files["apps/mobile/pubspec.lock"])
+            for name in ("client-dart","google_mlkit_commons"):
+                self.assertTrue((project/"../../packages"/name/"pubspec.yaml").is_file())
+            self.assertTrue((project/"l10n/app_en.arb").is_file())
+            self.assertFalse((project/"assets/unrelated").exists())
+            with self.assertRaises(FileExistsError):m.input_project(repo,owned,tracked)
+
     def test_strict_json_rejects_duplicate_counters_and_nonfinite_values(self):
         for raw in [b'{"providerCalls":1,"providerCalls":3}',b'{"value":NaN}']:
             with self.assertRaises(ValueError):m.strict_json(raw)
