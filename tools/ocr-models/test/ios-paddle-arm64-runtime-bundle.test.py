@@ -116,4 +116,74 @@ class RuntimeBundleTests(unittest.TestCase):
         self.assertEqual(r.returncode,98);self.assertEqual(r.stdout,b"")
         self.assertEqual(r.stderr,b"arm64_runtime_bundle_rejected\n")
 
+    def test_schema_counters_reject_boolean_aliases_and_catalog_roles_versions_must_match(self):
+        bad=capture();bad["schemaVersion"]=True
+        with self.assertRaises(ValueError):m.validate_capture(encode(bad),IDENTITY,"first",MODELS)
+        catalog={"packs":[{"modelPackId":item,"modelVersion":"synthetic",
+                  "role":"detection" if i==0 else "recognition"} for i,item in enumerate(MODELS)]}
+        good=capture();m.validate_model_identity(good,catalog)
+        for field,value in [("modelPackId",MODELS[0]),("modelVersion","substituted")]:
+            bad=copy.deepcopy(good);bad["channel"]["blocks"][0][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):m.validate_model_identity(bad,catalog)
+        bad=copy.deepcopy(good);bad["channel"]["detectionModelPackId"]=MODELS[1]
+        with self.assertRaises(ValueError):m.validate_model_identity(bad,catalog)
+
+    def test_encrypted_outer_inventory_contains_only_header_and_ciphertext(self):
+        header,cipher,context,recipient=self.sealed_fixture()
+        outer=m.sealed_zip(header,cipher)
+        with zipfile.ZipFile(io.BytesIO(outer)) as archive:
+            self.assertEqual(set(archive.namelist()),{"envelope.json","ciphertext.bin"})
+        actual_header,actual_cipher=m.read_sealed_zip(outer)
+        self.assertEqual((actual_header,actual_cipher),(header,cipher))
+        m.validate_sealed_members(actual_header,actual_cipher,context,recipient)
+        with self.assertRaises(ValueError):m.read_sealed_zip(globals()["archive"]())
+        self.assertNotIn(b"synthetic row",outer)
+
+    def test_sealed_context_recipient_canonical_header_and_lengths_cannot_be_substituted(self):
+        header,cipher,context,recipient=self.sealed_fixture()
+        for field,value in [("schemaVersion",True),("recipientKeySha256","5"*64),
+                            ("plaintextBytes",25),("context",{**context,"runId":"999"})]:
+            bad=json.loads(header);bad[field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                m.validate_sealed_members(encode(bad),cipher,context,recipient)
+        with self.assertRaises(ValueError):m.validate_sealed_members(header+b" ",cipher,context,recipient)
+        with self.assertRaises(ValueError):m.validate_sealed_members(header,cipher[:-1],context,recipient)
+
+    def test_seal_receipt_binds_encrypted_and_retained_raw_bytes_without_replacing_them(self):
+        from unittest.mock import patch
+        header,cipher,context,recipient=self.sealed_fixture()
+        raw=archive()
+        receipt=dict(schemaVersion=1,purpose=m.PURPOSE,context=context,recipientKeySha256=recipient,
+          plaintextSha256=hashlib.sha256(raw).hexdigest(),plaintextBytes=len(raw),
+          ciphertextSha256=hashlib.sha256(cipher).hexdigest(),ciphertextBytes=len(cipher),
+          headerSha256=hashlib.sha256(header).hexdigest())
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();root.chmod(0o700)
+            for name,data in {"bundle.zip":raw,"envelope.json":header,"ciphertext.bin":cipher,
+                              "sealed-receipt.json":encode(receipt)}.items():
+                (root/name).write_bytes(data);(root/name).chmod(0o600)
+            with patch.object(m,"expected_envelope_context",return_value=(context,recipient)):
+                outer=m.sealed_operation(root,IDENTITY,"seal-container")
+                self.assertEqual((root/"bundle.zip").read_bytes(),raw)
+                (root/"bundle.zip").rename(root/"bundle-plain.zip")
+                (root/"bundle-sealed.zip").rename(root/"bundle.zip")
+                self.assertEqual(m.sealed_operation(root,IDENTITY,"verify-sealed"),outer)
+                changed=bytearray(cipher);changed[0]^=1
+                (root/"bundle.zip").write_bytes(m.sealed_zip(header,bytes(changed)))
+                with self.assertRaises(ValueError):m.sealed_operation(root,IDENTITY,"verify-sealed")
+
+    @staticmethod
+    def sealed_fixture():
+        import base64
+        raw=archive();context=dict(head=IDENTITY["sourceHead"],tree=IDENTITY["sourceTree"],
+          fingerprint=IDENTITY["sourceFingerprint"],runId=IDENTITY["runId"],runAttempt="1",
+          name="settleora-arm64-ridge-private-123456-11111111-1111-4111-8111-111111111111")
+        recipient="7"*64
+        header=encode(dict(schemaVersion=1,purpose=m.PURPOSE,
+          algorithm="X25519-HKDF-SHA256-AES-256-GCM",context=context,recipientKeySha256=recipient,
+          ephemeralPublicKey=base64.b64encode(bytes.fromhex("302a300506032b656e032100")+b"x"*32).decode(),
+          salt=base64.b64encode(b"s"*32).decode(),nonce=base64.b64encode(b"n"*12).decode(),
+          plaintextBytes=len(raw),ciphertextBytes=len(raw)+16))
+        return header,b"\x01"*(len(raw)+16),context,recipient
+
 if __name__=="__main__":unittest.main()

@@ -68,7 +68,7 @@ def validate_capture(raw, identity, phase, model_ids):
           "inputBytes", "width", "height", "fallbackCurrency", "modelManifestSha256",
           "modelPackIds", "providerCalls", "wallTimeMs", "engineInitializedThisCall",
           "processLifetimePeakRssBytes", "capturedAtMs", "channel"])
-    require(value["schemaVersion"] == 1 and value["purpose"] == PURPOSE and value["phase"] == phase)
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and value["purpose"] == PURPOSE and value["phase"] == phase)
     for key in ("sourceHead", "sourceTree", "sourceFingerprint", "runId", "runAttempt"):
         require(value[key] == identity[key])
     require(value["fixtureId"] == "existing_13_ridge_restaurant_en_US" and
@@ -112,10 +112,22 @@ def validate_capture(raw, identity, phase, model_ids):
             finite(point["x"], -32768, 32768); finite(point["y"], -32768, 32768)
     return value
 
+
+def validate_model_identity(value, catalog):
+    packs = {row["modelPackId"]: row for row in catalog["packs"]}
+    channel = value["channel"]
+    detection = packs.get(channel["detectionModelPackId"])
+    require(detection is not None and detection["role"] == "detection" and
+            channel["detectionModelVersion"] == detection["modelVersion"])
+    for block in channel["blocks"]:
+        pack = packs.get(block["modelPackId"])
+        require(pack is not None and pack["role"] in ("recognition", "recognition_recovery") and
+                block["modelVersion"] == pack["modelVersion"])
+
 def read_private(root, name, maximum):
     require(root.is_absolute() and root.resolve() == root and
             root.stat().st_uid == os.getuid() and stat.S_IMODE(root.stat().st_mode) == 0o700)
-    require(name in ("bundle.zip", "manifest.json", "first.json", "warm.json"))
+    require(name in ("bundle.zip", "bundle-sealed.zip", "bundle-plain.zip", "slot.json", "envelope.json", "ciphertext.bin", "sealed-receipt.json", "manifest.json", "first.json", "warm.json"))
     fd = os.open(root / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(fd)
@@ -152,14 +164,14 @@ def validate_zip(raw, identity):
           "runId", "runAttempt", "fixtureId", "inputSha256", "inputBytes", "sourceImageSha256",
           "modelManifestSha256", "modelPackIds", "providerCalls", "completedCalls",
           "warmStatus", "captureWindowStartedAtMs", "requestedExpiresAtMs", "captures"])
-    require(manifest["schemaVersion"] == 1 and manifest["purpose"] == PURPOSE and
+    require(type(manifest["schemaVersion"]) is int and manifest["schemaVersion"] == 1 and manifest["purpose"] == PURPOSE and
             manifest["sourceImageSha256"] == SOURCE_SHA and
             manifest["fixtureId"] == "existing_13_ridge_restaurant_en_US" and
             manifest["inputSha256"] == INPUT_SHA and manifest["inputBytes"] == 263039)
     for key in ("sourceHead", "sourceTree", "sourceFingerprint", "runId", "runAttempt"):
         require(manifest[key] == identity[key])
     require(type(manifest["providerCalls"]) is int and manifest["providerCalls"] in (1, 2))
-    require(manifest["completedCalls"] == len(entries) - 1 and
+    require(type(manifest["completedCalls"]) is int and manifest["completedCalls"] == len(entries) - 1 and
             manifest["warmStatus"] in ("not_admitted", "completed", "failed"))
     captures = manifest["captures"]
     phases = ["first", "warm"] if "warm.json" in members else ["first"]
@@ -177,12 +189,112 @@ def validate_zip(raw, identity):
                 start <= value["capturedAtMs"] < expiry)
     return manifest
 
+
+def expected_envelope_context(root, identity):
+    import base64
+    slot = decode(read_private(root, "slot.json", 16 * 1024), 16 * 1024)
+    for local, remote in [("sourceHead", "head"), ("sourceTree", "tree"),
+                          ("sourceFingerprint", "fingerprint"), ("runId", "runId"),
+                          ("runAttempt", "runAttempt")]:
+        require(slot["identity"][remote] == identity[local])
+    require(slot["purpose"] == PURPOSE)
+    public = os.environ.get("ARM64_RUNTIME_RECIPIENT_KEY", "")
+    try: key = base64.b64decode(public, validate=True)
+    except Exception: raise ValueError("arm64_runtime_capture_rejected")
+    require(len(key) == 44 and base64.b64encode(key).decode() == public and
+            key[:12] == bytes.fromhex("302a300506032b656e032100"))
+    context = dict(head=identity["sourceHead"], tree=identity["sourceTree"],
+                   fingerprint=identity["sourceFingerprint"], runId=identity["runId"],
+                   runAttempt="1", name=slot["name"])
+    return context, hashlib.sha256(key).hexdigest()
+
+def validate_sealed_members(header, ciphertext, expected_context, expected_recipient):
+    import base64
+    value = decode(header, 4096)
+    exact(value, ["schemaVersion", "purpose", "algorithm", "context", "recipientKeySha256",
+          "ephemeralPublicKey", "salt", "nonce", "plaintextBytes", "ciphertextBytes"])
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            value["purpose"] == PURPOSE and
+            value["algorithm"] == "X25519-HKDF-SHA256-AES-256-GCM" and
+            value["context"] == expected_context and value["recipientKeySha256"] == expected_recipient)
+    require(json.dumps(value, sort_keys=True, separators=(",", ":")).encode() == header)
+    for name, length in [("ephemeralPublicKey", 44), ("salt", 32), ("nonce", 12)]:
+        require(type(value[name]) is str)
+        try: decoded = base64.b64decode(value[name], validate=True)
+        except Exception: raise ValueError("arm64_runtime_capture_rejected")
+        require(len(decoded) == length and base64.b64encode(decoded).decode() == value[name])
+        if name == "ephemeralPublicKey":
+            require(decoded[:12] == bytes.fromhex("302a300506032b656e032100"))
+    require(type(value["plaintextBytes"]) is int and 22 <= value["plaintextBytes"] <= ZIP_MAX and
+            type(value["ciphertextBytes"]) is int and
+            value["ciphertextBytes"] == value["plaintextBytes"] + 16 == len(ciphertext))
+    return value
+
+def sealed_zip(header, ciphertext):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        for name, data in [("envelope.json", header), ("ciphertext.bin", ciphertext)]:
+            entry = zipfile.ZipInfo(name); entry.compress_type = zipfile.ZIP_STORED
+            entry.external_attr = (stat.S_IFREG | 0o600) << 16
+            archive.writestr(entry, data)
+    raw = output.getvalue()
+    require(len(raw) <= ZIP_MAX)
+    return raw
+
+def read_sealed_zip(raw):
+    require(22 <= len(raw) <= ZIP_MAX)
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        infos = archive.infolist()
+        require(len(infos) == 2 and {v.filename for v in infos} == {"envelope.json", "ciphertext.bin"} and
+                not archive.comment)
+        result = {}
+        for info in infos:
+            maximum = 4096 if info.filename == "envelope.json" else ZIP_MAX
+            require(info.orig_filename == info.filename and info.compress_type == zipfile.ZIP_STORED and
+                    info.file_size == info.compress_size and 0 < info.file_size <= maximum and
+                    not info.flag_bits & 1 and stat.S_IFMT(info.external_attr >> 16) in (0, stat.S_IFREG))
+            with archive.open(info) as stream: body = stream.read(maximum + 1)
+            require(len(body) == info.file_size); result[info.filename] = body
+    return result["envelope.json"], result["ciphertext.bin"]
+
+def sealed_operation(root, identity, mode):
+    context, recipient = expected_envelope_context(root, identity)
+    if mode == "seal-container":
+        header = read_private(root, "envelope.json", 4096)
+        ciphertext = read_private(root, "ciphertext.bin", ZIP_MAX)
+        raw = sealed_zip(header, ciphertext)
+    else:
+        raw = read_private(root, "bundle.zip", ZIP_MAX)
+        header, ciphertext = read_sealed_zip(raw)
+    value = validate_sealed_members(header, ciphertext, context, recipient)
+    receipt = decode(read_private(root, "sealed-receipt.json", 4096), 4096)
+    exact(receipt, ["schemaVersion", "purpose", "context", "recipientKeySha256",
+          "plaintextSha256", "plaintextBytes", "ciphertextSha256", "ciphertextBytes", "headerSha256"])
+    require(type(receipt["schemaVersion"]) is int and receipt["schemaVersion"] == 1 and receipt["purpose"] == PURPOSE and
+            receipt["context"] == context and receipt["recipientKeySha256"] == recipient and
+            receipt["headerSha256"] == hashlib.sha256(header).hexdigest() and
+            receipt["ciphertextSha256"] == hashlib.sha256(ciphertext).hexdigest() and
+            receipt["ciphertextBytes"] == len(ciphertext))
+    plain_name = "bundle.zip" if mode == "seal-container" else "bundle-plain.zip"
+    plain = read_private(root, plain_name, ZIP_MAX)
+    require(len(plain) == receipt["plaintextBytes"] == value["plaintextBytes"] and
+            hashlib.sha256(plain).hexdigest() == receipt["plaintextSha256"])
+    validate_zip(plain, identity)
+    if mode == "seal-container":
+        target = root / "bundle-sealed.zip"
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            with os.fdopen(fd, "wb", closefd=False) as output:
+                output.write(raw); output.flush(); os.fsync(fd)
+        finally: os.close(fd)
+    return raw
+
 def main():
     class RedactedParser(argparse.ArgumentParser):
         def error(self, message):
             raise ValueError("arm64_runtime_capture_rejected")
     parser = RedactedParser()
-    parser.add_argument("mode", choices=["verify"])
+    parser.add_argument("mode", choices=["verify", "seal-container", "verify-sealed"])
     for field in ("private-root", "source-head", "source-tree", "source-fingerprint", "run-id", "run-attempt"):
         parser.add_argument("--" + field, required=True)
     args = parser.parse_args()
@@ -224,6 +336,11 @@ def main():
     require(fingerprint == args.source_fingerprint)
     identity = dict(sourceHead=args.source_head, sourceTree=args.source_tree,
                     sourceFingerprint=args.source_fingerprint, runId=args.run_id, runAttempt=args.run_attempt)
+    if args.mode != "verify":
+        raw = sealed_operation(Path(args.private_root), identity, args.mode)
+        print(json.dumps(dict(schemaVersion=1, purpose=PURPOSE, **identity,
+              size=len(raw), sha256=hashlib.sha256(raw).hexdigest()), separators=(",", ":")))
+        return
     raw = read_private(Path(args.private_root), "bundle.zip", ZIP_MAX)
     manifest = validate_zip(raw, identity)
     catalog = json.loads((repo / "apps/mobile/assets/receipt_ocr_models/catalog.json").read_bytes())
@@ -234,6 +351,10 @@ def main():
             for file in sorted(model_root.rglob("*")) if file.is_file()]
     model_bytes = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()
     require(manifest["modelManifestSha256"] == hashlib.sha256(model_bytes).hexdigest())
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        for phase in manifest["captures"]:
+            value = validate_capture(archive.read(phase + ".json"), identity, phase, manifest["modelPackIds"])
+            validate_model_identity(value, catalog)
     print(json.dumps(dict(schemaVersion=1, purpose=PURPOSE, **identity, size=len(raw),
                           sha256=hashlib.sha256(raw).hexdigest()), separators=(",", ":")))
 

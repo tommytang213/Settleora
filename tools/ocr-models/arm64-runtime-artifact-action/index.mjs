@@ -98,7 +98,7 @@ async function verifiedBundle(root, identity, env) {
   // Verify ZIP inventory, each bounded member's closed JSON schema and source
   // binding with the exact checked-in controller. Child output stays private.
   const script = fileURLToPath(new URL("../ios-paddle-arm64-runtime-bundle.py", import.meta.url));
-  const { stdout } = await execFileAsync("python3", ["-I", script, "verify",
+  const { stdout } = await execFileAsync("python3", ["-I", script, "verify-sealed",
     "--private-root", root, "--source-head", identity.head,
     "--source-tree", identity.tree, "--source-fingerprint", identity.fingerprint,
     "--run-id", identity.runId, "--run-attempt", identity.runAttempt], {

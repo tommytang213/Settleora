@@ -64,6 +64,7 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
 
   private func measure() async {
     var calls = 0
+    var failureStage = "preparation"
     let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     do {
       let root = Bundle.main.bundleURL
@@ -127,9 +128,12 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
       }
       calls = 1
       let coldStart = DispatchTime.now().uptimeNanoseconds
+      failureStage = "engine_initialization"
       let engine = try await SettleoraPaddleOcrEngine.make()
+      failureStage = "first_recognition"
       let first = try await engine.recognize(image)
       let firstWall = milliseconds(coldStart)
+      failureStage = "first_capture"
       let firstData = try privateJSON(envelope("first", first, firstWall, true),
                                      at: documents.appendingPathComponent("first.json"), maximum: 128 * 1024)
       _ = try privateJSON([
@@ -139,6 +143,7 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
       ], at: documents.appendingPathComponent("first-ready.json"), maximum: 4096)
 
       // A second invocation is admitted only after the host preserves the first.
+      failureStage = "warm_admission"
       let admissionStart = DispatchTime.now().uptimeNanoseconds
       while !FileManager.default.fileExists(atPath: documents.appendingPathComponent("allow-warm").path) {
         if FileManager.default.fileExists(atPath: documents.appendingPathComponent("stop-after-first").path) { return }
@@ -148,8 +153,10 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
       try requireRuntime(calls == 1 && digest(image) == expectedImageSHA)
       calls = 2
       let warmStart = DispatchTime.now().uptimeNanoseconds
+      failureStage = "warm_recognition"
       let warm = try await engine.recognize(image)
       let warmWall = milliseconds(warmStart)
+      failureStage = "warm_capture"
       let warmData = try privateJSON(envelope("warm", warm, warmWall, false),
                                     at: documents.appendingPathComponent("warm.json"), maximum: 64 * 1024)
       _ = try privateJSON([
@@ -161,7 +168,7 @@ final class Arm64RuntimeAppDelegate: UIResponder, UIApplicationDelegate {
       // No exception messages, paths, image bytes or recognized text in logs.
       _ = try? privateJSON([
         "schemaVersion": 1, "purpose": purpose, "stage": "failed",
-        "providerCalls": calls, "failureCode": "native_runtime_failed",
+        "providerCalls": calls, "failureCode": "native_runtime_failed", "failureStage": failureStage,
       ], at: documents.appendingPathComponent("failure.json"), maximum: 4096)
     }
   }

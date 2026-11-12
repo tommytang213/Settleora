@@ -466,7 +466,7 @@ sys.exit(1)
                     "(github.event_name == 'workflow_dispatch' && inputs.mode == 'full101') }}")
         jobs = re.split(r"(?m)^  ([A-Za-z_][A-Za-z0-9_-]*):[ \t]*$", workflow.split("\njobs:\n", 1)[1])
         self.assertEqual(set(jobs[1::2]), {
-            'android-native-acceptance', 'ios-native-acceptance', 'ios-paddle-arm64-compatibility'})
+            'android-native-acceptance', 'ios-native-acceptance', 'ios-paddle-arm64-compatibility', 'ios-paddle-arm64-runtime'})
         by_name = dict(zip(jobs[1::2], jobs[2::2]))
         for name in ('android-native-acceptance', 'ios-native-acceptance'):
             self.assertIn(expected, by_name[name])

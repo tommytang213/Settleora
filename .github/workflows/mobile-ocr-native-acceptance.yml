@@ -22,12 +22,17 @@ on:
   workflow_dispatch:
     inputs:
       checkout_ref:
-        description: "full101: branch, tag, or SHA to validate. ARM64 compile: must resolve to the same commit as the dispatched ref."
+        description: "full101: branch, tag, or SHA to validate. ARM64 modes: must resolve to the same commit as the dispatched ref."
         required: true
         type: string
       expected_head:
         description: "Exact commit SHA expected after checkout."
         required: true
+        type: string
+
+      recipient_public_key:
+        description: "ARM64 runtime only: local recipient X25519 public SPKI in base64. Never a private key."
+        required: false
         type: string
 
       mode:
@@ -38,6 +43,7 @@ on:
         options:
           - full101
           - paddle_arm64_compile_v1
+          - arm64_ridge_runtime_v1
 
 permissions:
   contents: read
@@ -727,3 +733,96 @@ jobs:
 
       # Metadata and bounded build logs stay in ordinary job logs/summary.
       # No artifact upload or cache write is needed for this compatibility probe.
+
+  # Separate explicit native measurement; never runs the 101-fixture jobs.
+  ios-paddle-arm64-runtime:
+    name: Bounded real Paddle ARM64 Ridge runtime measurement
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'arm64_ridge_runtime_v1' }}
+    runs-on: macos-15
+    timeout-minutes: 35
+    concurrency:
+      group: paddle-arm64-runtime-${{ inputs.expected_head }}
+      cancel-in-progress: false
+    env:
+      SETTLEORA_ARM64_MODE: arm64_ridge_runtime_v1
+      ARM64_RUNTIME_RECIPIENT_KEY: ${{ inputs.recipient_public_key }}
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      COCOAPODS_DISABLE_STATS: "true"
+    steps:
+      - name: Start the bounded compatibility job clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 -I -B - <<'PY'
+          import json,os,re,time
+          from pathlib import Path
+          e=os.environ
+          assert e['GITHUB_ACTIONS']=='true'
+          assert e['GITHUB_EVENT_NAME']=='workflow_dispatch'
+          assert e['GITHUB_REPOSITORY']=='tommytang213/Settleora'
+          assert e['GITHUB_JOB']=='ios-paddle-arm64-runtime'
+          assert e['GITHUB_RUN_ATTEMPT']=='1'
+          assert e['SETTLEORA_ARM64_MODE']=='arm64_ridge_runtime_v1'
+          head=e['EXPECTED_HEAD']
+          assert re.fullmatch(r'[0-9a-f]{40}',head)
+          assert head==e['GITHUB_SHA']==e['CAPTURE_WORKFLOW_SHA']
+          p=Path(e['RUNNER_TEMP'])/'ios-paddle-arm64-job-start.json'
+          with p.open('x') as output:
+              json.dump({'head':head,'startedAt':int(time.time())},output)
+          PY
+
+
+      - name: Checkout the exact ARM64 runtime candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup the pinned Node runtime without cache storage
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22.23.4"
+
+      - name: Setup the pinned Flutter runtime without cache storage
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: "3.44.8"
+          cache: false
+
+      - name: Bind the complete source and public recipient identity
+        run: python3 -I -B tools/ocr-models/ios-paddle-arm64-runtime.py bootstrap
+
+      - name: Prepare the one expiring encrypted capture container
+        uses: ./tools/ocr-models/arm64-runtime-artifact-action
+        with:
+          phase: prepare
+
+      - name: Bind the public recipient before native work
+        run: node tools/ocr-models/ios-paddle-arm64-runtime-seal.mjs bind
+
+      - name: Build once and measure the real native ARM64 Ridge engine
+        id: runtime
+        continue-on-error: true
+        run: python3 -I -B tools/ocr-models/ios-paddle-arm64-runtime.py
+
+      - name: Encrypt the bounded capture for its local recipient
+        id: seal
+        if: ${{ !cancelled() && steps.runtime.outputs.bundle_ready == 'true' }}
+        run: node tools/ocr-models/ios-paddle-arm64-runtime-seal.mjs seal
+
+      - name: Finalize only the encrypted expiring capture
+        id: capture
+        if: ${{ !cancelled() && steps.runtime.outputs.bundle_ready == 'true' && steps.seal.outcome == 'success' }}
+        uses: ./tools/ocr-models/arm64-runtime-artifact-action
+        with:
+          phase: finalize
+
+      - name: Enforce the bounded runtime result
+        if: always()
+        run: |
+          test "${{ steps.runtime.outcome }}" = "success"
+          test "${{ steps.seal.outcome }}" = "success"
+          test "${{ steps.capture.outcome }}" = "success"
