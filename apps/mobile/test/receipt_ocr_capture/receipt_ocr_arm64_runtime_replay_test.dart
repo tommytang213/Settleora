@@ -15,6 +15,9 @@ import '../../integration_test/support/receipt_ocr_fixture_contract.dart';
 const imageSha =
     '261b6f1831617873bad6da93cefe54c050e70d10ec283dfdc6af9286602e10ec';
 const fixtureId = 'existing_13_ridge_restaurant_en_US';
+const replayPackageConfigSha256 = String.fromEnvironment(
+  'SETTLEORA_ARM64_REPLAY_PACKAGE_CONFIG_SHA256',
+);
 void requireReplay(bool value) {
   if (!value) throw StateError('arm64_replay_rejected');
 }
@@ -82,6 +85,132 @@ Map<String, dynamic> loadPrivateJson(
   }
 }
 
+class VerifiedReplaySource {
+  VerifiedReplaySource(this.repo, this.privateRoot, this.identity, this.runId);
+  final String repo;
+  final String privateRoot;
+  final Map<String, String> identity;
+  final String runId;
+
+  List<String> arguments(String mode, {String? output}) => [
+    '-I',
+    '-B',
+    '$repo/tools/ocr-models/ios-paddle-arm64-runtime-bundle.py',
+    mode,
+    '--private-root',
+    privateRoot,
+    '--source-head',
+    identity['head']!,
+    '--source-tree',
+    identity['tree']!,
+    '--source-fingerprint',
+    identity['fingerprint']!,
+    '--run-id',
+    runId,
+    '--run-attempt',
+    '1',
+    if (output != null) ...['--replay-output', output],
+  ];
+
+  Future<void> write(String output, List<int> bytes) async {
+    final process = await Process.start(
+      'python3',
+      arguments('write-replay', output: output),
+    );
+    final stdoutDone = process.stdout.drain<void>();
+    final stderrDone = process.stderr.drain<void>();
+    process.stdin.add(bytes);
+    await process.stdin.close();
+    final code = await process.exitCode;
+    await Future.wait([stdoutDone, stderrDone]);
+    requireReplay(code == 0);
+  }
+}
+
+Future<void> verifyPackageRoots(String repo) async {
+  // Pinned Flutter test compiler uses this project package config.
+  // The actual capture invocation additionally binds its bytes with --dart-define.
+  final config = File('$repo/apps/mobile/.dart_tool/package_config.json');
+  requireReplay(config.resolveSymbolicLinksSync() == config.absolute.path);
+  requireReplay(config.lengthSync() > 0 && config.lengthSync() <= 1024 * 1024);
+  final raw = config.readAsBytesSync();
+  requireReplay(
+    raw.length <= 1024 * 1024 &&
+        (replayPackageConfigSha256.isEmpty ||
+            sha256.convert(raw).toString() == replayPackageConfigSha256),
+  );
+  final value = jsonDecode(config.readAsStringSync()) as Map<String, dynamic>;
+  final mobile = (value['packages'] as List)
+      .cast<Map<String, dynamic>>()
+      .singleWhere((row) => row['name'] == 'mobile');
+  final library = config.uri
+      .resolve(mobile['rootUri'] as String)
+      .resolve(mobile['packageUri'] as String);
+  requireReplay(
+    library.scheme == 'file' &&
+        Directory.fromUri(library).resolveSymbolicLinksSync() ==
+            Directory('$repo/apps/mobile/lib').resolveSymbolicLinksSync(),
+  );
+}
+
+Future<VerifiedReplaySource> verifyReplaySource(
+  Map<String, dynamic> capture,
+  Map<String, dynamic> proof,
+  String privateRoot,
+) async {
+  final repo = Directory.current.parent.parent.resolveSymbolicLinksSync();
+  requireReplay(RegExp(r'^[0-9a-f]{64}$').hasMatch(replayPackageConfigSha256));
+  await verifyPackageRoots(repo);
+  final identity = <String, String>{
+    'head':
+        (Platform.environment['SETTLEORA_ARM64_REPLAY_HEAD'] ??
+                capture['sourceHead'])
+            as String,
+    'tree':
+        (Platform.environment['SETTLEORA_ARM64_REPLAY_TREE'] ??
+                proof['sourceTree'])
+            as String,
+    'fingerprint':
+        (Platform.environment['SETTLEORA_ARM64_REPLAY_FINGERPRINT'] ??
+                proof['sourceFingerprint'])
+            as String,
+  };
+  requireReplay(
+    RegExp(r'^[0-9a-f]{40}$').hasMatch(identity['head']!) &&
+        RegExp(r'^[0-9a-f]{40}$').hasMatch(identity['tree']!) &&
+        RegExp(r'^[0-9a-f]{64}$').hasMatch(identity['fingerprint']!),
+  );
+  final binding = VerifiedReplaySource(
+    repo,
+    privateRoot,
+    Map.unmodifiable(identity),
+    capture['runId'] as String,
+  );
+  final result = await Process.run(
+    'python3',
+    binding.arguments('verify-replay-source'),
+  );
+  requireReplay(
+    result.exitCode == 0 &&
+        result.stdout is String &&
+        (result.stdout as String).length <= 4096,
+  );
+  final verified = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+  requireReplay(
+    verified['verified'] == true &&
+        verified['purpose'] == 'arm64_replay_source_verification' &&
+        verified['operation'] == 'verify-replay-source' &&
+        verified['packageConfigSha256'] == replayPackageConfigSha256 &&
+        verified['sourceRoot'] == repo &&
+        verified['sourceHead'] == identity['head'] &&
+        verified['sourceTree'] == identity['tree'] &&
+        verified['sourceFingerprint'] == identity['fingerprint'] &&
+        verified['runId'] == capture['runId'] &&
+        verified['runAttempt'] == '1',
+  );
+  return binding;
+}
+
 void main() {
   late Uint8List normalized;
   late Map<String, dynamic> fixture;
@@ -142,6 +271,11 @@ void main() {
       );
     },
   );
+  test('replay packages resolve to the executing verified checkout', () async {
+    await verifyPackageRoots(
+      Directory.current.parent.parent.resolveSymbolicLinksSync(),
+    );
+  });
   test('synthetic empty capture remains a failed provider result', () async {
     final result = await replayChannel(normalized, {'blocks': []});
     expect(result.status, ReceiptOcrStatus.failed);
@@ -195,6 +329,12 @@ void main() {
                 'settleora-arm64-ridge-private-${capture['runId']}-',
               ),
         );
+        final privateRoot = File(proofPath).parent.absolute.path;
+        requireReplay(
+          File(capturePath).parent.absolute.path == privateRoot &&
+              File(outputPath!).parent.absolute.path == privateRoot,
+        );
+        final source = await verifyReplaySource(capture, proof, privateRoot);
         final payload = (capture['channel'] as Map).cast<Object?, Object?>();
         final result = await replayChannel(normalized, payload);
         final preview = result.preview;
@@ -221,6 +361,11 @@ void main() {
           'purpose': 'arm64_native_channel_replay',
           'nativeCalls': 0,
           'sourceHead': expectedHead,
+          'captureSha256': captureDigest,
+          'captureRunId': capture['runId'],
+          'captureRunAttempt': capture['runAttempt'],
+          'replaySource': source.identity,
+          'replayPackageConfigSha256': replayPackageConfigSha256,
           'inputSha256': imageSha,
           'phase': capture['phase'],
           'status': result.status.name,
@@ -254,17 +399,13 @@ void main() {
         };
         final bytes = utf8.encode(jsonEncode(privateResult));
         requireReplay(bytes.length <= 128 * 1024);
-        final output = File(outputPath!);
-        requireReplay(output.isAbsolute && !output.existsSync());
-        output.createSync(exclusive: true);
-        output.writeAsBytesSync(bytes, flush: true);
-        final chmod = Process.runSync('chmod', ['600', output.path]);
-        requireReplay(chmod.exitCode == 0);
+        await source.write(outputPath!, bytes);
         // Counts and fixed field labels only. Receipt values stay in the private output.
         stdout.write('SETTLEORA_ARM64_REPLAY=');
         stdout.writeln(
           jsonEncode({
             'sourceHead': expectedHead,
+            'replaySource': source.identity,
             'phase': capture['phase'],
             'status': result.status.name,
             'nativeCalls': 0,

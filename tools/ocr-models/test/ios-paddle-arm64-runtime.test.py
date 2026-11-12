@@ -114,4 +114,42 @@ class RuntimeControllerTests(unittest.TestCase):
         self.assertEqual(r.returncode,98);self.assertEqual(r.stdout,b"")
         self.assertEqual(r.stderr,b"arm64_runtime_failed\n")
 
+    def test_controller_retains_valid_first_artifact_after_warm_readiness_capture_or_read_exception(self):
+        from unittest.mock import patch
+        fixture=m.load_module(MODULE.parent/"test/ios-paddle-arm64-runtime-bundle.test.py","runtime_synthetic_bundle")
+        verifier=fixture.m
+        for failure in ("readiness","capture","read"):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);documents=root/"Documents";documents.mkdir()
+                private=root/"private";private.mkdir(mode=0o700)
+                first=fixture.capture();raw=fixture.encode(first)
+                (documents/"first.json").write_bytes(raw);(documents/"first.json").chmod(0o400)
+                warm=fixture.capture("warm")
+                if failure=="capture":warm["inputSha256"]="0"*64
+                warm_raw=fixture.encode(warm)
+                (documents/"warm.json").write_bytes(warm_raw);(documents/"warm.json").chmod(0o400)
+                def receipt(data,calls):
+                    return dict(schemaVersion=1,purpose=m.MODE,providerCalls=calls,
+                      bytes=len(data),sha256=hashlib.sha256(data).hexdigest(),wallTimeMs=100,blockCount=1)
+                def readiness(documents,phase,*_):
+                    if phase=="first":return receipt(raw,1),None
+                    if failure=="readiness":raise ValueError("SYNTHETIC_PRIVATE")
+                    return receipt(warm_raw,2),None
+                original=m.read_owned
+                def read(path,*args):
+                    if failure=="read" and path.name=="warm.json":raise OSError("SYNTHETIC_PRIVATE")
+                    return original(path,*args)
+                report=dict(providerCallsAdmitted=1,completedCalls=0)
+                with patch.object(m,"ready",side_effect=readiness),patch.object(m,"read_owned",side_effect=read):
+                    captures,status=m.collect_captures(documents,private,fixture.IDENTITY,fixture.MODELS,
+                      verifier,time.time()+1000,os.getpid(),report,lambda _:1000)
+                self.assertEqual(captures,{"first":raw});self.assertEqual(status,"failed")
+                self.assertEqual(report["nativeFailure"],{"failureCode":"warm_capture_rejected"})
+                m.build_private_bundle(private,fixture.IDENTITY,captures,report["providerCallsAdmitted"],
+                  status,fixture.MODELS,first["modelManifestSha256"],
+                  dict(startedAt=fixture.START,expiresAt=fixture.START+24*60*60*1000),verifier)
+                manifest=verifier.validate_zip((private/"bundle.zip").read_bytes(),fixture.IDENTITY)
+                self.assertEqual((manifest["providerCalls"],manifest["completedCalls"],manifest["warmStatus"]),(2,1,"failed"))
+                self.assertEqual((private/"first.json").read_bytes(),raw)
+
 if __name__=="__main__":unittest.main()

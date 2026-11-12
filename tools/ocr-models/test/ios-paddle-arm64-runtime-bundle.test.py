@@ -90,7 +90,8 @@ class RuntimeBundleTests(unittest.TestCase):
         with self.assertRaises(ValueError):m.decode(b'{"x":1,"x":2}',100)
 
     def test_payload_caps_do_not_truncate_and_unknown_channel_fields_reject(self):
-        with self.assertRaises(ValueError):m.decode(b"x"*(m.FIRST_MAX+1),m.FIRST_MAX)
+        self.assertEqual(m.decode(encode({"value":"under-limit"}),m.FIRST_MAX),{"value":"under-limit"})
+        with self.assertRaises(ValueError):m.decode(encode({"value":"x"*m.FIRST_MAX}),m.FIRST_MAX)
         bad=capture();bad["channel"]["unexpected"]="synthetic"
         with self.assertRaises(ValueError):m.validate_zip(archive(first=bad),IDENTITY)
 
@@ -185,5 +186,80 @@ class RuntimeBundleTests(unittest.TestCase):
           salt=base64.b64encode(b"s"*32).decode(),nonce=base64.b64encode(b"n"*12).decode(),
           plaintextBytes=len(raw),ciphertextBytes=len(raw)+16))
         return header,b"\x01"*(len(raw)+16),context,recipient
+
+    def test_only_consistent_admitted_completed_warm_states_are_accepted(self):
+        for calls,status in [(1,"failed"),(2,"not_admitted"),(1,"completed")]:
+            with self.subTest(calls=calls,status=status),self.assertRaises(ValueError):
+                m.validate_zip(archive(attempted=calls,warm_status=status),IDENTITY)
+
+    def test_outer_zip_rejects_plaintext_in_prefix_trailer_entry_extra_or_comment(self):
+        import struct
+        header,cipher,context,recipient=self.sealed_fixture()
+        valid=m.sealed_zip(header,cipher)
+        invalid=[b"SYNTHETIC_PRIVATE"+valid,valid+b"SYNTHETIC_PRIVATE"]
+        for field in ("extra","comment"):
+            out=io.BytesIO()
+            with zipfile.ZipFile(out,"w") as result:
+                for name,data in [("envelope.json",header),("ciphertext.bin",cipher)]:
+                    info=zipfile.ZipInfo(name);info.compress_type=zipfile.ZIP_STORED
+                    info.external_attr=(stat.S_IFREG|0o600)<<16
+                    if field=="extra":info.extra=struct.pack("<HH",0xCAFE,17)+b"SYNTHETIC_PRIVATE"
+                    else:info.comment=b"SYNTHETIC_PRIVATE"
+                    result.writestr(info,data)
+            invalid.append(out.getvalue())
+        for raw in invalid:
+            with self.subTest(length=len(raw)),self.assertRaises(ValueError):m.read_sealed_zip(raw)
+        self.assertEqual(m.read_sealed_zip(valid),(header,cipher))
+
+    @staticmethod
+    def replay_value():
+        return dict(schemaVersion=1,purpose="arm64_native_channel_replay",nativeCalls=0,
+          sourceHead=IDENTITY["sourceHead"],captureSha256="8"*64,captureRunId=IDENTITY["runId"],
+          captureRunAttempt="1",replaySource=m.replay_source(IDENTITY),replayPackageConfigSha256="6"*64,inputSha256=m.INPUT_SHA,
+          phase="first",status="extracted",fieldMismatches=[],reviewMatched=True,
+          preview={"merchant":"SYNTHETIC_PRIVATE"})
+
+    def test_replay_writer_establishes_private_mode_before_any_receipt_byte_write(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();root.chmod(0o700);output=root/"replay-first.json"
+            raw=encode(self.replay_value());original=os.fdopen;observed=[]
+            def before_write(fd,*args,**kwargs):
+                observed.append(stat.S_IMODE(os.fstat(fd).st_mode))
+                self.assertEqual(os.fstat(fd).st_size,0)
+                self.assertEqual(stat.S_IMODE(root.stat().st_mode),0o700)
+                return original(fd,*args,**kwargs)
+            previous=os.umask(0o022)
+            try:
+                with patch.object(m.os,"fdopen",side_effect=before_write):
+                    m.write_replay_result(root,output,raw,IDENTITY)
+            finally:os.umask(previous)
+            self.assertEqual(observed,[0o600])
+            self.assertEqual(stat.S_IMODE(output.stat().st_mode),0o600)
+            self.assertEqual(output.read_bytes(),raw)
+
+    def test_replay_writer_rejects_accessible_directory_existing_alias_and_wrong_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();output=root/"replay-first.json";raw=encode(self.replay_value())
+            root.chmod(0o755)
+            with self.assertRaises(ValueError):m.write_replay_result(root,output,raw,IDENTITY)
+            self.assertFalse(output.exists());root.chmod(0o700)
+            unrelated=root/"unrelated";unrelated.write_bytes(b"SYNTHETIC_EXISTING");unrelated.chmod(0o600)
+            output.symlink_to(unrelated)
+            with self.assertRaises(OSError):m.write_replay_result(root,output,raw,IDENTITY)
+            self.assertEqual(unrelated.read_bytes(),b"SYNTHETIC_EXISTING")
+            output.unlink();output.write_bytes(b"SYNTHETIC_EXISTING");output.chmod(0o600)
+            with self.assertRaises(OSError):m.write_replay_result(root,output,raw,IDENTITY)
+            self.assertEqual(output.read_bytes(),b"SYNTHETIC_EXISTING")
+            bad=self.replay_value();bad["replaySource"]["head"]="9"*40
+            with self.assertRaises(ValueError):m.write_replay_result(root,root/"replay-warm.json",encode(bad),IDENTITY)
+
+    def test_both_model_binding_paths_share_tracked_only_catalog_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo=Path(temporary);relative="apps/mobile/assets/receipt_ocr_models/catalog.json"
+            file=repo/relative;file.parent.mkdir(parents=True);file.write_bytes(b"synthetic")
+            (file.parent/"untracked-private").write_bytes(b"SYNTHETIC_PRIVATE")
+            rows=m.model_rows(repo,{relative:hashlib.sha256(file.read_bytes()).hexdigest()})
+            self.assertEqual([row["path"] for row in rows],["receipt_ocr_models/catalog.json"])
 
 if __name__=="__main__":unittest.main()

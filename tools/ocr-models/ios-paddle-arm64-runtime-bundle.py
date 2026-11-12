@@ -17,6 +17,8 @@ PURPOSE = "arm64_ridge_runtime_v1"
 FIRST_MAX = 128 * 1024
 WARM_MAX = 64 * 1024
 ZIP_MAX = 256 * 1024
+RAW_ZIP_MAX = ZIP_MAX - 8192  # Header (<=4096), tag and ZIP framing reserve.
+CIPHER_MAX = RAW_ZIP_MAX + 16
 INPUT_SHA = "261b6f1831617873bad6da93cefe54c050e70d10ec283dfdc6af9286602e10ec"
 SOURCE_SHA = "ee60af99bb233c8d99b4678373b713d22e74127c44cf68e61db794f448e1356e"
 HEAD = re.compile(r"[0-9a-f]{40}\Z")
@@ -124,6 +126,18 @@ def validate_model_identity(value, catalog):
         require(pack is not None and pack["role"] in ("recognition", "recognition_recovery") and
                 block["modelVersion"] == pack["modelVersion"])
 
+def model_rows(repo, tracked):
+    prefix = "apps/mobile/assets/receipt_ocr_models/"
+    rows = []
+    for relative in sorted(tracked):
+        if relative.startswith(prefix):
+            data = (repo / relative).read_bytes()
+            require(hashlib.sha256(data).hexdigest() == tracked[relative])
+            rows.append(dict(path="receipt_ocr_models/" + relative[len(prefix):],
+                             bytes=len(data), sha256=tracked[relative]))
+    require(0 < len(rows) <= 128)
+    return rows
+
 def read_private(root, name, maximum):
     require(root.is_absolute() and root.resolve() == root and
             root.stat().st_uid == os.getuid() and stat.S_IMODE(root.stat().st_mode) == 0o700)
@@ -143,7 +157,7 @@ def read_private(root, name, maximum):
     finally: os.close(fd)
 
 def validate_zip(raw, identity):
-    require(22 <= len(raw) <= ZIP_MAX and raw.startswith(b"PK\x03\x04"))
+    require(22 <= len(raw) <= RAW_ZIP_MAX and raw.startswith(b"PK\x03\x04"))
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         entries = archive.infolist()
         require(not archive.comment and 2 <= len(entries) <= 3)
@@ -176,7 +190,8 @@ def validate_zip(raw, identity):
     captures = manifest["captures"]
     phases = ["first", "warm"] if "warm.json" in members else ["first"]
     exact(captures, phases)
-    require(manifest["completedCalls"] <= manifest["providerCalls"] and
+    require((manifest["providerCalls"], manifest["completedCalls"], manifest["warmStatus"]) in
+            ((1, 1, "not_admitted"), (2, 1, "failed"), (2, 2, "completed")) and
             (("warm" in phases) == (manifest["warmStatus"] == "completed")))
     start = manifest["captureWindowStartedAtMs"]; expiry = manifest["requestedExpiresAtMs"]
     require(type(start) is int and type(expiry) is int and 0 < start < expiry <= start + 24 * 60 * 60 * 1000)
@@ -225,7 +240,7 @@ def validate_sealed_members(header, ciphertext, expected_context, expected_recip
         require(len(decoded) == length and base64.b64encode(decoded).decode() == value[name])
         if name == "ephemeralPublicKey":
             require(decoded[:12] == bytes.fromhex("302a300506032b656e032100"))
-    require(type(value["plaintextBytes"]) is int and 22 <= value["plaintextBytes"] <= ZIP_MAX and
+    require(type(value["plaintextBytes"]) is int and 22 <= value["plaintextBytes"] <= RAW_ZIP_MAX and
             type(value["ciphertextBytes"]) is int and
             value["ciphertextBytes"] == value["plaintextBytes"] + 16 == len(ciphertext))
     return value
@@ -255,7 +270,10 @@ def read_sealed_zip(raw):
                     not info.flag_bits & 1 and stat.S_IFMT(info.external_attr >> 16) in (0, stat.S_IFREG))
             with archive.open(info) as stream: body = stream.read(maximum + 1)
             require(len(body) == info.file_size); result[info.filename] = body
-    return result["envelope.json"], result["ciphertext.bin"]
+    header, ciphertext = result["envelope.json"], result["ciphertext.bin"]
+    # Reject plaintext in prefixes, trailers, entry extras/comments or alternate headers.
+    require(raw == sealed_zip(header, ciphertext))
+    return header, ciphertext
 
 def sealed_operation(root, identity, mode):
     context, recipient = expected_envelope_context(root, identity)
@@ -276,7 +294,7 @@ def sealed_operation(root, identity, mode):
             receipt["ciphertextSha256"] == hashlib.sha256(ciphertext).hexdigest() and
             receipt["ciphertextBytes"] == len(ciphertext))
     plain_name = "bundle.zip" if mode == "seal-container" else "bundle-plain.zip"
-    plain = read_private(root, plain_name, ZIP_MAX)
+    plain = read_private(root, plain_name, RAW_ZIP_MAX)
     require(len(plain) == receipt["plaintextBytes"] == value["plaintextBytes"] and
             hashlib.sha256(plain).hexdigest() == receipt["plaintextSha256"])
     validate_zip(plain, identity)
@@ -289,14 +307,63 @@ def sealed_operation(root, identity, mode):
         finally: os.close(fd)
     return raw
 
+def replay_source(identity):
+    return dict(head=identity["sourceHead"], tree=identity["sourceTree"],
+                fingerprint=identity["sourceFingerprint"])
+
+def private_root_descriptor(root):
+    require(root.is_absolute() and root.resolve() == root)
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and
+                stat.S_IMODE(info.st_mode) == 0o700)
+        return fd
+    except Exception:
+        os.close(fd); raise
+
+def write_replay_result(root, output, raw, identity):
+    require(output.parent == root and output.name in ("replay-first.json", "replay-warm.json"))
+    value = decode(raw, FIRST_MAX)
+    exact(value, ["schemaVersion", "purpose", "nativeCalls", "sourceHead", "captureSha256",
+          "captureRunId", "captureRunAttempt", "replaySource", "replayPackageConfigSha256", "inputSha256", "phase",
+          "status", "fieldMismatches", "reviewMatched", "preview"])
+    require(type(value["schemaVersion"]) is int and value["schemaVersion"] == 1 and
+            value["purpose"] == "arm64_native_channel_replay" and
+            type(value["nativeCalls"]) is int and value["nativeCalls"] == 0 and
+            type(value["sourceHead"]) is str and HEAD.fullmatch(value["sourceHead"]) and
+            type(value["captureSha256"]) is str and SHA.fullmatch(value["captureSha256"]) and
+            value["captureRunId"] == identity["runId"] and value["captureRunAttempt"] == "1" and
+            value["replaySource"] == replay_source(identity) and
+            type(value["replayPackageConfigSha256"]) is str and SHA.fullmatch(value["replayPackageConfigSha256"]) and
+            value["inputSha256"] == INPUT_SHA and
+            value["phase"] in ("first", "warm") and output.name == "replay-" + value["phase"] + ".json")
+    root_fd = private_root_descriptor(root)
+    fd = None
+    try:
+        fd = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=root_fd)
+        before = os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and
+                before.st_nlink == 1 and stat.S_IMODE(before.st_mode) == 0o600)
+        with os.fdopen(fd, "wb", closefd=False) as stream:
+            stream.write(raw); stream.flush(); os.fsync(fd)
+        after = os.fstat(fd)
+        require(after.st_nlink == 1 and stat.S_IMODE(after.st_mode) == 0o600 and
+                after.st_ino == before.st_ino and after.st_size == len(raw))
+    finally:
+        if fd is not None: os.close(fd)
+        os.close(root_fd)
+
 def main():
     class RedactedParser(argparse.ArgumentParser):
         def error(self, message):
             raise ValueError("arm64_runtime_capture_rejected")
     parser = RedactedParser()
-    parser.add_argument("mode", choices=["verify", "seal-container", "verify-sealed"])
+    parser.add_argument("mode", choices=["verify", "seal-container", "verify-sealed", "verify-replay-source", "write-replay"])
     for field in ("private-root", "source-head", "source-tree", "source-fingerprint", "run-id", "run-attempt"):
         parser.add_argument("--" + field, required=True)
+    parser.add_argument("--replay-output")
     args = parser.parse_args()
     require(HEAD.fullmatch(args.source_head) and HEAD.fullmatch(args.source_tree) and
             SHA.fullmatch(args.source_fingerprint) and args.run_attempt == "1" and
@@ -312,7 +379,7 @@ def main():
     # Bind every raw tracked blob/mode, including assume-unchanged paths.
     tracked = subprocess.check_output(["git", "--no-replace-objects", "-C", str(repo),
                                       "ls-tree", "-rz", "HEAD"], env=env, timeout=15)
-    regular, links = set(), []
+    regular, links, raw_files = set(), [], {}
     for entry in tracked.split(b'\x00'):
         if not entry: continue
         metadata, name = entry.split(b'\t', 1)
@@ -327,6 +394,7 @@ def main():
         else:
             require(stat.S_ISREG(info.st_mode) and bool(info.st_mode & 0o111) == (mode == "100755"))
             data = file.read_bytes(); regular.add(file)
+            raw_files[relative.as_posix()] = hashlib.sha256(data).hexdigest()
         require(hashlib.sha1(b"blob " + str(len(data)).encode() + b'\x00' + data).hexdigest() == oid)
     for file in links:
         require(file.resolve(strict=True) in regular)
@@ -336,19 +404,35 @@ def main():
     require(fingerprint == args.source_fingerprint)
     identity = dict(sourceHead=args.source_head, sourceTree=args.source_tree,
                     sourceFingerprint=args.source_fingerprint, runId=args.run_id, runAttempt=args.run_attempt)
+    if args.mode in ("verify-replay-source", "write-replay"):
+        root = Path(args.private_root)
+        fd = private_root_descriptor(root); os.close(fd)
+        config = repo / "apps/mobile/.dart_tool/package_config.json"
+        require(config.resolve() == config)
+        info = config.lstat()
+        require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 1024 * 1024)
+        config_bytes = config.read_bytes(); require(len(config_bytes) == info.st_size)
+        config_sha = hashlib.sha256(config_bytes).hexdigest()
+        if args.mode == "write-replay":
+            require(args.replay_output is not None)
+            raw = sys.stdin.buffer.read(FIRST_MAX + 1)
+            require(decode(raw, FIRST_MAX)["replayPackageConfigSha256"] == config_sha)
+            write_replay_result(root, Path(args.replay_output), raw, identity)
+        else: require(args.replay_output is None)
+        print(json.dumps(dict(schemaVersion=1, purpose="arm64_replay_source_verification",
+              **identity, sourceRoot=str(repo), packageConfigSha256=config_sha, verified=True, operation=args.mode), separators=(",", ":")))
+        return
+    require(args.replay_output is None)
     if args.mode != "verify":
         raw = sealed_operation(Path(args.private_root), identity, args.mode)
         print(json.dumps(dict(schemaVersion=1, purpose=PURPOSE, **identity,
               size=len(raw), sha256=hashlib.sha256(raw).hexdigest()), separators=(",", ":")))
         return
-    raw = read_private(Path(args.private_root), "bundle.zip", ZIP_MAX)
+    raw = read_private(Path(args.private_root), "bundle.zip", RAW_ZIP_MAX)
     manifest = validate_zip(raw, identity)
     catalog = json.loads((repo / "apps/mobile/assets/receipt_ocr_models/catalog.json").read_bytes())
     require(manifest["modelPackIds"] == [row["modelPackId"] for row in catalog["packs"]])
-    model_root = repo / "apps/mobile/assets/receipt_ocr_models"
-    rows = [{"path": "receipt_ocr_models/" + str(file.relative_to(model_root)),
-             "bytes": file.stat().st_size, "sha256": hashlib.sha256(file.read_bytes()).hexdigest()}
-            for file in sorted(model_root.rglob("*")) if file.is_file()]
+    rows = model_rows(repo, raw_files)
     model_bytes = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()
     require(manifest["modelManifestSha256"] == hashlib.sha256(model_bytes).hexdigest())
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:

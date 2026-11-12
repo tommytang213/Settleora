@@ -116,17 +116,9 @@ def ready(documents, phase, deadline, pid):
     return None, {"failureCode": "native_call_deadline"}
 
 def model_rows(repo, tracked):
-    prefix = "apps/mobile/assets/receipt_ocr_models/"
-    rows = []
-    for relative in sorted(tracked):
-        if relative.startswith(prefix):
-            file = repo / relative
-            data = file.read_bytes()
-            require(hashlib.sha256(data).hexdigest() == tracked[relative])
-            rows.append({"path": "receipt_ocr_models/" + relative[len(prefix):],
-                         "bytes": len(data), "sha256": tracked[relative]})
-    require(0 < len(rows) <= 128)
-    return rows
+    codec = load_module(Path(__file__).with_name("ios-paddle-arm64-runtime-bundle.py"), "runtime_model_codec")
+    return codec.model_rows(repo, tracked)
+
 
 def retain_capture(documents, private, phase, receipt, identity, model_ids, verifier):
     maximum = 128 * 1024 if phase == "first" else 64 * 1024
@@ -135,6 +127,41 @@ def retain_capture(documents, private, phase, receipt, identity, model_ids, veri
     value = verifier.validate_capture(raw, identity, phase, model_ids)
     exclusive(private / (phase + ".json"), raw, maximum)
     return value
+
+def collect_captures(documents, private, identity, model_ids, verifier, deadline, pid, report, remaining):
+    captures = {}
+    warm_status = "not_admitted"
+    receipt, failure = ready(documents, "first", min(deadline, time.time() + 10 * 60), pid)
+    if failure is not None: report["nativeFailure"] = failure
+    require(receipt is not None)
+    first = retain_capture(documents, private, "first", receipt, identity, model_ids, verifier)
+    captures["first"] = read_owned(private / "first.json", 128 * 1024, (0o600,))
+    report["completedCalls"] = 1
+    report["first"] = {key: first[key] for key in ("wallTimeMs", "processLifetimePeakRssBytes", "capturedAtMs")}
+    report["first"]["blockCount"] = len(first["channel"]["blocks"])
+    if remaining(deadline) > 5 * 60 + 60:
+        # A warm-stage error cannot discard the already validated and retained first.
+        report["providerCallsAdmitted"] = 2
+        warm_status = "failed"
+        try:
+            exclusive(documents / "allow-warm", b"1", 1)
+            receipt, failure = ready(documents, "warm", min(deadline, time.time() + 5 * 60), pid)
+            if failure is not None: report["nativeFailure"] = failure
+            if receipt is not None:
+                warm = retain_capture(documents, private, "warm", receipt, identity, model_ids, verifier)
+                raw = read_owned(private / "warm.json", 64 * 1024, (0o600,))
+                metrics = {key: warm[key] for key in ("wallTimeMs", "processLifetimePeakRssBytes", "capturedAtMs")}
+                metrics["blockCount"] = len(warm["channel"]["blocks"])
+                captures["warm"] = raw
+                report["warm"] = metrics
+                report["completedCalls"] = 2
+                warm_status = "completed"
+        except Exception:
+            report["nativeFailure"] = {"failureCode": "warm_capture_rejected"}
+    else:
+        try: exclusive(documents / "stop-after-first", b"1", 1)
+        except OSError: report["nativeFailure"] = {"failureCode": "stop_signal_rejected"}
+    return captures, warm_status
 
 def build_private_bundle(private, identity, captures, calls_admitted, warm_status,
                          model_ids, model_hash, capture_start, verifier):
@@ -156,7 +183,7 @@ def build_private_bundle(private, identity, captures, calls_admitted, warm_statu
             archive.writestr(info, data)
     raw = output.getvalue()
     verifier.validate_zip(raw, identity)
-    exclusive(private / "bundle.zip", raw, 256 * 1024)
+    exclusive(private / "bundle.zip", raw, verifier.RAW_ZIP_MAX)
     return {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 def input_project(repo, root, tracked):
@@ -335,34 +362,15 @@ def main():
         match = re.fullmatch(re.escape(BUNDLE_ID) + r": ([1-9][0-9]*)\s*", output)
         require(match)
         pid = int(match[1]); report["appLaunches"] = 1; report["providerCallsAdmitted"] = 1
-        receipt, failure = ready(documents, "first", min(deadline, time.time() + 10 * 60), pid)
-        if failure is not None: report["nativeFailure"] = failure
-        require(receipt is not None)
-        first = retain_capture(documents, private, "first", receipt, identity, model_ids, verifier)
-        captures["first"] = read_owned(private / "first.json", 128 * 1024, (0o600,))
-        report["completedCalls"] = 1
-        report["first"] = {key: first[key] for key in ("wallTimeMs", "processLifetimePeakRssBytes", "capturedAtMs")}
-        report["first"]["blockCount"] = len(first["channel"]["blocks"])
-        if base.remaining_seconds(deadline) > 5 * 60 + 60:
-            exclusive(documents / "allow-warm", b"1", 1)
-            report["providerCallsAdmitted"] = 2
-            receipt, failure = ready(documents, "warm", min(deadline, time.time() + 5 * 60), pid)
-            warm_status = "failed"
-            if failure is not None: report["nativeFailure"] = failure
-            if receipt is not None:
-                warm = retain_capture(documents, private, "warm", receipt, identity, model_ids, verifier)
-                captures["warm"] = read_owned(private / "warm.json", 64 * 1024, (0o600,))
-                report["completedCalls"] = 2; warm_status = "completed"
-                report["warm"] = {key: warm[key] for key in ("wallTimeMs", "processLifetimePeakRssBytes", "capturedAtMs")}
-                report["warm"]["blockCount"] = len(warm["channel"]["blocks"])
-        else:
-            exclusive(documents / "stop-after-first", b"1", 1)
+        captures, warm_status = collect_captures(documents, private, identity, model_ids,
+            verifier, deadline, pid, report, base.remaining_seconds)
+        # Source-integrity failure is outside the warm fallback and prevents publication.
+        require(base.verify_source(repo, identity["sourceHead"], deadline=deadline) == files)
         report["privateBundle"] = build_private_bundle(private, identity, captures,
             report["providerCallsAdmitted"], warm_status, model_ids, model_hash, start, verifier)
         output_file = env.get("GITHUB_OUTPUT")
         if output_file:
             with open(output_file, "a") as output: output.write("bundle_ready=true\n")
-        require(base.verify_source(repo, identity["sourceHead"], deadline=deadline) == files)
         report["warmStatus"] = warm_status
         report["complete"] = warm_status in ("completed", "not_admitted")
     finally:

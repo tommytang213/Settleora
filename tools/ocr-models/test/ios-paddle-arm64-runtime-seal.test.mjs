@@ -1,8 +1,10 @@
 // Synthetic encryption contracts only. No live key, service, receipt or provider.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { generateKeyPairSync } from "node:crypto";
-import { recipientPublicKey,sealRuntimeBytes,openRuntimeBytes } from "../ios-paddle-arm64-runtime-seal.mjs";
+import { recipientPublicKey,sealRuntimeBytes,openRuntimeBytes,runtimeSealLimits } from "../ios-paddle-arm64-runtime-seal.mjs";
 const pair=generateKeyPairSync("x25519");
 const pub=Buffer.from(pair.publicKey.export({format:"der",type:"spki"})).toString("base64");
 const priv=Buffer.from(pair.privateKey.export({format:"der",type:"pkcs8"}));
@@ -45,4 +47,19 @@ test("private or noncanonical public-key input and oversized plaintext are rejec
  assert.throws(()=>recipientPublicKey(priv.toString("base64")),/arm64_runtime_recipient_rejected/);
  assert.throws(()=>recipientPublicKey(pub+" "),/arm64_runtime_recipient_rejected/);
  assert.throws(()=>sealRuntimeBytes(Buffer.alloc(256*1024+1),pub,context),/arm64_runtime_seal_rejected/);
+});
+
+test("largest admitted plaintext roundtrips and fits the actual encrypted ZIP transport",()=>{
+ const plaintext=Buffer.alloc(runtimeSealLimits.plaintextBytes,0x7f);
+ const sealed=sealRuntimeBytes(plaintext,pub,context);
+ assert.equal(sealed.ciphertext.length,runtimeSealLimits.ciphertextBytes);
+ assert.deepEqual(openRuntimeBytes(sealed.header,sealed.ciphertext,priv,context),plaintext);
+ const script="import sys,json,base64,importlib.util; s=importlib.util.spec_from_file_location('codec',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); v=json.load(sys.stdin); raw=m.sealed_zip(base64.b64decode(v['h']),base64.b64decode(v['c'])); m.read_sealed_zip(raw); print(len(raw))";
+ const length=Number(execFileSync("python3",["-I","-B","-c",script,
+   fileURLToPath(new URL("../ios-paddle-arm64-runtime-bundle.py",import.meta.url))],{
+   input:JSON.stringify({h:sealed.header.toString("base64"),c:sealed.ciphertext.toString("base64")}),
+   timeout:10000,maxBuffer:4096,encoding:"utf8"}).trim());
+ assert.ok(length<=runtimeSealLimits.transportBytes);
+ assert.throws(()=>sealRuntimeBytes(Buffer.alloc(runtimeSealLimits.plaintextBytes+1),pub,context),
+   /arm64_runtime_seal_rejected/);
 });

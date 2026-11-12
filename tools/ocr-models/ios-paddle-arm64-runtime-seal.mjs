@@ -9,7 +9,11 @@ import { execFileSync } from "node:child_process";
 
 export const sealAlgorithm = "X25519-HKDF-SHA256-AES-256-GCM";
 const purpose = "arm64_ridge_runtime_v1";
-const maximum = 256 * 1024;
+export const runtimeSealLimits = Object.freeze({
+  transportBytes:256*1024, headerBytes:4096,
+  plaintextBytes:256*1024-8192, ciphertextBytes:256*1024-8192+16,
+});
+const maximum = runtimeSealLimits.transportBytes;
 function check(value) { if (!value) throw new Error("arm64_runtime_seal_rejected"); }
 function exact(value, fields) {
   check(value && typeof value === "object" && !Array.isArray(value) &&
@@ -55,7 +59,7 @@ function encryptionKey(shared, salt, recipient, ephemeral, header) {
 }
 export function sealRuntimeBytes(plaintext, recipientValue, expectedContext) {
   try {
-    check(Buffer.isBuffer(plaintext) && plaintext.length >= 22 && plaintext.length <= maximum);
+    check(Buffer.isBuffer(plaintext) && plaintext.length >= 22 && plaintext.length <= runtimeSealLimits.plaintextBytes);
     const bytes = Buffer.from(plaintext), context = checkedContext(expectedContext);
     const recipient = recipientPublicKey(recipientValue);
     const ephemeral = generateKeyPairSync("x25519");
@@ -82,7 +86,7 @@ export function openRuntimeBytes(headerValue, ciphertextValue, privateKeyBytes, 
   try {
     check(Buffer.isBuffer(headerValue) && headerValue.length <= 4096 &&
       Buffer.isBuffer(ciphertextValue) && ciphertextValue.length > 16 &&
-      ciphertextValue.length <= maximum && Buffer.isBuffer(privateKeyBytes) &&
+      ciphertextValue.length <= runtimeSealLimits.ciphertextBytes && Buffer.isBuffer(privateKeyBytes) &&
       privateKeyBytes.length === 48);
     const header=Buffer.from(headerValue),ciphertext=Buffer.from(ciphertextValue);
     const value=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(header));
@@ -91,7 +95,7 @@ export function openRuntimeBytes(headerValue, ciphertextValue, privateKeyBytes, 
     check(canonical(value) === header.toString("utf8") && value.schemaVersion === 1 &&
       value.purpose === purpose && value.algorithm === sealAlgorithm &&
       canonical(checkedContext(value.context)) === canonical(checkedContext(expectedContext)) &&
-      Number.isSafeInteger(value.plaintextBytes) && value.plaintextBytes >= 22 &&
+      Number.isSafeInteger(value.plaintextBytes) && value.plaintextBytes >= 22 && value.plaintextBytes <= runtimeSealLimits.plaintextBytes &&
       value.ciphertextBytes === ciphertext.length && value.ciphertextBytes === value.plaintextBytes+16);
     const privateKey=createPrivateKey({key:privateKeyBytes,format:"der",type:"pkcs8"});
     check(privateKey.asymmetricKeyType === "x25519");
@@ -145,7 +149,7 @@ async function runSealPhase() {
     "--source-fingerprint",context.fingerprint,"--run-id",context.runId,"--run-attempt","1"];
   const verified=JSON.parse(execFileSync("python3",["-I","-B",script,"verify",...common],{
     env:childEnv,timeout:45000,maxBuffer:4096,stdio:["ignore","pipe","pipe"]}).toString("utf8"));
-  const raw=await read(root,"bundle.zip",maximum);
+  const raw=await read(root,"bundle.zip",runtimeSealLimits.plaintextBytes);
   check(verified.sourceHead===context.head && verified.sourceTree===context.tree &&
     verified.sourceFingerprint===context.fingerprint && verified.runId===context.runId &&
     verified.runAttempt==="1" && verified.size===raw.length && verified.sha256===sha(raw));
@@ -156,7 +160,7 @@ async function runSealPhase() {
     ciphertextSha256:sha(sealed.ciphertext),ciphertextBytes:sealed.ciphertext.length,
     headerSha256:sha(sealed.header)})),4096);
   await write(root,"envelope.json",sealed.header,4096);
-  await write(root,"ciphertext.bin",sealed.ciphertext,maximum);
+  await write(root,"ciphertext.bin",sealed.ciphertext,runtimeSealLimits.ciphertextBytes);
   execFileSync("python3",["-I","-B",script,"seal-container",...common],{
     env:childEnv,timeout:45000,maxBuffer:4096,stdio:["ignore","pipe","pipe"]});
   // Preserve the original raw bundle; replace its transport path without replacement.
