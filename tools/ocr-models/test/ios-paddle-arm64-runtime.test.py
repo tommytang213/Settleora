@@ -205,4 +205,47 @@ class RuntimeControllerTests(unittest.TestCase):
                 manifest=fixture.m.validate_zip((private/"bundle.zip").read_bytes(),fixture.IDENTITY)
                 self.assertEqual(manifest["completedCalls"],2 if remaining==1000 else 1)
 
+    def test_total_stop_deadline_kills_and_reaps_real_sigterm_ignoring_child(self):
+        from unittest.mock import patch
+        import signal
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);marker=root/"ready"
+            code="import pathlib,signal,sys,time\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\npathlib.Path(sys.argv[1]).write_text('ready')\ntime.sleep(60)\n"
+            process=subprocess.Popen([sys.executable,"-I","-B","-c",code,str(marker)],
+                stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                start_new_session=True)
+            try:
+                startup=time.monotonic()+10
+                while not marker.exists() and time.monotonic()<startup:
+                    self.assertIsNone(process.poll());time.sleep(.01)
+                self.assertTrue(marker.exists(),"synthetic stubborn worker did not start")
+                started=time.monotonic()
+                with patch.object(m.subprocess,"Popen",return_value=process) as launch:
+                    result=m.bounded_owned_stop(["SYNTHETIC_OWNED_STOP"],root,time.time()+2)
+                elapsed=time.monotonic()-started
+                self.assertLess(elapsed,2.5)  # Detect the prior ~12–22sec teardown, allow scheduler noise.
+                self.assertTrue(launch.call_args.kwargs["start_new_session"])
+                self.assertEqual(process.returncode,-signal.SIGKILL)
+                self.assertEqual(result["exitCode"],-signal.SIGKILL)
+                self.assertFalse(result["confirmed"]);self.assertTrue(result["timedOut"])
+                self.assertTrue(result["reaped"]);self.assertLessEqual(result["totalBudgetSeconds"],2)
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid,signal.SIGKILL);process.wait(timeout=2)
+
+    def test_total_stop_normal_completion_confirms_without_kill(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result=m.bounded_owned_stop([sys.executable,"-I","-B","-c","pass"],
+                Path(temporary),time.time()+2)
+            self.assertTrue(result["confirmed"]);self.assertFalse(result["timedOut"])
+            self.assertEqual(result["exitCode"],0);self.assertTrue(result["reaped"])
+
+    def test_total_stop_expired_global_budget_never_spawns_a_child(self):
+        from unittest.mock import patch
+        with patch.object(m.subprocess,"Popen") as launch:
+            result=m.bounded_owned_stop(["SYNTHETIC"],Path.cwd(),time.time()-1)
+            launch.assert_not_called()
+        self.assertFalse(result["confirmed"]);self.assertTrue(result["timedOut"])
+        self.assertEqual(result["totalBudgetSeconds"],0)
+
 if __name__=="__main__":unittest.main()

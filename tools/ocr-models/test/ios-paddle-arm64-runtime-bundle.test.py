@@ -251,8 +251,12 @@ class RuntimeBundleTests(unittest.TestCase):
             output.unlink();output.write_bytes(b"SYNTHETIC_EXISTING");output.chmod(0o600)
             with self.assertRaises(OSError):m.write_replay_result(root,output,raw,IDENTITY)
             self.assertEqual(output.read_bytes(),b"SYNTHETIC_EXISTING")
-            bad=self.replay_value();bad["replaySource"]["head"]="9"*40
+            valid=self.replay_value();valid["phase"]="warm"
+            control=root/"control";control.mkdir(mode=0o700)
+            m.write_replay_result(control,control/"replay-warm.json",encode(valid),IDENTITY)
+            bad=copy.deepcopy(valid);bad["replaySource"]["head"]="9"*40
             with self.assertRaises(ValueError):m.write_replay_result(root,root/"replay-warm.json",encode(bad),IDENTITY)
+            self.assertFalse((root/"replay-warm.json").exists())
 
     def test_both_model_binding_paths_share_tracked_only_catalog_inventory(self):
         with tempfile.TemporaryDirectory() as temporary:

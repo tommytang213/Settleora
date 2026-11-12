@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -127,6 +128,42 @@ def retain_capture(documents, private, phase, receipt, identity, model_ids, veri
     value = verifier.validate_capture(raw, identity, phase, model_ids)
     exclusive(private / (phase + ".json"), raw, maximum)
     return value
+
+def bounded_owned_stop(argv, cwd, global_deadline):
+    """Two seconds TOTAL, including teardown, for one newly owned command group."""
+    started = time.monotonic()
+    budget = max(0.0, min(2.0, global_deadline - time.time()))
+    end = started + budget
+    process = None
+    timed_out = False
+    code = None
+    launch_failed = False
+    try:
+        if budget <= 0:
+            timed_out = True
+        else:
+            process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            # Reserve up to half a second inside the SAME total deadline for kill/reap.
+            try:
+                code = process.wait(timeout=max(0.0, end - time.monotonic() - min(.5, budget)))
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                try: code = process.wait(timeout=max(0.0, end - time.monotonic()))
+                except subprocess.TimeoutExpired: pass
+    except OSError:
+        launch_failed = True
+    finally:
+        if process is not None and process.poll() is None:
+            # No additional grace period. A pending kill is reported unconfirmed.
+            try: os.killpg(process.pid, signal.SIGKILL)
+            except OSError: pass
+            code = process.poll()
+    return dict(confirmed=code == 0, exitCode=code, timedOut=timed_out,
+        launchFailed=launch_failed, reaped=process is None or process.returncode is not None,
+        elapsedSeconds=time.monotonic() - started, totalBudgetSeconds=budget)
 
 def collect_captures(documents, private, identity, model_ids, verifier, deadline, pid, report, remaining, stop_owned):
     captures = {}
@@ -383,10 +420,11 @@ def main():
             except ProcessLookupError:
                 report["ownedRuntimeStopped"] = True
                 return
-            report["stages"]["owned-runtime-stop"] = base.execute(
-                ["xcrun", "simctl", "terminate", owned_device, BUNDLE_ID], root, root,
-                min(time.time() + 2, deadline), "owned-runtime-stop")
-            report["ownedRuntimeStopped"] = True
+            stopped = bounded_owned_stop(
+                ["xcrun", "simctl", "terminate", owned_device, BUNDLE_ID], root, deadline)
+            report["stages"]["owned-runtime-stop"] = stopped
+            report["ownedRuntimeStopped"] = stopped["confirmed"]
+            if not stopped["confirmed"]: report["ownedRuntimeStopUnconfirmed"] = True
         def verify_unchanged():
             require(base.verify_source(repo, identity["sourceHead"], deadline=deadline) == files)
         report["privateBundle"], warm_status = capture_and_package(documents, private, identity,
