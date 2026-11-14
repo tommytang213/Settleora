@@ -20,9 +20,90 @@ BUNDLE_ID = "com.settleora.compatibility.PaddleCompatibility"
 DEVICE_TYPE = "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"
 RUNTIME = "com.apple.CoreSimulator.SimRuntime.iOS-18-5"
 IMAGE_SHA = "261b6f1831617873bad6da93cefe54c050e70d10ec283dfdc6af9286602e10ec"
+QUERY_PHASES = frozenset(("locate-flutter", "runtime-list", "owned-create", "owned-container", "owned-launch"))
+PHASES = QUERY_PHASES | frozenset(("build-target", "input-project", "input-pub", "input-normalization",
+    "model-binding", "embed-framework", "adhoc-flutter", "adhoc-app", "runtime-select",
+    "owned-create-validate", "owned-boot", "owned-boot-ready", "owned-install",
+    "owned-container-validate", "owned-documents", "capture-start", "owned-launch-validate",
+    "capture-and-package", "bundle-ready", "owned-runtime-stop", "owned-terminate", "owned-shutdown", "owned-delete"))
 
 def require(value):
     if not value: raise ValueError("arm64_runtime_rejected")
+
+def set_phase(report, phase):
+    require(phase in PHASES)
+    report["lastOperation"] = phase
+
+def failure_metadata(error, phase):
+    """Fixed categories only: exception messages/commands/output may be private."""
+    require(phase in PHASES)
+    kind = ("timeout" if isinstance(error, subprocess.TimeoutExpired) else
+            "command_exit" if isinstance(error, subprocess.CalledProcessError) else
+            "os_error" if isinstance(error, OSError) else
+            "validation" if isinstance(error, ValueError) else "unexpected")
+    value = dict(phase=phase, kind=kind)
+    if isinstance(error, subprocess.CalledProcessError) and type(error.returncode) is int:
+        value["exitCode"] = error.returncode
+    return value
+
+def record_primary_failure(report, error):
+    report.setdefault("primaryFailure", failure_metadata(error, report["lastOperation"]))
+
+def bounded_query(argv, label, report, deadline, remaining, environment, maximum=20):
+    require(label in QUERY_PHASES and 0 < maximum <= 20)
+    set_phase(report, label)
+    queries = report.setdefault("queries", {})
+    require(label not in queries)  # No repeat of a potentially effectful query.
+    row = queries[label] = dict(attempted=True)
+    started = time.monotonic()
+    try:
+        output = subprocess.check_output(argv, env=environment, text=True, stderr=subprocess.PIPE,
+                                        timeout=min(maximum, remaining(deadline)))
+        row["exitCode"] = 0
+        return output
+    except Exception as error:
+        row["failure"] = failure_metadata(error, label)
+        raise
+    finally:
+        row["elapsedSeconds"] = time.monotonic() - started
+
+def validate_owned_container(container, owned_device, report):
+    set_phase(report, "owned-container-validate")
+    checks = report["containerChecks"] = dict(
+        absolute=container.is_absolute(),
+        ownedDeviceSuffix=len(container.parts) >= 7 and container.parts[-7:-1] ==
+            ("Devices", owned_device, "data", "Containers", "Data", "Application"),
+        uuid=bool(re.fullmatch(r"[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}", container.name)),
+        canonical=False, directory=False)
+    # Keep the original short circuit: inspect filesystem metadata only after
+    # the path has the exact fresh-device structure and UUID leaf.
+    if checks["absolute"] and checks["ownedDeviceSuffix"] and checks["uuid"]:
+        checks["canonical"] = container.resolve() == container
+        if checks["canonical"]: checks["directory"] = container.is_dir()
+    require(all(checks.values()))
+    return container
+
+def launch_owned(query, owned_device, report):
+    set_phase(report, "owned-launch")
+    require(all(report.get(key, 0) == 0 for key in
+        ("appLaunchAttempts", "appLaunchesAdmitted", "appLaunches", "providerCallsAdmitted", "completedCalls")))
+    # Reserve BEFORE simctl: a timeout/invalid response does not prove no launch.
+    report["appLaunchAttempts"] = 1
+    report["appLaunchesAdmitted"] = 1
+    report["providerCallsAdmitted"] = 1
+    report["launchResponse"] = "pending"
+    try:
+        output = query(["xcrun", "simctl", "launch", owned_device, BUNDLE_ID], "owned-launch")
+        set_phase(report, "owned-launch-validate")
+        match = re.fullmatch(re.escape(BUNDLE_ID) + r": ([1-9][0-9]*)\s*", output)
+        require(match)
+        pid = int(match[1])
+        report["appLaunches"] = 1
+        report["launchResponse"] = "confirmed"
+        return pid
+    except Exception:
+        report["launchResponse"] = "unconfirmed"
+        raise
 
 def load_module(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -326,7 +407,8 @@ def main():
     manifest = json.loads((repo / "tools/ocr-models/ios-paddle-arm64-dependencies.json").read_bytes())
     report = dict(schemaVersion=1, purpose=MODE, **identity, complete=False, compileComplete=False,
         targetArchitecture="arm64", targetPlatform="iosSimulator", hostArchitecture="arm64",
-        providerCallsAdmitted=0, completedCalls=0, appLaunches=0, simulatorBoots=0,
+        providerCallsAdmitted=0, completedCalls=0, appLaunchAttempts=0, appLaunchesAdmitted=0,
+        appLaunches=0, simulatorBootsAdmitted=0, simulatorBoots=0,
         shippingAcceptance=False, nativeEngineOnly=True, stages={},
         cacheState="uncontrolled; required integrity reads precede first engine initialization",
         memoryMetric="Darwin process-lifetime peak RSS in bytes, not per-call peak",
@@ -334,18 +416,21 @@ def main():
     owned_device = None
     captures = {}; warm_status = "not_admitted"
     def execute(argv, label):
+        set_phase(report, label)
         report["stages"][label] = base.execute(argv, root, root, deadline, label)
-    def query(argv, maximum=20):
-        return subprocess.check_output(argv, env=base.git_environment(), text=True,
-                                       timeout=min(maximum, base.remaining_seconds(deadline)))
+    def query(argv, label):
+        return bounded_query(argv, label, report, deadline, base.remaining_seconds, base.git_environment())
     try:
+        set_phase(report, "build-target")
         target = base.build_target(repo, identity["sourceHead"], root, manifest, files, report, deadline,
             main_source=repo / "tools/ocr-models/ios-paddle-arm64-runtime-main.swift")
         report["compileComplete"] = True
         app = target / "DerivedData/Build/Products/Debug-iphonesimulator/PaddleCompatibility.app"
         require(app.is_dir())
+        set_phase(report, "input-project")
         project = input_project(repo, root, files)
         original_lock = (project / "pubspec.lock").read_bytes()
+        set_phase(report, "input-pub")
         report["stages"]["input-pub"] = base.execute(["flutter", "pub", "get", "--enforce-lockfile"],
                                                      project, root, deadline, "input-pub")
         require((project / "pubspec.lock").read_bytes() == original_lock)
@@ -355,6 +440,7 @@ def main():
                  str(repo), str(normalized)], "input-normalization")
         image = read_owned(normalized, 263039, (0o600, 0o644))
         require(len(image) == 263039 and hashlib.sha256(image).hexdigest() == IMAGE_SHA)
+        set_phase(report, "model-binding")
         rows = model_rows(repo, files)
         model_data = json_bytes(rows); model_hash = hashlib.sha256(model_data).hexdigest()
         catalog = json.loads((repo / "apps/mobile/assets/receipt_ocr_models/catalog.json").read_bytes())
@@ -373,7 +459,8 @@ def main():
             sourceImageSha256=verifier.SOURCE_SHA, inputSha256=IMAGE_SHA, inputBytes=263039,
             width=1086, height=1448, maximumCalls=2, modelManifestSha256=model_hash, modelPackIds=model_ids)
         exclusive(app / "arm64-runtime-binding.json", json_bytes(binding), 32768)
-        sdk = Path(query(["which", "flutter"]).strip()).resolve().parents[1]
+        sdk = Path(query(["which", "flutter"], "locate-flutter").strip()).resolve().parents[1]
+        set_phase(report, "embed-framework")
         flutter = base.simulator_framework(sdk / "bin/cache/artifacts/engine/ios/Flutter.xcframework")
         base.macho_platforms((flutter / "Flutter").read_bytes())
         require(app.resolve().is_relative_to(root.resolve()) and not app.is_symlink())
@@ -390,30 +477,29 @@ def main():
         execute(["codesign", "--force", "--sign", "-", "--timestamp=none", str(app)], "adhoc-app")
         base.macho_platforms((app / "PaddleCompatibility").read_bytes())
         report["runtimeSignedBinarySha256"] = hashlib.sha256((app / "PaddleCompatibility").read_bytes()).hexdigest()
-        runtimes = json.loads(query(["xcrun", "simctl", "list", "runtimes", "--json"]))
+        runtimes = json.loads(query(["xcrun", "simctl", "list", "runtimes", "--json"], "runtime-list"))
+        set_phase(report, "runtime-select")
         require(any(row["identifier"] == RUNTIME and row.get("isAvailable") is True for row in runtimes["runtimes"]))
         device_name = "Settleora-ARM64-Ridge-" + identity["runId"] + "-1"
-        owned_device = query(["xcrun", "simctl", "create", device_name, DEVICE_TYPE, RUNTIME]).strip()
+        owned_device = query(["xcrun", "simctl", "create", device_name, DEVICE_TYPE, RUNTIME], "owned-create").strip()
+        set_phase(report, "owned-create-validate")
         require(re.fullmatch(r"[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}", owned_device))
+        report["simulatorBootsAdmitted"] = 1
         execute(["xcrun", "simctl", "boot", owned_device], "owned-boot")
         report["simulatorBoots"] = 1
         execute(["xcrun", "simctl", "bootstatus", owned_device, "-b"], "owned-boot-ready")
         execute(["xcrun", "simctl", "install", owned_device, str(app)], "owned-install")
-        container = Path(query(["xcrun", "simctl", "get_app_container", owned_device, BUNDLE_ID, "data"]).strip())
-        require(container.is_absolute() and len(container.parts) >= 7 and
-                container.parts[-7:-1] == ("Devices", owned_device, "data", "Containers", "Data", "Application") and
-                re.fullmatch(r"[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}", container.name) and
-                container.resolve() == container and container.is_dir())
+        container = Path(query(["xcrun", "simctl", "get_app_container", owned_device, BUNDLE_ID, "data"], "owned-container").strip())
+        validate_owned_container(container, owned_device, report)
+        set_phase(report, "owned-documents")
         documents = container / "Documents"
         documents.mkdir(exist_ok=True)
+        set_phase(report, "capture-start")
         start = dict(schemaVersion=1, purpose=MODE, name=slot["name"],
                      startedAt=int(time.time() * 1000), preparedAt=slot["preparedAt"], expiresAt=slot["expiresAt"])
         require(start["preparedAt"] <= start["startedAt"] < start["preparedAt"] + 35 * 60 * 1000)
         exclusive(private / "capture-start.json", json_bytes(start), 4096)
-        output = query(["xcrun", "simctl", "launch", owned_device, BUNDLE_ID])
-        match = re.fullmatch(re.escape(BUNDLE_ID) + r": ([1-9][0-9]*)\s*", output)
-        require(match)
-        pid = int(match[1]); report["appLaunches"] = 1; report["providerCallsAdmitted"] = 1
+        pid = launch_owned(query, owned_device, report)
         def stop_owned():
             require(owned_device and re.fullmatch(r"[A-Fa-f0-9-]{36}", owned_device))
             try: os.kill(pid, 0)
@@ -427,14 +513,19 @@ def main():
             if not stopped["confirmed"]: report["ownedRuntimeStopUnconfirmed"] = True
         def verify_unchanged():
             require(base.verify_source(repo, identity["sourceHead"], deadline=deadline) == files)
+        set_phase(report, "capture-and-package")
         report["privateBundle"], warm_status = capture_and_package(documents, private, identity,
             model_ids, model_hash, verifier, deadline, pid, report, base.remaining_seconds,
             stop_owned, verify_unchanged, start)
+        set_phase(report, "bundle-ready")
         output_file = env.get("GITHUB_OUTPUT")
         if output_file:
             with open(output_file, "a") as output: output.write("bundle_ready=true\n")
         report["warmStatus"] = warm_status
         report["complete"] = warm_status in ("completed", "not_admitted")
+    except Exception as error:
+        record_primary_failure(report, error)
+        raise
     finally:
         # Only this fresh owned simulator/app. No global shutdown/delete and no retry.
         cleanup_deadline = min(time.time() + 120, clock["startedAt"] + 35 * 60 - 5)
@@ -443,8 +534,11 @@ def main():
                                 ("owned-shutdown", ["xcrun", "simctl", "shutdown", owned_device]),
                                 ("owned-delete", ["xcrun", "simctl", "delete", owned_device])]:
                 if label == "owned-terminate" and report.get("ownedRuntimeStopped") is True: continue
+                set_phase(report, label)
                 try: report["stages"][label] = base.execute(argv, root, root, cleanup_deadline, label)
-                except Exception: report.setdefault("cleanupUnconfirmed", []).append(label)
+                except Exception as error:
+                    report.setdefault("cleanupUnconfirmed", []).append(label)
+                    report.setdefault("cleanupFailures", {})[label] = failure_metadata(error, label)
         report["finishedAt"] = int(time.time())
         raw = json_bytes(report)
         require(len(raw) <= 64 * 1024)
