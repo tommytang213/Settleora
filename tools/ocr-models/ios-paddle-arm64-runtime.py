@@ -49,16 +49,23 @@ def failure_metadata(error, phase):
 def record_primary_failure(report, error):
     report.setdefault("primaryFailure", failure_metadata(error, report["lastOperation"]))
 
-def bounded_query(argv, label, report, deadline, remaining, environment, maximum=20):
-    require(label in QUERY_PHASES and 0 < maximum <= 20)
+def bounded_query(argv, label, report, deadline, remaining, environment, maximum=None):
+    require(label in QUERY_PHASES)
+    # Cold CoreSimulator container lookup timed out at20s after a successful install.
+    # One longer wait stays inside the SAME work deadline; every other query
+    # retains20s, and no lookup retry or extra launch/call is admitted.
+    phase_limit = 90 if label == "owned-container" else 20
+    maximum = phase_limit if maximum is None else maximum
+    require(0 < maximum <= phase_limit)
     set_phase(report, label)
     queries = report.setdefault("queries", {})
     require(label not in queries)  # No repeat of a potentially effectful query.
     row = queries[label] = dict(attempted=True)
     started = time.monotonic()
     try:
+        row["timeoutSeconds"] = min(maximum, remaining(deadline))
         output = subprocess.check_output(argv, env=environment, text=True, stderr=subprocess.PIPE,
-                                        timeout=min(maximum, remaining(deadline)))
+                                        timeout=row["timeoutSeconds"])
         row["exitCode"] = 0
         return output
     except Exception as error:

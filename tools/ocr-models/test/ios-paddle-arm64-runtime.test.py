@@ -354,4 +354,50 @@ class PhaseAndAdmissionTests(unittest.TestCase):
         self.assertEqual(report["lastOperation"],"owned-delete")
         self.assertNotIn("SYNTHETIC_PRIVATE",json.dumps(report))
 
+class ContainerDeadlineTests(unittest.TestCase):
+    @staticmethod
+    def cold_container(argv,**kwargs):
+        # Simulate the OS needing45sec; no native command or wall-clock sleep.
+        if kwargs["timeout"]<45:raise subprocess.TimeoutExpired(argv,kwargs["timeout"],stderr="SYNTHETIC_PRIVATE")
+        return "SYNTHETIC_PRIVATE_CONTAINER"
+
+    def test_one_cold_container_lookup_can_complete_beyond_legacy20_without_relaunch_or_retry(self):
+        from unittest.mock import Mock,patch
+        report=dict(appLaunchAttempts=0,appLaunchesAdmitted=0,providerCallsAdmitted=0,completedCalls=0)
+        remaining=Mock(return_value=120)
+        with patch.object(m.subprocess,"check_output",side_effect=self.cold_container) as command:
+            value=m.bounded_query(["xcrun","simctl","get_app_container","OWNED"],"owned-container",report,321,remaining,{})
+            self.assertEqual(value,"SYNTHETIC_PRIVATE_CONTAINER");command.assert_called_once()
+            with self.assertRaises(ValueError):m.bounded_query(["SYNTHETIC_PRIVATE"],"owned-container",report,321,remaining,{})
+            command.assert_called_once()
+        remaining.assert_called_once_with(321)
+        self.assertGreater(report["queries"]["owned-container"]["timeoutSeconds"],20)
+        self.assertLessEqual(report["queries"]["owned-container"]["timeoutSeconds"],90)
+        self.assertEqual((report["appLaunchAttempts"],report["providerCallsAdmitted"],report["completedCalls"]),(0,0,0))
+        self.assertNotIn("SYNTHETIC_PRIVATE",json.dumps(report))
+
+    def test_cold_container_still_fails_under_smaller_global_remaining_budget_without_retry(self):
+        from unittest.mock import Mock,patch
+        report={};remaining=Mock(return_value=7)
+        with patch.object(m.subprocess,"check_output",side_effect=self.cold_container) as command:
+            with self.assertRaises(subprocess.TimeoutExpired):m.bounded_query(["SYNTHETIC_PRIVATE"],"owned-container",report,321,remaining,{})
+            command.assert_called_once();self.assertEqual(command.call_args.kwargs["timeout"],7)
+        remaining.assert_called_once_with(321)
+        self.assertEqual(report["queries"]["owned-container"]["timeoutSeconds"],7)
+        self.assertEqual(report["queries"]["owned-container"]["failure"],dict(phase="owned-container",kind="timeout"))
+        self.assertNotIn("SYNTHETIC_PRIVATE",json.dumps(report))
+
+    def test_other_operations_keep20_and_no_phase_can_exceed_its_ceiling(self):
+        from unittest.mock import patch
+        for phase in ["locate-flutter","runtime-list","owned-create","owned-launch"]:
+            report={}
+            with self.subTest(phase=phase),patch.object(m.subprocess,"check_output",side_effect=self.cold_container) as command:
+                with self.assertRaises(subprocess.TimeoutExpired):m.bounded_query(["SYNTHETIC_PRIVATE"],phase,report,321,lambda _:120,{})
+                command.assert_called_once();self.assertEqual(command.call_args.kwargs["timeout"],20)
+            self.assertNotIn("SYNTHETIC_PRIVATE",json.dumps(report))
+        with patch.object(m.subprocess,"check_output") as command:
+            for phase,maximum in [("owned-container",91),("owned-launch",21),("owned-create",90)]:
+                with self.subTest(phase=phase,maximum=maximum),self.assertRaises(ValueError):m.bounded_query(["SYNTHETIC_PRIVATE"],phase,{},321,lambda _:120,{},maximum=maximum)
+            command.assert_not_called()
+
 if __name__=="__main__":unittest.main()
