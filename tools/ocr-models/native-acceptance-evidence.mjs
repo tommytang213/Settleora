@@ -109,6 +109,7 @@ const iosPreflightFailurePhases = new Set([
   "verify_debug_link_setting_after_build",
   "verify_resolved_debug_link_setting_after_build",
   "verify_projected_pods_after_build",
+  "retire_first_simulator_bundle",
   "execute_flutter_test",
   "verify_simulator_interposer_link_after_test",
   "verify_simulator_test_bundle_after_test",

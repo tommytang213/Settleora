@@ -259,7 +259,7 @@ replaceOnce('/* End PBXBuildFile section */',
   `\t\t${buildId} /* OCR test interposer in Frameworks */ = {isa = PBXBuildFile; fileRef = ${fileId} /* OCR test interposer */; };\n/* End PBXBuildFile section */`);
 replaceOnce('/* End PBXFileReference section */',
   `\t\t${fileId} /* OCR test interposer */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "${dylibPath}"; sourceTree = "<absolute>"; };\n/* End PBXFileReference section */`);
-const podCheck = `/usr/bin/env python3 -I -B "${workspace}/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-build-pods`;
+const podCheck = `/usr/bin/env python3 -I -B "${workspace}/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-runner-build`;
 replaceOnce('/* End PBXShellScriptBuildPhase section */',
   `\t\t${podCheckId} /* Verify OCR test Pods */ = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify OCR test Pods"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = ${JSON.stringify(podCheck)}; };\n/* End PBXShellScriptBuildPhase section */`);
 replaceOnce('\t\t\t\tB30000000000000000000000 /* Copy OCR acceptance fixtures */,',
@@ -418,6 +418,8 @@ phase=verify_simulator_interposer_install_name
 test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
 phase=verify_projected_pods_after_build
 python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-after-build
+phase=retire_first_simulator_bundle
+python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" retire-first-bundle
 phase=execute_flutter_test
 status=0
 observe_ios_phase flutter_capture_enter

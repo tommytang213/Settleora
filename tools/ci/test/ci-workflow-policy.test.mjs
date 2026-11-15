@@ -1119,12 +1119,14 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('prepare-ios-arm64-acceptance.py\" verify'));
   const nativeBuild = iosRunner.indexOf('phase=build_simulator_interposer_link');
   const verifyAfterBuild = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-after-build');
-  const inBuildPodCheck = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-build-pods');
+  const inBuildPodCheck = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-runner-build');
   const runFixtures = iosRunner.indexOf('phase=execute_flutter_test');
   const verifyTestBundle = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-test-bundle');
   const verifyAfterTest = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-after-test');
   assert.ok(nativeBuild >= 0 && nativeBuild < verifyAfterBuild && verifyAfterBuild < runFixtures);
   assert.ok(inBuildPodCheck >= 0 && inBuildPodCheck < nativeBuild);
+  const retireFirst = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" retire-first-bundle');
+  assert.ok(verifyAfterBuild < retireFirst && retireFirst < runFixtures);
   assert.ok(iosRunner.includes('alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify OCR test Pods"'));
   assert.ok(runFixtures < verifyTestBundle && verifyTestBundle < verifyAfterTest);
   assert.ok(verifyAfterTest < iosRunner.lastIndexOf('echo "status=$status"'));

@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import plistlib
 import re
 import shutil
 import stat
@@ -35,6 +36,14 @@ PODS_GATE_TARGET = "Verify Settleora OCR Pod Inputs"
 PODS_GATE_SCRIPT = (
     'exec /usr/bin/env python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py"'
     ' verify-build-pods'
+)
+RUNNER_BUNDLE_ID = "com.tommytang213.settleora"
+RUNNER_APP = Path("apps/mobile/build/ios/iphonesimulator/Runner.app")
+RUNNER_INPUT_SETTINGS = (
+    "SWIFT_OBJC_BRIDGING_HEADER", "GCC_PREFIX_HEADER", "MODULEMAP_FILE",
+    "EXCLUDED_SOURCE_FILE_NAMES", "INCLUDED_SOURCE_FILE_NAMES",
+    "PRODUCT_NAME", "FULL_PRODUCT_NAME", "EXECUTABLE_NAME", "PRODUCT_BUNDLE_IDENTIFIER",
+    "INFOPLIST_FILE", "GENERATE_INFOPLIST_FILE",
 )
 
 
@@ -527,6 +536,12 @@ def runner_build_selection(project):
 require 'xcodeproj'
 project = Xcodeproj::Project.open(ARGV[0])
 raise ArgumentError unless project.targets.map(&:name).sort == ['Runner', 'RunnerTests']
+keys = JSON.parse(ARGV[1])
+def configured_inputs(configurations, keys)
+  configurations.sort_by(&:name).to_h do |config|
+    [config.name, config.build_settings.select { |key, _value| keys.include?(key.split('[', 2).first) }]
+  end
+end
 def file_selection(reference, base)
   selected = [reference.isa, reference.real_path.relative_path_from(base).to_s]
   if reference.respond_to?(:children)
@@ -548,13 +563,41 @@ targets = project.targets.sort_by(&:name).to_h do |target|
       end
     end
   end
-  [target.name, phases]
+  [target.name, {'phases' => phases, 'settings' => configured_inputs(target.build_configurations, keys)}]
 end
 raise ArgumentError unless fixture_phase_count == 1
-print JSON.generate(targets)
+print JSON.generate({'targets' => targets, 'settings' => configured_inputs(project.build_configurations, keys)})
 """
-    data = json.loads(ruby_json(program, project))
+    data = json.loads(ruby_json(program, project, json.dumps(RUNNER_INPUT_SETTINGS)))
     return sha(json.dumps(data, sort_keys=True).encode())
+
+
+def runner_input_settings(settings):
+    selected = {key: settings.get(key, "") for key in RUNNER_INPUT_SETTINGS}
+    require(all(isinstance(value, str) and len(value) <= 16384 for value in selected.values()))
+    return selected
+
+
+def effective_runner_inputs(ios):
+    observed = {}
+    for name, extension in (("Runner", ".app"), ("RunnerTests", ".xctest")):
+        raw = subprocess.check_output(
+            ["xcodebuild", "-project", str(ios / "Runner.xcodeproj"), "-target", name,
+             "-configuration", "Debug", "-sdk", "iphonesimulator", "-showBuildSettings", "-json"],
+            cwd=ios, stderr=subprocess.PIPE, timeout=45,
+        )
+        rows = [row for row in json.loads(raw) if row["target"] == name]
+        require(len(rows) == 1)
+        selected = runner_input_settings(rows[0]["buildSettings"])
+        require(selected["PRODUCT_NAME"] == selected["EXECUTABLE_NAME"] == name
+                and selected["FULL_PRODUCT_NAME"] == name + extension)
+        observed[name] = selected
+    require(observed["Runner"]["PRODUCT_BUNDLE_IDENTIFIER"] == RUNNER_BUNDLE_ID)
+    bridge = observed["Runner"]["SWIFT_OBJC_BRIDGING_HEADER"]
+    require((ios / bridge).resolve(strict=True) == ios / "Runner/Runner-Bridging-Header.h")
+    require(all(not selected[key].strip() for selected in observed.values()
+                for key in ("EXCLUDED_SOURCE_FILE_NAMES", "INCLUDED_SOURCE_FILE_NAMES")))
+    return observed
 
 
 def pods_build_selection(ios, paths, plugin_inputs):
@@ -740,6 +783,7 @@ def prepare(repo, root, target, manifest):
     proof["podsBuildSelection"] = pods_build_selection(mobile / "ios", paths, plugin_inputs)
     require(proof["podsBuildSelection"]["runnerBuildSelectionSha256"]
             == runner_build_selection(repo / "apps/mobile/ios/Runner.xcodeproj"))
+    proof["runnerEffectiveInputs"] = effective_runner_inputs(mobile / "ios")
     (root / "setup.json").write_text(json.dumps(proof, indent=2) + "\n")
     verify(repo, root, target, pods=True)
 
@@ -805,6 +849,7 @@ def verify(repo, root, target, pods=False, stage="prepared"):
         ios = mobile / "ios"
         lock_sha = verified_installed_pod_lock(ios, expected_lock)
         require(pods_build_selection(ios, proof["localPodPaths"], plugin_inputs) == proof["podsBuildSelection"])
+        require(effective_runner_inputs(ios) == proof["runnerEffectiveInputs"])
         production_lock = root / "production-Podfile.lock"
         require(sha(production_lock.read_bytes()) == PRODUCTION_LOCK_SHA256)
         paths = dict(proof["localPodPaths"], integration_test=".symlinks/plugins/integration_test/ios")
@@ -825,6 +870,7 @@ def verify(repo, root, target, pods=False, stage="prepared"):
                       opencvBinarySha256=proof["opencvBinarySha256"], ortBinarySha256=proof["ortBinarySha256"],
                       localPodInputsSha256=proof["localPodInputs"],
                       podsBuildSelection=proof["podsBuildSelection"],
+                      runnerEffectiveInputsSha256=sha(json.dumps(proof["runnerEffectiveInputs"], sort_keys=True).encode()),
                       retainedNativePluginInputs=len(plugin_inputs["nativeSources"]),
                       retainedNativePluginInputsSha256=sha(json.dumps(plugin_inputs, sort_keys=True).encode()),
                       protectedSourceFiles=len(proof["protectedSource"]),
@@ -851,9 +897,35 @@ def verify_build_pods(root, target):
     print("ios_full101_arm64_build_pods=verified")
 
 
+def verify_runner_build(root, target):
+    verify_build_pods(root, target)
+    proof = json.loads((root / "setup.json").read_bytes())
+    require(os.environ.get("TARGET_NAME") == "Runner" and os.environ.get("CONFIGURATION") == "Debug"
+            and os.environ.get("PLATFORM_NAME") == "iphonesimulator")
+    require(runner_input_settings(os.environ) == proof["runnerEffectiveInputs"]["Runner"])
+
+
+def retire_first_bundle(target, temporary):
+    bundle = target / RUNNER_APP
+    saved = temporary / "first-ios-acceptance-runner.app"
+    require(bundle.is_dir() and bundle.resolve(strict=True) == bundle and not saved.exists() and not saved.is_symlink())
+    bundle.rename(saved)
+    require(not bundle.exists() and not bundle.is_symlink())
+
+
 def verify_test_bundle(repo, target, temporary):
     base = module(repo / "tools/ocr-models/ios-paddle-arm64-compatibility.py", "full101_test_bundle")
-    bundle = target / "apps/mobile/build/ios/iphonesimulator/Runner.app"
+    bundle = target / RUNNER_APP
+    saved = temporary / "first-ios-acceptance-runner.app"
+    # Flutter 3.44.8 installs the newly built simulator bundle at RUNNER_APP
+    # when the verified product name is Runner. Keep its normal uninstall step.
+    require(saved.is_dir() and saved.resolve(strict=True) == saved)
+    require(bundle.is_dir() and bundle.resolve(strict=True) == bundle)
+    require((bundle.stat().st_dev, bundle.stat().st_ino) != (saved.stat().st_dev, saved.stat().st_ino))
+    info = bundle / "Info.plist"
+    require(info.is_file() and not info.is_symlink() and info.stat().st_size <= 1024 * 1024)
+    values = plistlib.loads(info.read_bytes())
+    require(values["CFBundleIdentifier"] == RUNNER_BUNDLE_ID and values["CFBundleExecutable"] == "Runner")
     runner = bundle / "Runner"
     debug_image = bundle / "Runner.debug.dylib"
     embedded = bundle / "Frameworks/libSettleoraOcrNetworkDeny.dylib"
@@ -882,6 +954,14 @@ def main():
         _, root, target, _ = context()
         verify_build_pods(root, target)
         return
+    if sys.argv[1:] == ["verify-runner-build"]:
+        _, root, target, _ = context()
+        verify_runner_build(root, target)
+        return
+    if sys.argv[1:] == ["retire-first-bundle"]:
+        _, root, target, _ = context()
+        retire_first_bundle(target, root.parent)
+        return
     if sys.argv[1:] == ["verify-test-bundle"]:
         repo, root, target, _ = context()
         verify_test_bundle(repo, target, root.parent)
@@ -902,7 +982,8 @@ def main():
 def run_cli():
     try:
         main()
-    except (ValueError, KeyError, OSError, TypeError, ElementTree.ParseError, subprocess.SubprocessError):
+    except (ValueError, KeyError, OSError, TypeError, ElementTree.ParseError, plistlib.InvalidFileException,
+            subprocess.SubprocessError):
         sys.stderr.write("ios_arm64_acceptance_setup_rejected\n")
         sys.exit(98)
 

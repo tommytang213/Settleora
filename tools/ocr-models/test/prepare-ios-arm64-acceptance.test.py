@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import plistlib
 import shutil
 import struct
 import subprocess
@@ -265,11 +266,60 @@ project.save""", first)
                 ("path = AppDelegate.swift;", "path = Replacement.swift;"),
                 ("path = Assets.xcassets;", "path = Replacement.xcassets;"),
                 ("$SRCROOT/../test/fixtures/receipt_ocr", "$SRCROOT/../test/fixtures/replacement"),
+                ("Runner/Runner-Bridging-Header.h", "Runner/Replacement-Bridging-Header.h"),
+                ('PRODUCT_NAME = "$(TARGET_NAME)";', "PRODUCT_NAME = Replacement;"),
             ):
                 with self.subTest(changed=changed):
                     self.assertIn(original, raw)
                     config.write_text(raw.replace(original, changed))
                     self.assertNotEqual(m.runner_build_selection(project), expected)
+
+    def test_effective_debug_inputs_reject_overrides_outside_the_project_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ios = Path(directory).resolve()
+            bridge = ios / "Runner/Runner-Bridging-Header.h"
+            bridge.parent.mkdir()
+            bridge.write_bytes(b"fixture header")
+            unrelated = bridge.with_name("Replacement.h")
+            unrelated.write_bytes(bridge.read_bytes())
+            settings = {
+                "Runner": dict(PRODUCT_NAME="Runner", EXECUTABLE_NAME="Runner", FULL_PRODUCT_NAME="Runner.app",
+                               PRODUCT_BUNDLE_IDENTIFIER=m.RUNNER_BUNDLE_ID,
+                               SWIFT_OBJC_BRIDGING_HEADER=str(bridge)),
+                "RunnerTests": dict(PRODUCT_NAME="RunnerTests", EXECUTABLE_NAME="RunnerTests",
+                                    FULL_PRODUCT_NAME="RunnerTests.xctest"),
+            }
+
+            def xcodebuild(argv, **_kwargs):
+                target = argv[argv.index("-target") + 1]
+                return json.dumps([dict(target=target, buildSettings=settings[target])]).encode()
+
+            with patch.object(m.subprocess, "check_output", side_effect=xcodebuild):
+                self.assertEqual(m.effective_runner_inputs(ios)["Runner"]["SWIFT_OBJC_BRIDGING_HEADER"], str(bridge))
+                settings["Runner"]["SWIFT_OBJC_BRIDGING_HEADER"] = str(unrelated)
+                with self.assertRaises(ValueError):
+                    m.effective_runner_inputs(ios)
+                settings["Runner"]["SWIFT_OBJC_BRIDGING_HEADER"] = str(bridge)
+                settings["RunnerTests"]["EXCLUDED_SOURCE_FILE_NAMES"] = "RunnerTests.swift"
+                with self.assertRaises(ValueError):
+                    m.effective_runner_inputs(ios)
+
+    def test_runner_build_phase_checks_actual_effective_input_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            phase = dict(TARGET_NAME="Runner", CONFIGURATION="Debug", PLATFORM_NAME="iphonesimulator",
+                         PRODUCT_NAME="Runner", FULL_PRODUCT_NAME="Runner.app", EXECUTABLE_NAME="Runner",
+                         PRODUCT_BUNDLE_IDENTIFIER=m.RUNNER_BUNDLE_ID,
+                         SWIFT_OBJC_BRIDGING_HEADER="Runner/Runner-Bridging-Header.h")
+            (root / "setup.json").write_text(json.dumps({
+                "runnerEffectiveInputs": {"Runner": m.runner_input_settings(phase)},
+            }))
+            with patch.object(m, "verify_build_pods") as verify, patch.dict(os.environ, phase, clear=True):
+                m.verify_runner_build(root, root)
+                verify.assert_called_once_with(root, root)
+                os.environ["EXCLUDED_SOURCE_FILE_NAMES"] = "AppDelegate.swift"
+                with self.assertRaises(ValueError):
+                    m.verify_runner_build(root, root)
 
     def prepare_with_newer_retained_pod_available(self, subspec=False, require_refresh=False):
         # Exercise the real prepare orchestration. Downloads/tool execution and
@@ -345,6 +395,7 @@ project.save""", first)
                  patch.object(m, "verify") as verify, \
                  patch.object(m, "pods_build_selection", return_value={"runnerBuildSelectionSha256": "b" * 64}), \
                  patch.object(m, "runner_build_selection", return_value="b" * 64), \
+                 patch.object(m, "effective_runner_inputs", return_value={"Runner": "fixture"}), \
                  patch.object(m, "ruby_json", side_effect=lambda _program, *args, data=None: json.dumps({name: "b" * 40 for name in json.loads(data)}).encode()), \
                  patch.object(m, "write_pod_lock", create=True, side_effect=lambda path, document: path.write_text(json.dumps(document))), \
                  patch.dict(os.environ, EXPECTED_HEAD="fixture-head", PUB_CACHE=str(cache)):
@@ -587,6 +638,7 @@ print JSON.generate(checksums)
                  patch.object(m, "verify_protected_source", return_value={"owned.dart": "fixed"}), \
                  patch.object(m, "pods_project_selection", return_value={"targetCount": 8, "sha256": "a" * 64}), \
                  patch.object(m, "runner_build_selection", return_value="b" * 64), \
+                 patch.object(m, "effective_runner_inputs", return_value={"Runner": "fixture"}), \
                  patch.dict(os.environ, EXPECTED_HEAD="fixture-head"), contextlib.redirect_stdout(io.StringIO()):
                 m.verify(target, root, target)
                 for name in registrations:
@@ -610,6 +662,7 @@ print JSON.generate(checksums)
                 proof.update(opencvObjectCount=1, opencvPlatformIds=[7],
                              ortSimulatorImageCount=1, ortPlatformIds=[7])
                 proof["podsBuildSelection"] = m.pods_build_selection(ios, local_paths, proof["iosPluginInputs"])
+                proof["runnerEffectiveInputs"] = {"Runner": "fixture"}
                 (root / "setup.json").write_text(json.dumps(proof))
                 debug = ios / "Flutter/Debug.xcconfig"
                 original = debug.read_bytes()
@@ -749,6 +802,16 @@ print JSON.generate(checksums)
             fixtures = repo / "apps/mobile/test/fixtures/receipt_ocr"
             copied = bundle / "receipt_ocr_acceptance"
             shutil.copytree(fixtures, copied)
+            (bundle / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleIdentifier": m.RUNNER_BUNDLE_ID, "CFBundleExecutable": "Runner",
+            }))
+            m.retire_first_bundle(target, target)
+            saved = target / "first-ios-acceptance-runner.app"
+            self.assertTrue(saved.is_dir())
+            shutil.copytree(saved, bundle.with_name("Redirected.app"))
+            with self.assertRaises(ValueError):
+                m.verify_test_bundle(repo, target, target)
+            shutil.copytree(saved, bundle)
             m.verify_test_bundle(repo, target, target)
             for name, path, raw in (
                 ("x86", runner, binary(cpu=0x01000007)),
