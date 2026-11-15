@@ -543,8 +543,11 @@ jobs:
         run: |
           umask 077
           status=0
-          python3 -I -B tools/ocr-models/prepare-ios-arm64-acceptance.py prepare \
-            >"$RUNNER_TEMP/ios-arm64-preparation.log" 2>&1 || status=$?
+          phase_log="$RUNNER_TEMP/ios-arm64-preparation-phases.log"
+          {
+            python3 -I -B tools/ocr-models/prepare-ios-arm64-acceptance.py prepare \
+              2>"$RUNNER_TEMP/ios-arm64-preparation.log" >"$phase_log"
+          } 2>/dev/null || status=$?
           if test "$status" -ne 0; then
             failure_phase=prepare_projected_pods
             while IFS= read -r observation; do
@@ -561,7 +564,7 @@ jobs:
                   failure_phase="${observation#*=}"
                   ;;
               esac
-            done < "$RUNNER_TEMP/ios-arm64-preparation.log"
+            done 2>/dev/null < "$phase_log" || :
             printf 'ios_arm64_preparation=failed\n' >&2
             printf 'status=%s\nfailure_phase=%s\n' "$status" "$failure_phase" >> "$GITHUB_OUTPUT"
           fi

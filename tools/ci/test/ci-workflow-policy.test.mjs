@@ -1204,6 +1204,10 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     '      echo ios_arm64_preparation_phase=prepare_flutter_toolchain',
     '      printf "ios_arm64_preparation_phase=%s\\n" "$PREPARE_PHASE"',
     '      echo ios_arm64_preparation_phase=synthetic_private_label',
+    '      echo ios_arm64_preparation_phase=verify_projected_xcode_configuration >&2',
+    '    fi',
+    '    if [[ "${PREPARE_REMOVE_PHASE_LOG:-}" == 1 ]]; then',
+    '      rm -- "$RUNNER_TEMP/ios-arm64-preparation-phases.log"',
     '    fi',
     '    exit "${PREPARE_EXIT:-37}";;',
     '  *"prepare-ios-arm64-acceptance.py verify "*) exit 43;;',
@@ -1251,6 +1255,12 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     assert.equal(reported.stdout, '');
     assert.equal(reported.stderr, 'ios_arm64_preparation=failed\n');
   }
+  assert.match(readFileSync(path.join(temporary, 'ios-arm64-preparation.log'), 'utf8'),
+    /^synthetic_private_tool_output\nios_arm64_preparation_phase=verify_projected_xcode_configuration\n$/);
+  const missingObservation = checkFailure(['-e', '-o', 'pipefail', '-c', prepare.run], 37, 'prepare_projected_pods',
+    { PREPARE_PHASE: 'install_projected_pods', PREPARE_REMOVE_PHASE_LOG: '1' });
+  assert.equal(missingObservation.stdout, '');
+  assert.equal(missingObservation.stderr, 'ios_arm64_preparation=failed\n');
   checkFailure([path.join(repoRoot, 'tools/ocr-models/run-ios-native-acceptance.sh')],
     43, 'verify_projected_pods_before_build');
   assert.equal(prepare.id, 'arm64_dependencies');
