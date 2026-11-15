@@ -2,6 +2,7 @@
 set -euo pipefail
 
 phase=initialize
+flutter_capture_status=0
 device=""
 network_environment_configured=false
 network_link_configured=false
@@ -104,6 +105,11 @@ report_failure_phase() {
   if test "$cleanup_status" -ne 0; then
     status=$cleanup_status
     phase=cleanup_network_isolation
+  fi
+  if test "$status" -ne 0 && test "$flutter_capture_status" -ne 0; then
+    printf 'ios_native_acceptance_secondary_failure_phase=%s\n' "$phase" >&2
+    status=$flutter_capture_status
+    phase='execute_flutter_test'
   fi
   if test "$status" -ne 0; then
     observe_ios_phase failure_report_enter
@@ -421,7 +427,6 @@ python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" ver
 phase=retire_first_simulator_bundle
 python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" retire-first-bundle
 phase=execute_flutter_test
-status=0
 listener_directory="$RUNNER_TEMP/settleora-ocr-flutter-test"
 mkdir -m 700 "$listener_directory"
 observe_ios_phase flutter_capture_enter
@@ -430,7 +435,7 @@ TMPDIR="$listener_directory" node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-pr
   --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
   --max-bytes=33554432 \
   --platform=ios \
-  --device="$device" || status=$?
+  --device="$device" || flutter_capture_status=$?
 observe_ios_phase flutter_capture_return
 phase=verify_simulator_interposer_link_after_test
 observe_ios_phase post_test_link_enter
@@ -443,7 +448,7 @@ python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.p
 observe_ios_phase post_test_link_return
 phase=verify_projected_pods_after_test
 python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-after-test
-echo "status=$status" >> "$GITHUB_OUTPUT"
+echo "status=$flutter_capture_status" >> "$GITHUB_OUTPUT"
 echo "failure_phase=" >> "$GITHUB_OUTPUT"
 observe_ios_phase acceptance_outputs_written
 phase=complete

@@ -260,13 +260,37 @@ project.save""", first)
             node = projection.split("<<'NODE'\n", 1)[1].split("\nNODE\n", 1)[0]
             subprocess.run(["node", "-", config, str(project.parent / "interposer.dylib"), project.parent],
                            input=node, text=True, check=True, capture_output=True, timeout=15)
-            self.assertNotEqual(config.read_text(), raw)
-            self.assertEqual(m.runner_build_selection(project), expected)
+            projected = config.read_text()
+            self.assertNotEqual(projected, raw)
+            verifier = m.runner_verifier_script(project.parent)
+            self.assertEqual(m.runner_build_selection(project, verifier), expected)
             phases = json.loads(m.ruby_json("""require 'xcodeproj'
 project = Xcodeproj::Project.open(ARGV[0])
 puts JSON.generate(project.targets.find { |target| target.name == 'Runner' }.build_phases.map(&:display_name))
 """, project))
             self.assertLess(phases.index("Verify OCR test Pods"), phases.index("Run Script"))
+            markers = {
+                project.parent / relative: b"unchanged control\n"
+                for relative in ("Podfile.lock", "Pods/Manifest.lock", "Runner.xcworkspace/contents.xcworkspacedata")
+            }
+            for path, value in markers.items():
+                path.parent.mkdir(exist_ok=True)
+                path.write_bytes(value)
+            changed = projected.replace("xcode_backend.sh", "replacement_backend.sh", 1)
+            self.assertNotEqual(changed, projected)
+            config.write_text(changed)
+            self.assertNotEqual(m.runner_build_selection(project, verifier), expected)
+            config.write_text(projected)
+            m.ruby_json("""require 'xcodeproj'
+project = Xcodeproj::Project.open(ARGV[0])
+runner = project.targets.find { |target| target.name == 'Runner' }
+phase = runner.shell_script_build_phases.find { |value| value.name == 'Verify OCR test Pods' }
+phase.remove_from_project
+project.save
+""", project)
+            with self.assertRaises(subprocess.CalledProcessError):
+                m.runner_build_selection(project, verifier)
+            self.assertEqual({path: path.read_bytes() for path in markers}, markers)
             for original, changed in (
                 ("path = AppDelegate.swift;", "path = Replacement.swift;"),
                 ("path = Assets.xcassets;", "path = Replacement.xcassets;"),
@@ -702,6 +726,7 @@ print JSON.generate(checksums)
                 proof.update(opencvObjectCount=1, opencvPlatformIds=[7],
                              ortSimulatorImageCount=1, ortPlatformIds=[7])
                 proof["podsBuildSelection"] = m.pods_build_selection(ios, local_paths, proof["iosPluginInputs"])
+                proof["runnerVerifierScript"] = m.runner_verifier_script(target)
                 proof["runnerEffectiveInputs"] = {"Runner": "fixture"}
                 (root / "setup.json").write_text(json.dumps(proof))
                 debug = ios / "Flutter/Debug.xcconfig"
@@ -844,8 +869,12 @@ print JSON.generate(checksums)
             shutil.copytree(fixtures, copied)
             model_assets = bundle / "Frameworks/App.framework/flutter_assets" / m.MODEL_ASSET_DIRECTORY
             shutil.copytree(repo / "apps/mobile" / m.MODEL_ASSET_DIRECTORY, model_assets)
+            (bundle / "Frameworks/App.framework/Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleIdentifier": "io.flutter.flutter.app",
+            }))
             (bundle / "Info.plist").write_bytes(plistlib.dumps({
                 "CFBundleIdentifier": m.RUNNER_BUNDLE_ID, "CFBundleExecutable": "Runner",
+                "FLTAssetsPath": "unused-when-App-framework-is-selected",
             }))
             m.retire_first_bundle(target, target)
             saved = target / "first-ios-acceptance-runner.app"
@@ -875,7 +904,7 @@ print JSON.generate(checksums)
             catalog = json.loads((model_assets / "catalog.json").read_bytes())
             first_model = catalog["packs"][0]
             asset = Path(first_model["assetDirectory"]) / first_model["files"][0]["name"]
-            shadow = bundle / "flutter_assets" / asset
+            shadow = bundle / "en.lproj/Frameworks/App.framework/flutter_assets" / asset
             shadow.parent.mkdir(parents=True)
             source_model = bundle / "Frameworks/App.framework/flutter_assets" / asset
             shutil.copyfile(source_model, shadow)

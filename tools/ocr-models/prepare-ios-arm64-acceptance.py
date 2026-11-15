@@ -534,12 +534,34 @@ def verified_xcode_workspace(ios):
     return sorted(locations)
 
 
-def runner_build_selection(project):
+def runner_verifier_script(repo):
+    return f'/usr/bin/env python3 -I -B "{repo}/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-runner-build'
+
+
+def runner_build_selection(project, verifier_script=None):
     program = """
 require 'xcodeproj'
 project = Xcodeproj::Project.open(ARGV[0])
 raise ArgumentError unless project.targets.map(&:name).sort == ['Runner', 'RunnerTests']
 keys = JSON.parse(ARGV[1])
+expected_verifier = JSON.parse(ARGV[2])
+runner = project.targets.find { |target| target.name == 'Runner' }
+verifiers = runner.build_phases.each_index.select do |index|
+  runner.build_phases[index].display_name == 'Verify OCR test Pods'
+end
+if expected_verifier
+  raise ArgumentError unless verifiers.length == 1
+  index = verifiers.first
+  expected = {'isa' => 'PBXShellScriptBuildPhase', 'name' => 'Verify OCR test Pods',
+              'inputPaths' => [], 'outputPaths' => [], 'files' => [], 'shellPath' => '/bin/sh',
+              'shellScript' => expected_verifier, 'buildActionMask' => '2147483647',
+              'runOnlyForDeploymentPostprocessing' => '0', 'alwaysOutOfDate' => '1'}
+  raise ArgumentError unless runner.build_phases[index].to_hash == expected &&
+    runner.build_phases[index + 1]&.display_name == 'Run Script'
+else
+  raise ArgumentError unless verifiers.empty?
+end
+tracked = ['Run Script', 'Thin Binary', 'Copy OCR acceptance fixtures', 'Embed OCR network interposer']
 def configured_inputs(configurations, keys)
   configurations.sort_by(&:name).to_h do |config|
     [config.name, config.build_settings.select { |key, _value| keys.include?(key.split('[', 2).first) }]
@@ -552,26 +574,26 @@ def file_selection(reference, base)
   end
   selected
 end
-fixture_phase_count = 0
+seen = []
 targets = project.targets.sort_by(&:name).to_h do |target|
   phases = target.build_phases.filter_map do |phase|
     case phase.isa
     when 'PBXSourcesBuildPhase', 'PBXResourcesBuildPhase'
       [phase.isa, phase.files.map { |input| [file_selection(input.file_ref, project.path.dirname), input.settings] }]
     when 'PBXShellScriptBuildPhase'
-      if phase.name == 'Copy OCR acceptance fixtures'
+      if tracked.include?(phase.name)
         raise ArgumentError unless target.name == 'Runner' && phase.files.empty?
-        fixture_phase_count += 1
+        seen << phase.name
         phase.to_hash
       end
     end
   end
   [target.name, {'phases' => phases, 'settings' => configured_inputs(target.build_configurations, keys)}]
 end
-raise ArgumentError unless fixture_phase_count == 1
+raise ArgumentError unless seen.sort == tracked.sort
 print JSON.generate({'targets' => targets, 'settings' => configured_inputs(project.build_configurations, keys)})
 """
-    data = json.loads(ruby_json(program, project, json.dumps(RUNNER_INPUT_SETTINGS)))
+    data = json.loads(ruby_json(program, project, json.dumps(RUNNER_INPUT_SETTINGS), json.dumps(verifier_script)))
     return sha(json.dumps(data, sort_keys=True).encode())
 
 
@@ -603,7 +625,7 @@ def effective_runner_inputs(ios):
     return observed
 
 
-def pods_build_selection(ios, paths, plugin_inputs):
+def pods_build_selection(ios, paths, plugin_inputs, verifier_script=None):
     workspace = verified_xcode_workspace(ios)
     pods = ios / "Pods"
     project = pods / "Pods.xcodeproj/project.pbxproj"
@@ -632,7 +654,7 @@ def pods_build_selection(ios, paths, plugin_inputs):
     require(project.is_file() and not project.is_symlink() and 0 < project.stat().st_size <= 4 * 1024 * 1024)
     generated = bounded_tree_files(support)
     return {"workspaceProjects": workspace, "podsProject": pods_project_selection(project.parent),
-            "runnerBuildSelectionSha256": runner_build_selection(ios / "Runner.xcodeproj"),
+            "runnerBuildSelectionSha256": runner_build_selection(ios / "Runner.xcodeproj", verifier_script),
             "targetSupportFilesSha256": sha(json.dumps(generated, sort_keys=True).encode())}
 
 
@@ -787,6 +809,7 @@ def prepare(repo, root, target, manifest):
     proof["podsBuildSelection"] = pods_build_selection(mobile / "ios", paths, plugin_inputs)
     require(proof["podsBuildSelection"]["runnerBuildSelectionSha256"]
             == runner_build_selection(repo / "apps/mobile/ios/Runner.xcodeproj"))
+    proof["runnerVerifierScript"] = runner_verifier_script(repo)
     proof["runnerEffectiveInputs"] = effective_runner_inputs(mobile / "ios")
     runner_settings = proof["runnerEffectiveInputs"]["Runner"]
     require(Path(runner_settings["FLUTTER_APPLICATION_PATH"]).resolve(strict=True) == mobile
@@ -855,7 +878,8 @@ def verify(repo, root, target, pods=False, stage="prepared"):
             expected_lock = previous["podfileLockSha256"]
         ios = mobile / "ios"
         lock_sha = verified_installed_pod_lock(ios, expected_lock)
-        require(pods_build_selection(ios, proof["localPodPaths"], plugin_inputs) == proof["podsBuildSelection"])
+        verifier = None if stage == "prepared" else proof["runnerVerifierScript"]
+        require(pods_build_selection(ios, proof["localPodPaths"], plugin_inputs, verifier) == proof["podsBuildSelection"])
         require(effective_runner_inputs(ios) == proof["runnerEffectiveInputs"])
         production_lock = root / "production-Podfile.lock"
         require(sha(production_lock.read_bytes()) == PRODUCTION_LOCK_SHA256)
@@ -900,7 +924,8 @@ def verify_build_pods(root, target):
     setup = json.loads((root / "setup.json").read_bytes())
     require(setup["sourceHead"] == proof["sourceHead"])
     require(local_pod_inputs(root, setup["localPodPaths"]) == proof["localPodInputsSha256"])
-    require(pods_build_selection(mobile / "ios", setup["localPodPaths"], observed) == proof["podsBuildSelection"])
+    require(pods_build_selection(mobile / "ios", setup["localPodPaths"], observed,
+                                 setup["runnerVerifierScript"]) == proof["podsBuildSelection"])
     print("ios_full101_arm64_build_pods=verified")
 
 
@@ -963,15 +988,28 @@ def verify_bundled_models(mobile, bundle):
             assets[asset] = (file["bytes"], file["sha256"])
     require(len(assets) == 17)
 
-    framework = bundle / "Frameworks/App.framework"
-    for plist in (bundle / "Info.plist", framework / "Info.plist"):
-        if plist.is_file():
-            require(plist.stat().st_size <= 1024 * 1024 and plist.resolve(strict=True).is_relative_to(bundle))
-            require(plistlib.loads(plist.read_bytes()).get("FLTAssetsPath", "flutter_assets") == "flutter_assets")
+    frameworks = bundle / "Frameworks"
+    framework = frameworks / "App.framework"
+
+    def read_plist(path):
+        require(path.is_file() and path.stat().st_size <= 1024 * 1024
+                and path.resolve(strict=True).is_relative_to(bundle))
+        return plistlib.loads(path.read_bytes())
+
+    # The pinned embedder selects the private framework with this identifier,
+    # falls back to the main bundle, and then derives the lookup key prefix.
+    infos = [read_plist(directory / "Info.plist")
+             for directory in frameworks.iterdir() if not directory.name.startswith(".")
+             and (directory / "Info.plist").is_file()]
+    selected = [info for info in infos if info.get("CFBundleIdentifier") == "io.flutter.flutter.app"]
+    require(len(selected) <= 1)
+    settings = selected[0] if selected else read_plist(bundle / "Info.plist")
+    prefix = Path(settings.get("FLTAssetsPath", "Frameworks/App.framework/flutter_assets"))
+    require(prefix.parts and not prefix.is_absolute() and ".." not in prefix.parts)
     roots = [bundle, *sorted(bundle.glob("*.lproj"))]
     require(len(roots) <= 128)
     for asset, (size, digest) in assets.items():
-        key = Path("flutter_assets") / asset
+        key = prefix / asset
         # Match the Swift lookup order. Verify every present copy so a localized
         # resource or a higher-precedence copy cannot shadow verified bytes.
         candidates = [*(root / key for root in roots), bundle / asset.relative_to("assets"), framework / key]

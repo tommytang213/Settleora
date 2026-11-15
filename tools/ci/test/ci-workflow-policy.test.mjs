@@ -1129,7 +1129,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(verifyAfterBuild < retireFirst && retireFirst < runFixtures);
   assert.ok(iosRunner.includes('alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify OCR test Pods"'));
   assert.ok(runFixtures < verifyTestBundle && verifyTestBundle < verifyAfterTest);
-  assert.ok(verifyAfterTest < iosRunner.lastIndexOf('echo "status=$status"'));
+  assert.ok(verifyAfterTest < iosRunner.lastIndexOf('echo "status=$flutter_capture_status"'));
   const arm64Setup = read('tools/ocr-models/prepare-ios-arm64-acceptance.py');
   assert.ok(arm64Setup.includes('PRODUCTION_LOCK_SHA256'));
   assert.ok(arm64Setup.includes('verify_pod_projection'));
@@ -1273,6 +1273,29 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     { cwd: repoRoot, env: { ...env, PREPARE_EXIT: '0' }, encoding: 'utf8' });
   assert.equal(success.status, 0);
   assert.equal(readFileSync(output, 'utf8'), '');
+});
+
+test('the iOS exit trap preserves a Flutter failure through later verification', (t) => {
+  const runner = read('tools/ocr-models/run-ios-native-acceptance.sh');
+  const trap = runner.split('trap report_failure_phase EXIT', 1)[0] + 'trap report_failure_phase EXIT\n';
+  const temporary = mkdtempSync(path.join(os.tmpdir(), 'ios-primary-failure-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const output = path.join(temporary, 'output');
+  for (const [capture, expectedStatus, expectedPhase] of [
+    [37, 37, 'execute_flutter_test'],
+    [0, 98, 'verify_simulator_test_bundle_after_test'],
+  ]) {
+    writeFileSync(output, '');
+    const command = trap + 'phase=verify_simulator_test_bundle_after_test\n'
+      + 'flutter_capture_status=' + capture + '\nexit 98';
+    const result = spawnSync('bash', ['-c', command], {
+      cwd: repoRoot, env: { ...process.env, GITHUB_OUTPUT: output }, encoding: 'utf8',
+    });
+    assert.equal(result.status, expectedStatus);
+    assert.match(result.stderr, new RegExp('^ios_native_acceptance_failure_phase=' + expectedPhase + '$', 'm'));
+    assert.equal(readFileSync(output, 'utf8'), 'status=' + expectedStatus + '\nfailure_phase=' + expectedPhase + '\n');
+    assert.equal(result.stderr.includes('ios_native_acceptance_secondary_failure_phase='), capture !== 0);
+  }
 });
 
 test('Android native callback policy rejects masked exits and extra commands', async (t) => {
