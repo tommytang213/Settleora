@@ -1198,7 +1198,14 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     '#!/bin/bash',
     'case " $* " in',
     '  *"prepare-ios-acceptance-worktree.py --verify "*) exit 0;;',
-    '  *"prepare-ios-arm64-acceptance.py prepare "*) echo synthetic_private_tool_output >&2; exit "${PREPARE_EXIT:-37}";;',
+    '  *"prepare-ios-arm64-acceptance.py prepare "*)',
+    '    echo synthetic_private_tool_output >&2',
+    '    if [[ -n "${PREPARE_PHASE:-}" ]]; then',
+    '      echo ios_arm64_preparation_phase=prepare_flutter_toolchain',
+    '      printf "ios_arm64_preparation_phase=%s\\n" "$PREPARE_PHASE"',
+    '      echo ios_arm64_preparation_phase=synthetic_private_label',
+    '    fi',
+    '    exit "${PREPARE_EXIT:-37}";;',
     '  *"prepare-ios-arm64-acceptance.py verify "*) exit 43;;',
     '  *) exit 90;;',
     'esac',
@@ -1214,9 +1221,9 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     SETTLEORA_IOS_ACCEPTANCE_ROOT: temporary,
     PREPARE_EXIT: '37',
   };
-  function checkFailure(args, expectedStatus, expectedPhase) {
+  function checkFailure(args, expectedStatus, expectedPhase, options = {}) {
     writeFileSync(output, '');
-    const result = spawnSync('bash', args, { cwd: repoRoot, env, encoding: 'utf8' });
+    const result = spawnSync('bash', args, { cwd: repoRoot, env: { ...env, ...options }, encoding: 'utf8' });
     assert.equal(result.status, expectedStatus);
     assert.equal(readFileSync(output, 'utf8'),
       `status=${expectedStatus}\nfailure_phase=${expectedPhase}\n`);
@@ -1234,6 +1241,16 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
   assert.equal(rejected.stdout, '');
   assert.equal(rejected.stderr, 'ios_arm64_preparation=failed\n');
   assert.equal(readFileSync(path.join(temporary, 'ios-arm64-preparation.log'), 'utf8'), 'synthetic_private_tool_output\n');
+  const observedPhases = [...read('tools/ocr-models/prepare-ios-arm64-acceptance.py')
+    .matchAll(/^\s+observe_preparation_phase\("([a-z_]+)"\)$/gm)].map((match) => match[1]);
+  assert.equal(observedPhases.length, 9);
+  assert.equal(new Set(observedPhases).size, observedPhases.length);
+  for (const phase of observedPhases) {
+    const reported = checkFailure(['-e', '-o', 'pipefail', '-c', prepare.run], 37, phase,
+      { PREPARE_PHASE: phase });
+    assert.equal(reported.stdout, '');
+    assert.equal(reported.stderr, 'ios_arm64_preparation=failed\n');
+  }
   checkFailure([path.join(repoRoot, 'tools/ocr-models/run-ios-native-acceptance.sh')],
     43, 'verify_projected_pods_before_build');
   assert.equal(prepare.id, 'arm64_dependencies');
@@ -1248,6 +1265,7 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     ['failure', '', '', '', '', '98', 'prepare_projected_pods'],
     ['cancelled', '', '', '', '', '98', 'prepare_projected_pods'],
     ['failure', '37', 'prepare_projected_pods', '', '', '37', 'prepare_projected_pods'],
+    ['failure', '37', 'install_projected_pods', '', '', '37', 'install_projected_pods'],
     ['success', '', '', '43', 'verify_projected_pods_before_build', '43', 'verify_projected_pods_before_build'],
     ['success', '', '', '98', 'verify_projected_pods_after_build', '98', 'verify_projected_pods_after_build'],
     ['success', '', '', '98', 'verify_simulator_test_bundle_after_test', '98', 'verify_simulator_test_bundle_after_test'],

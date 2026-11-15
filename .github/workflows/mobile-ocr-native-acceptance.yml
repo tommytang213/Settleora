@@ -546,8 +546,24 @@ jobs:
           python3 -I -B tools/ocr-models/prepare-ios-arm64-acceptance.py prepare \
             >"$RUNNER_TEMP/ios-arm64-preparation.log" 2>&1 || status=$?
           if test "$status" -ne 0; then
+            failure_phase=prepare_projected_pods
+            while IFS= read -r observation; do
+              case "$observation" in
+                ios_arm64_preparation_phase=prepare_flutter_toolchain|\
+                ios_arm64_preparation_phase=fetch_projected_native_sources|\
+                ios_arm64_preparation_phase=build_projected_opencv|\
+                ios_arm64_preparation_phase=verify_projected_native_frameworks|\
+                ios_arm64_preparation_phase=project_flutter_native_plugins|\
+                ios_arm64_preparation_phase=seed_projected_pod_lock|\
+                ios_arm64_preparation_phase=configure_projected_ios_app|\
+                ios_arm64_preparation_phase=install_projected_pods|\
+                ios_arm64_preparation_phase=verify_projected_xcode_configuration)
+                  failure_phase="${observation#*=}"
+                  ;;
+              esac
+            done < "$RUNNER_TEMP/ios-arm64-preparation.log"
             printf 'ios_arm64_preparation=failed\n' >&2
-            printf 'status=%s\nfailure_phase=prepare_projected_pods\n' "$status" >> "$GITHUB_OUTPUT"
+            printf 'status=%s\nfailure_phase=%s\n' "$status" "$failure_phase" >> "$GITHUB_OUTPUT"
           fi
           exit "$status"
 

@@ -706,7 +706,12 @@ def context():
     return repo, temporary / ROOT_NAME, target, json.loads(reference.read_bytes())
 
 
+def observe_preparation_phase(phase):
+    print(f"ios_arm64_preparation_phase={phase}", flush=True)
+
+
 def prepare(repo, root, target, manifest):
+    observe_preparation_phase("prepare_flutter_toolchain")
     require(not root.exists() and not root.is_symlink())
     root.mkdir(mode=0o700)
     deadline = time.time() + MAX_SECONDS
@@ -720,6 +725,7 @@ def prepare(repo, root, target, manifest):
             and flutter["dartSdkVersion"] == "3.12.2")
     sdk = Path(subprocess.check_output(["which", "flutter"], text=True).strip()).resolve().parents[1]
     base.macho_platforms((base.simulator_framework(sdk / "bin/cache/artifacts/engine/ios/Flutter.xcframework") / "Flutter").read_bytes())
+    observe_preparation_phase("fetch_projected_native_sources")
     source = {}
     extracted_total = 0
     for name, item in manifest["archives"].items():
@@ -729,6 +735,7 @@ def prepare(repo, root, target, manifest):
         extracted_total += base.extract_archive(archive, extracted)
         require(extracted_total <= base.MAX_EXTRACTED)
         source[name] = extracted
+    observe_preparation_phase("build_projected_opencv")
     opencv = base.single_directory(source["opencv"])
     output = root / "opencv-build"
     argv = [sys.executable, str(opencv / "platforms/apple/build_xcframework.py"), "--out", str(output),
@@ -740,6 +747,7 @@ def prepare(repo, root, target, manifest):
     for feature in ("IPP", "ITT", "OPENCL", "TBB", "OPENMP", "EIGEN", "LAPACK", "PROTOBUF", "ADE"):
         argv.extend(["--disable", feature])
     base.execute(argv, root, root, deadline, "opencv-build")
+    observe_preparation_phase("verify_projected_native_frameworks")
     cv = base.simulator_framework(output / "opencv2.xcframework")
     cv_platforms = base.macho_platforms((cv / "opencv2").read_bytes())
     ort = base.simulator_framework(source["ort-c"] / "onnxruntime.xcframework")
@@ -754,6 +762,7 @@ def prepare(repo, root, target, manifest):
     (output / "OpenCV.podspec.json").write_text(json.dumps(cv_spec, indent=2) + "\n")
     for name, directory in [("onnxruntime-c", source["ort-c"]), ("onnxruntime-objc", source["ort-objc"])]:
         (directory / (name + ".podspec.json")).write_text(json.dumps(manifest["podspecs"][name], indent=2) + "\n")
+    observe_preparation_phase("project_flutter_native_plugins")
     mobile = target / "apps/mobile"
     lock = mobile / "ios/Podfile.lock"
     require(sha(lock.read_bytes()) == PRODUCTION_LOCK_SHA256)
@@ -793,6 +802,7 @@ def prepare(repo, root, target, manifest):
              "diagnosticAllowanceReused": False}
     require(base.verify_source(repo, os.environ["EXPECTED_HEAD"], deadline) == tracked)
     (root / "setup.json").write_text(json.dumps(proof, indent=2) + "\n")
+    observe_preparation_phase("seed_projected_pod_lock")
     # The pinned SDK generator has already refreshed native registration.
     # No-pub configuration must preserve that projected registration below.
     require(lock.lstat().st_nlink == 1 and lock.lstat().st_uid == os.getuid()
@@ -810,11 +820,14 @@ def prepare(repo, root, target, manifest):
     verify_pod_projection(production, read_yaml(lock), test_paths, checksums, podfile_checksum)
     proof.update(retainedPodLocksSeededBeforeFlutter=True, derivedTestPodLockSha256=sha(lock.read_bytes()))
     (root / "setup.json").write_text(json.dumps(proof, indent=2) + "\n")
+    observe_preparation_phase("configure_projected_ios_app")
     base.execute(["flutter", "build", "ios", "--config-only", "--simulator", "--debug", "--no-pub"],
                  mobile, root, deadline, "flutter-plugin-selection")
     require(sha((mobile / "pubspec.lock").read_bytes()) == proof["pubspecLockSha256"])
     verify_pod_projection(production, read_yaml(lock), test_paths, checksums, podfile_checksum)
+    observe_preparation_phase("install_projected_pods")
     base.execute(["pod", "install", "--deployment", "--no-repo-update"], mobile / "ios", root, deadline, "test-pods")
+    observe_preparation_phase("verify_projected_xcode_configuration")
     proof["podsBuildSelection"] = pods_build_selection(mobile / "ios", paths, plugin_inputs)
     require(proof["podsBuildSelection"]["runnerBuildSelectionSha256"]
             == runner_build_selection(repo / "apps/mobile/ios/Runner.xcodeproj"))
