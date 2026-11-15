@@ -342,6 +342,11 @@ project.save
             sdk.mkdir()
             (mobile / "lib").mkdir(parents=True)
             (mobile / "lib/main.dart").write_text("void main() {}\n")
+            runner = mobile / "ios/Runner"
+            runner.mkdir(parents=True)
+            header = runner / "GeneratedPluginRegistrant.h"
+            header.write_text("#import <Flutter/Flutter.h>\n")
+            (runner / "GeneratedPluginRegistrant.m").write_text("IntegrationTestPlugin\nFLTImagePickerPlugin\n")
             phase = dict(TARGET_NAME="Runner", CONFIGURATION="Debug", PLATFORM_NAME="iphonesimulator",
                          PRODUCT_NAME="Runner", FULL_PRODUCT_NAME="Runner.app", EXECUTABLE_NAME="Runner",
                          PRODUCT_BUNDLE_IDENTIFIER=m.RUNNER_BUNDLE_ID,
@@ -349,10 +354,16 @@ project.save
                          FLUTTER_APPLICATION_PATH=str(mobile), FLUTTER_ROOT=str(sdk))
             (root / "setup.json").write_text(json.dumps({
                 "runnerEffectiveInputs": {"Runner": m.runner_input_settings(phase)}, "flutterSdk": str(sdk),
+                "nativePluginRefresh": {"nativeRegistrant": m.generated_registrant_hashes(mobile)},
             }))
             with patch.object(m, "verify_build_pods") as verify, patch.dict(os.environ, phase, clear=True):
                 m.verify_runner_build(root, target)
                 verify.assert_called_once_with(root, target)
+                original_header = header.read_bytes()
+                header.write_text("#import <Unreviewed/Unreviewed.h>\n")
+                with self.assertRaises(ValueError):
+                    m.verify_runner_build(root, target)
+                header.write_bytes(original_header)
                 os.environ["EXCLUDED_SOURCE_FILE_NAMES"] = "AppDelegate.swift"
                 with self.assertRaises(ValueError):
                     m.verify_runner_build(root, target)
@@ -427,6 +438,7 @@ project.save
             def execute(argv, *_args):
                 commands.append(argv)
                 if argv[0].endswith("/bin/dart"):
+                    (ios / "Runner/GeneratedPluginRegistrant.h").write_text("#import <Flutter/Flutter.h>\n")
                     (ios / "Runner/GeneratedPluginRegistrant.m").write_text("IntegrationTestPlugin FLTImagePickerPlugin")
                 if "--out" in argv:
                     output = Path(argv[argv.index("--out") + 1]); output.mkdir()
@@ -515,6 +527,7 @@ project.save
                         packages.write_bytes(b"generated SDK config")
                     else:
                         self.assertTrue(packages.is_file())
+                        registrant.with_suffix(".h").write_text("#import <Flutter/Flutter.h>\n")
                         registrant.write_text("IntegrationTestPlugin FLTImagePickerPlugin")
 
                 m.regenerate_native_plugins(SimpleNamespace(execute=execute), sdk, mobile, root, 1234)
@@ -667,6 +680,7 @@ print JSON.generate(checksums)
             registrations = ["IntegrationTestPlugin", "FLTImagePickerPlugin", "FilePickerPlugin", "FlutterSecureStoragePlugin", "PathProviderPlugin"]
             raw = ("\n".join(registrations) + "\n").encode()
             registrant = mobile / "ios/Runner/GeneratedPluginRegistrant.m"; registrant.write_bytes(raw)
+            registrant.with_suffix(".h").write_text("#import <Flutter/Flutter.h>\n")
             cv = root / "opencv-build/opencv2.xcframework/simulator/opencv2"
             ort = root / "ort-c/onnxruntime.xcframework/simulator/onnxruntime"
             for path in [cv, ort]: path.parent.mkdir(parents=True); path.write_bytes(b"verified framework")
@@ -695,7 +709,7 @@ print JSON.generate(checksums)
                      "packageProjection": {"projectedConfig": {}, "packages": {}},
                      "iosPluginInputs": m.ios_plugin_inputs(mobile),
                      "localPodPaths": local_paths, "localPodInputs": m.local_pod_inputs(root, local_paths),
-                     "nativePluginRefresh": {"nativeRegistrantSha256": m.sha(raw)}}
+                     "nativePluginRefresh": {"nativeRegistrant": m.generated_registrant_hashes(mobile)}}
             (root / "setup.json").write_text(json.dumps(proof))
             base = SimpleNamespace(simulator_framework=lambda path: path / "simulator")
             with patch.object(m, "module", return_value=base), \
@@ -869,7 +883,8 @@ print JSON.generate(checksums)
             shutil.copytree(fixtures, copied)
             model_assets = bundle / "Frameworks/App.framework/flutter_assets" / m.MODEL_ASSET_DIRECTORY
             shutil.copytree(repo / "apps/mobile" / m.MODEL_ASSET_DIRECTORY, model_assets)
-            (bundle / "Frameworks/App.framework/Info.plist").write_bytes(plistlib.dumps({
+            framework_info = bundle / "Frameworks/App.framework/Info.plist"
+            framework_info.write_bytes(plistlib.dumps({
                 "CFBundleIdentifier": "io.flutter.flutter.app",
             }))
             (bundle / "Info.plist").write_bytes(plistlib.dumps({
@@ -884,6 +899,16 @@ print JSON.generate(checksums)
                 m.verify_test_bundle(repo, target, target)
             shutil.copytree(saved, bundle)
             m.verify_test_bundle(repo, target, target)
+            original_info = framework_info.read_bytes()
+            framework_info.write_bytes(plistlib.dumps(["unexpected framework metadata"]))
+            stderr = io.StringIO()
+            with patch.object(m, "context", return_value=(repo, target / "setup", target, None)), \
+                 patch.object(sys, "argv", [str(MODULE), "verify-test-bundle"]), \
+                 contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as rejection:
+                m.run_cli()
+            self.assertEqual(rejection.exception.code, 98)
+            self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
+            framework_info.write_bytes(original_info)
             for name, path, raw in (
                 ("x86", runner, binary(cpu=0x01000007)),
                 ("device", runner, binary(platform=2)),

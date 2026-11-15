@@ -243,6 +243,17 @@ def pod_name(text):
     return match[1]
 
 
+def generated_registrant_hashes(mobile):
+    runner = mobile / "ios/Runner"
+    implementation = (runner / "GeneratedPluginRegistrant.m").read_bytes()
+    require(not re.search(rb"GoogleMlKit|google_mlkit", implementation)
+            and b"IntegrationTestPlugin" in implementation and b"FLTImagePickerPlugin" in implementation)
+    return {
+        "headerSha256": sha((runner / "GeneratedPluginRegistrant.h").read_bytes()),
+        "implementationSha256": sha(implementation),
+    }
+
+
 def regenerate_native_plugins(base, sdk, mobile, root, deadline):
     """Run the pinned Flutter generator without resolving app dependencies."""
     config = mobile / ".dart_tool/package_config.json"
@@ -288,11 +299,8 @@ Future<void> main(List<String> args) async {
     base.execute([str(sdk / "bin/dart"), "--packages=" + str(packages), str(driver), str(sdk), str(mobile)],
                  mobile, root, deadline, "flutter-native-plugin-refresh")
     require(sha(config.read_bytes()) == before_config and sha(dart_lock.read_bytes()) == before_lock)
-    registrant = (mobile / "ios/Runner/GeneratedPluginRegistrant.m").read_text()
-    require(not re.search(r"GoogleMlKit|google_mlkit", registrant)
-            and "IntegrationTestPlugin" in registrant and "FLTImagePickerPlugin" in registrant)
     return {"scriptSha256": sha(driver.read_bytes()), "projectedPackageConfigSha256": before_config,
-            "pubspecLockSha256": before_lock, "nativeRegistrantSha256": sha(registrant.encode()),
+            "pubspecLockSha256": before_lock, "nativeRegistrant": generated_registrant_hashes(mobile),
             "regeneratedByPinnedFlutterWithoutPubGet": True, "nativeCalls": 0}
 
 
@@ -864,10 +872,7 @@ def verify(repo, root, target, pods=False, stage="prepared"):
     require(plugin_inputs == proof["iosPluginInputs"])
     require({"integration_test", "file_picker", "image_picker_ios", "flutter_secure_storage_darwin"}
             <= plugin_inputs["nativeSources"].keys())
-    registrant = (mobile / "ios/Runner/GeneratedPluginRegistrant.m").read_text()
-    require(not re.search(r"GoogleMlKit|google_mlkit", registrant))
-    require("IntegrationTestPlugin" in registrant and "FLTImagePickerPlugin" in registrant)
-    require(sha(registrant.encode()) == proof["nativePluginRefresh"]["nativeRegistrantSha256"])
+    require(generated_registrant_hashes(mobile) == proof["nativePluginRefresh"]["nativeRegistrant"])
     if pods:
         verified = root / "verification.json"
         expected_lock = None
@@ -935,7 +940,9 @@ def verify_runner_build(root, target):
     require(os.environ.get("TARGET_NAME") == "Runner" and os.environ.get("CONFIGURATION") == "Debug"
             and os.environ.get("PLATFORM_NAME") == "iphonesimulator")
     require(runner_input_settings(os.environ) == proof["runnerEffectiveInputs"]["Runner"])
-    verify_flutter_build_target(root, target / "apps/mobile", Path(proof["flutterSdk"]), os.environ)
+    mobile = target / "apps/mobile"
+    require(generated_registrant_hashes(mobile) == proof["nativePluginRefresh"]["nativeRegistrant"])
+    verify_flutter_build_target(root, mobile, Path(proof["flutterSdk"]), os.environ)
 
 
 def verify_flutter_build_target(root, mobile, sdk, settings):
@@ -994,7 +1001,9 @@ def verify_bundled_models(mobile, bundle):
     def read_plist(path):
         require(path.is_file() and path.stat().st_size <= 1024 * 1024
                 and path.resolve(strict=True).is_relative_to(bundle))
-        return plistlib.loads(path.read_bytes())
+        values = plistlib.loads(path.read_bytes())
+        require(isinstance(values, dict))
+        return values
 
     # The pinned embedder selects the private framework with this identifier,
     # falls back to the main bundle, and then derives the lookup key prefix.
