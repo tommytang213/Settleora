@@ -429,14 +429,16 @@ python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.p
 phase=execute_flutter_test
 listener_directory="$RUNNER_TEMP/settleora-ocr-flutter-test"
 mkdir -m 700 "$listener_directory"
+status=0
 observe_ios_phase flutter_capture_enter
 TMPDIR="$listener_directory" node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
   --stdout="$RUNNER_TEMP/ios-acceptance.log" \
   --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
   --max-bytes=33554432 \
   --platform=ios \
-  --device="$device" || flutter_capture_status=$?
+  --device="$device" || status=$?
 observe_ios_phase flutter_capture_return
+flutter_capture_status=$status
 phase=verify_simulator_interposer_link_after_test
 observe_ios_phase post_test_link_enter
 test -f "$simulator_executable"
