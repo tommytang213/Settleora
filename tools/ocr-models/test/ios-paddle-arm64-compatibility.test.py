@@ -460,18 +460,22 @@ sys.exit(1)
             "app.frameworks_build_phase", 1)[0]
         self.assertIn("config.build_settings['ENABLE_DEBUG_DYLIB'] = 'NO'", common)
 
-    def test_compile_mode_excludes_both_legacy_native_acceptance_jobs(self):
+    def test_compile_mode_excludes_both_full_native_acceptance_jobs(self):
         workflow = (MODULE.parents[2] / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()
-        expected = ("if: ${{ github.event_name == 'pull_request' || "
-                    "(github.event_name == 'workflow_dispatch' && inputs.mode == 'full101') }}")
+        ordinary_prefix = ("if: ${{ github.event_name == 'pull_request' || "
+                           "(github.event_name == 'workflow_dispatch' && ")
         jobs = re.split(r"(?m)^  ([A-Za-z_][A-Za-z0-9_-]*):[ \t]*$", workflow.split("\njobs:\n", 1)[1])
         self.assertEqual(set(jobs[1::2]), {
             'android-native-acceptance', 'ios-native-acceptance', 'ios-paddle-arm64-compatibility', 'ios-paddle-arm64-runtime'})
         by_name = dict(zip(jobs[1::2], jobs[2::2]))
-        for name in ('android-native-acceptance', 'ios-native-acceptance'):
-            self.assertIn(expected, by_name[name])
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.mode == 'paddle_arm64_compile_v1'",
-                      by_name['ios-paddle-arm64-compatibility'])
+        self.assertIn(ordinary_prefix + "inputs.mode == 'full101') }}",
+                      by_name['android-native-acceptance'])
+        self.assertIn(ordinary_prefix + "(inputs.mode == 'full101' || inputs.mode == 'ios_full101')) }}",
+                      by_name['ios-native-acceptance'])
+        for job, mode in (('ios-paddle-arm64-compatibility', 'paddle_arm64_compile_v1'),
+                          ('ios-paddle-arm64-runtime', 'arm64_ridge_runtime_v1')):
+            self.assertIn("if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == "
+                          + repr(mode) + " }}", by_name[job])
 
     def test_compile_checkout_does_not_retain_credentials(self):
         workflow = (MODULE.parents[2] / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()
