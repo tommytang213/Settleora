@@ -39,6 +39,22 @@ def linked_commands(lines):
     return commands
 
 
+def prelink_signals(text):
+    # Match existing Flutter/Xcode messages and the checked-in integrity receipts.
+    messages = {
+        "pod_install_failed": "Error running pod install",
+        "xcode_build_failed": "Failed to build iOS app",
+        "xcode_script_failed": "Command PhaseScriptExecution failed with a nonzero exit code",
+        "build_guard_rejected": "ios_arm64_acceptance_setup_rejected",
+        "build_pods_verified": "ios_full101_arm64_build_pods=verified",
+    }
+    prefix = r"^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*(?:error:[ \t]*)?"
+    return {
+        key: bool(re.search(prefix + re.escape(message) + r"[ \t\r]*$", text, re.MULTILINE))
+        for key, message in messages.items()
+    }
+
+
 def report(trace, dylib, capture_status):
     text = trace.decode("utf-8", errors="replace")
     lines = text.splitlines()
@@ -187,6 +203,7 @@ def report(trace, dylib, capture_status):
             "swift_error": diagnostics["swift_error"],
             "linker_error": diagnostics["linker_error"],
             "interposer_undefined_symbol": diagnostics["undefined_interposer_symbol"],
+            **prelink_signals(text),
         }
         values = " ".join(f"{name}={str(found).lower()}" for name, found in signals.items())
         print(f"::notice title=Settleora iOS simulator build classification::classes={error_classes} {values}")

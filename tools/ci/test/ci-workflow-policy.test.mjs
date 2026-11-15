@@ -1535,8 +1535,27 @@ test('iOS build failure exposes bounded classifications and retains the original
   assert.equal(diagnostic.status, 0, diagnostic.stderr);
   assert.equal(diagnostic.stdout,
     '::notice title=Settleora iOS simulator build classification::classes=library_not_found ' +
-    'runner_link=false swift_error=false linker_error=true interposer_undefined_symbol=false\n');
+    'runner_link=false swift_error=false linker_error=true interposer_undefined_symbol=false ' +
+    'pod_install_failed=false xcode_build_failed=false xcode_script_failed=false ' +
+    'build_guard_rejected=false build_pods_verified=false\n');
   assert.doesNotMatch(diagnostic.stdout + diagnostic.stderr, /SyntheticPrivateTraceValue/);
+  const gateTrace = [
+    '[  +23 ms]     ios_full101_arm64_build_pods=verified',
+    '[        ]     ios_arm64_acceptance_setup_rejected',
+    'error: Command PhaseScriptExecution failed with a nonzero exit code',
+    'Failed to build iOS app',
+    'unrelated prefix Error running pod install',
+  ].join('\n');
+  const gate = spawnSync('python3', ['-I', '-B', tool, dylib, '1'],
+    { env, input: gateTrace, encoding: 'utf8' });
+  assert.equal(gate.status, 0, gate.stderr);
+  assert.match(gate.stdout,
+    /classes=unclassified runner_link=false swift_error=false linker_error=false interposer_undefined_symbol=false pod_install_failed=false xcode_build_failed=true xcode_script_failed=true build_guard_rejected=true build_pods_verified=true\n$/);
+  const pods = spawnSync('python3', ['-I', '-B', tool, dylib, '1'],
+    { env, input: '[  +1 ms] Error running pod install\n', encoding: 'utf8' });
+  assert.equal(pods.status, 0, pods.stderr);
+  assert.match(pods.stdout,
+    /pod_install_failed=true xcode_build_failed=false xcode_script_failed=false build_guard_rejected=false build_pods_verified=false\n$/);
   for (const [status, overrides] of [
     ['0', {}],
     ['37', { GITHUB_JOB: 'another-job' }],
