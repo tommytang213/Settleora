@@ -434,6 +434,7 @@ test -f "$simulator_executable"
 test -f "$simulator_interposer"
 test -f "$simulator_link_image"
 xcrun otool -L "$simulator_link_image" | grep -F "$network_deny_in_app (" >/dev/null
+phase=verify_simulator_test_bundle_after_test
 python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-test-bundle
 observe_ios_phase post_test_link_return
 phase=verify_projected_pods_after_test

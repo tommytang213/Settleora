@@ -522,6 +522,41 @@ def verified_xcode_workspace(ios):
     return sorted(locations)
 
 
+def runner_build_selection(project):
+    program = """
+require 'xcodeproj'
+project = Xcodeproj::Project.open(ARGV[0])
+raise ArgumentError unless project.targets.map(&:name).sort == ['Runner', 'RunnerTests']
+def file_selection(reference, base)
+  selected = [reference.isa, reference.real_path.relative_path_from(base).to_s]
+  if reference.respond_to?(:children)
+    selected << reference.children.map { |child| file_selection(child, base) }
+  end
+  selected
+end
+fixture_phase_count = 0
+targets = project.targets.sort_by(&:name).to_h do |target|
+  phases = target.build_phases.filter_map do |phase|
+    case phase.isa
+    when 'PBXSourcesBuildPhase', 'PBXResourcesBuildPhase'
+      [phase.isa, phase.files.map { |input| [file_selection(input.file_ref, project.path.dirname), input.settings] }]
+    when 'PBXShellScriptBuildPhase'
+      if phase.name == 'Copy OCR acceptance fixtures'
+        raise ArgumentError unless target.name == 'Runner' && phase.files.empty?
+        fixture_phase_count += 1
+        phase.to_hash
+      end
+    end
+  end
+  [target.name, phases]
+end
+raise ArgumentError unless fixture_phase_count == 1
+print JSON.generate(targets)
+"""
+    data = json.loads(ruby_json(program, project))
+    return sha(json.dumps(data, sort_keys=True).encode())
+
+
 def pods_build_selection(ios, paths, plugin_inputs):
     workspace = verified_xcode_workspace(ios)
     pods = ios / "Pods"
@@ -551,6 +586,7 @@ def pods_build_selection(ios, paths, plugin_inputs):
     require(project.is_file() and not project.is_symlink() and 0 < project.stat().st_size <= 4 * 1024 * 1024)
     generated = bounded_tree_files(support)
     return {"workspaceProjects": workspace, "podsProject": pods_project_selection(project.parent),
+            "runnerBuildSelectionSha256": runner_build_selection(ios / "Runner.xcodeproj"),
             "targetSupportFilesSha256": sha(json.dumps(generated, sort_keys=True).encode())}
 
 
@@ -702,6 +738,8 @@ def prepare(repo, root, target, manifest):
     verify_pod_projection(production, read_yaml(lock), test_paths, checksums, podfile_checksum)
     base.execute(["pod", "install", "--deployment", "--no-repo-update"], mobile / "ios", root, deadline, "test-pods")
     proof["podsBuildSelection"] = pods_build_selection(mobile / "ios", paths, plugin_inputs)
+    require(proof["podsBuildSelection"]["runnerBuildSelectionSha256"]
+            == runner_build_selection(repo / "apps/mobile/ios/Runner.xcodeproj"))
     (root / "setup.json").write_text(json.dumps(proof, indent=2) + "\n")
     verify(repo, root, target, pods=True)
 
@@ -830,6 +868,12 @@ def verify_test_bundle(repo, target, temporary):
         require(binary.startswith(b"\xcf\xfa\xed\xfe") and base.macho_platforms(binary) == [7])
     require(original.is_file() and not original.is_symlink()
             and original.stat().st_size == embedded.stat().st_size and original.read_bytes() == embedded.read_bytes())
+    fixtures = repo / "apps/mobile/test/fixtures/receipt_ocr"
+    expected_files = bounded_tree_files(fixtures)
+    manifest = json.loads((fixtures / "manifest.json").read_bytes())
+    declared = {row["file"] for row in manifest["fixtures"]}
+    require(len(manifest["fixtures"]) == len(declared) == 101 and declared <= expected_files.keys())
+    require(bounded_tree_files(bundle / "receipt_ocr_acceptance") == expected_files)
     print("ios_full101_test_bundle_arm64=verified")
 
 

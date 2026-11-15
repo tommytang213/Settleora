@@ -1248,6 +1248,7 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     ['failure', '37', 'prepare_projected_pods', '', '', '37', 'prepare_projected_pods'],
     ['success', '', '', '43', 'verify_projected_pods_before_build', '43', 'verify_projected_pods_before_build'],
     ['success', '', '', '98', 'verify_projected_pods_after_build', '98', 'verify_projected_pods_after_build'],
+    ['success', '', '', '98', 'verify_simulator_test_bundle_after_test', '98', 'verify_simulator_test_bundle_after_test'],
     ['success', '', '', '0', '', '0', ''],
   ]) {
     const result = spawnSync('bash', ['-e', '-u', '-o', 'pipefail', '-c', command], {

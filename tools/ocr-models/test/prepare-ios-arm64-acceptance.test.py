@@ -237,6 +237,40 @@ project.save""", first)
             with self.assertRaises(subprocess.CalledProcessError):
                 m.pods_project_selection(first)
 
+    def test_runner_sources_resources_and_fixture_copy_are_bound_to_checkout(self):
+        try:
+            version = subprocess.run(["ruby", "-rxcodeproj", "-e", "print Xcodeproj::VERSION"],
+                                     capture_output=True, timeout=15)
+        except FileNotFoundError:
+            self.skipTest("Ruby and Xcodeproj are unavailable")
+        if version.returncode:
+            self.skipTest("Xcodeproj is unavailable")
+        source = MODULE.parents[2] / "apps/mobile/ios/Runner.xcodeproj"
+        expected = m.runner_build_selection(source)
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "Runner.xcodeproj"
+            project.mkdir()
+            config = project / "project.pbxproj"
+            raw = (source / config.name).read_text()
+            config.write_text(raw)
+            self.assertEqual(m.runner_build_selection(project), expected)
+            runner = MODULE.with_name("run-ios-native-acceptance.sh").read_text()
+            projection = runner.split("phase=apply_runner_project_link\n", 1)[1]
+            node = projection.split("<<'NODE'\n", 1)[1].split("\nNODE\n", 1)[0]
+            subprocess.run(["node", "-", config, str(project.parent / "interposer.dylib"), project.parent],
+                           input=node, text=True, check=True, capture_output=True, timeout=15)
+            self.assertNotEqual(config.read_text(), raw)
+            self.assertEqual(m.runner_build_selection(project), expected)
+            for original, changed in (
+                ("path = AppDelegate.swift;", "path = Replacement.swift;"),
+                ("path = Assets.xcassets;", "path = Replacement.xcassets;"),
+                ("$SRCROOT/../test/fixtures/receipt_ocr", "$SRCROOT/../test/fixtures/replacement"),
+            ):
+                with self.subTest(changed=changed):
+                    self.assertIn(original, raw)
+                    config.write_text(raw.replace(original, changed))
+                    self.assertNotEqual(m.runner_build_selection(project), expected)
+
     def prepare_with_newer_retained_pod_available(self, subspec=False, require_refresh=False):
         # Exercise the real prepare orchestration. Downloads/tool execution and
         # CocoaPods transport are synthetic; this is not macOS qualification.
@@ -309,7 +343,8 @@ project.save""", first)
                  patch.object(m, "project_packages", return_value=projection), \
                  patch.object(m, "verify_protected_source", return_value={"owned.dart": "fixed"}), \
                  patch.object(m, "verify") as verify, \
-                 patch.object(m, "pods_build_selection", return_value={"fixture": "selected"}), \
+                 patch.object(m, "pods_build_selection", return_value={"runnerBuildSelectionSha256": "b" * 64}), \
+                 patch.object(m, "runner_build_selection", return_value="b" * 64), \
                  patch.object(m, "ruby_json", side_effect=lambda _program, *args, data=None: json.dumps({name: "b" * 40 for name in json.loads(data)}).encode()), \
                  patch.object(m, "write_pod_lock", create=True, side_effect=lambda path, document: path.write_text(json.dumps(document))), \
                  patch.dict(os.environ, EXPECTED_HEAD="fixture-head", PUB_CACHE=str(cache)):
@@ -551,6 +586,7 @@ print JSON.generate(checksums)
             with patch.object(m, "module", return_value=base), \
                  patch.object(m, "verify_protected_source", return_value={"owned.dart": "fixed"}), \
                  patch.object(m, "pods_project_selection", return_value={"targetCount": 8, "sha256": "a" * 64}), \
+                 patch.object(m, "runner_build_selection", return_value="b" * 64), \
                  patch.dict(os.environ, EXPECTED_HEAD="fixture-head"), contextlib.redirect_stdout(io.StringIO()):
                 m.verify(target, root, target)
                 for name in registrations:
@@ -710,6 +746,9 @@ print JSON.generate(checksums)
             embedded.write_bytes(binary() + b"x")
             runner.write_bytes(binary())
             repo = MODULE.parents[2]
+            fixtures = repo / "apps/mobile/test/fixtures/receipt_ocr"
+            copied = bundle / "receipt_ocr_acceptance"
+            shutil.copytree(fixtures, copied)
             m.verify_test_bundle(repo, target, target)
             for name, path, raw in (
                 ("x86", runner, binary(cpu=0x01000007)),
@@ -721,6 +760,11 @@ print JSON.generate(checksums)
                     with self.assertRaises(ValueError):
                         m.verify_test_bundle(repo, target, target)
                     path.write_bytes(binary() if path == runner else binary() + b"x")
+            manifest = json.loads((fixtures / "manifest.json").read_bytes())
+            test_image = copied / manifest["fixtures"][0]["file"]
+            test_image.write_bytes(b"changed bundled receipt")
+            with self.assertRaises(ValueError):
+                m.verify_test_bundle(repo, target, target)
 
 
 if __name__ == "__main__": unittest.main()
