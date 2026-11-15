@@ -231,12 +231,19 @@ class IsolationTest(unittest.TestCase):
 
     def test_workflow_routes_dependency_verifier_and_runner_to_same_isolated_source(self):
         workflow = (ROOT / ".github/workflows/mobile-ocr-native-acceptance.yml").read_text()
-        # Real YAML is parsed by the existing CI policy suite. These checks bind
-        # the shell tool's import-relative Podfile.lock lookup to the test copy.
+        # Real YAML is parsed by the existing CI policy suite. Both the ARM64
+        # native graph and the runner remain bound to the detached test copy.
         ios = workflow.split("  ios-native-acceptance:\n", 1)[1]
         self.assertIn("Prepare isolated iOS simulator source", ios)
         self.assertEqual(ios.count("working-directory: ${{ runner.temp }}/ios-acceptance-source/apps/mobile"), 2)
-        self.assertIn('node "$RUNNER_TEMP/ios-acceptance-source/tools/ocr-models/verify-ios-test-podfile-lock.mjs"', ios)
+        self.assertIn('tools/ocr-models/prepare-ios-arm64-acceptance.py prepare', ios)
+        self.assertLess(ios.index('git diff --exit-code -- Podfile.lock'),
+                        ios.index('tools/ocr-models/prepare-ios-arm64-acceptance.py prepare'))
+        self.assertIn('SETTLEORA_IOS_ACCEPTANCE_ARCH: arm64', ios)
+        arm64 = (ROOT / 'tools/ocr-models/prepare-ios-arm64-acceptance.py').read_text()
+        self.assertIn('target = isolation.verify(repo, temporary, env["EXPECTED_HEAD"])', arm64)
+        self.assertIn('verify_pod_projection', arm64)
+        self.assertIn('verify_protected_source', arm64)
         self.assertIn("SETTLEORA_IOS_ACCEPTANCE_ROOT: ${{ runner.temp }}/ios-acceptance-source", ios)
         self.assertLess(ios.index("Prepare isolated iOS simulator source"), ios.index("Install dependencies and pods"))
         runner = (ROOT / "tools/ocr-models/run-ios-native-acceptance.sh").read_text()

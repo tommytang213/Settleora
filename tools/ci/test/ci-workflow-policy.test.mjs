@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { aggregateGateDecision } from '../scaffold-validation-changes.mjs';
+import { buildFailureEvidence } from '../../ocr-models/native-acceptance-evidence.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -909,7 +910,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     const digest = createHash('sha256').update(content).digest('hex');
     assert.ok(iosRunner.includes(digest));
   }
-  assert.ok(iosRunner.includes('case "$debug_config_sha" in'));
+  assert.ok(iosRunner.includes('case "$debug_base_sha" in'));
   assert.ok(iosRunner.includes("printf '\\nENABLE_DEBUG_DYLIB = NO\\nOTHER_LDFLAGS = $(inherited) %s -Wl,-u,_settleora_require_network_interposer -L%s %s -Wl,-needed-lSettleoraOcrNetworkDeny\\nLIBRARY_SEARCH_PATHS = $(inherited) %s\\n'"));
   assert.ok(iosRunner.includes('resolved_link_flags=$(sed -n'));
   assert.ok(iosRunner.includes('resolved_library_search_paths=$(sed -n'));
@@ -933,6 +934,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     'verify_simulator_interposer_install_name',
     'verify_debug_link_setting_after_build',
     'verify_resolved_debug_link_setting_after_build',
+    'verify_projected_pods_before_build', 'verify_projected_pods_after_build',
+    'verify_projected_pods_after_test',
     'verify_simulator_interposer_link_after_test']) {
     assert.ok(iosRunner.includes(`phase=${stage}`));
     assert.ok(nativeEvidenceCollector.includes(`"${stage}"`));
@@ -944,7 +947,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('cp -p "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('cmp -s "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('ios_simulator_link_anchor=present'));
-  assert.ok(iosRunner.includes('simulator_link_arch=x86_64'));
+  assert.ok(iosRunner.includes('simulator_link_arch=arm64'));
+  assert.ok(iosRunner.includes('test \"$host_arch\" = arm64'));
+  assert.ok(!iosRunner.includes('simulator_link_arch=x86_64'));
+  assert.equal(native.jobs['ios-native-acceptance'].env.SETTLEORA_IOS_ACCEPTANCE_ARCH, 'arm64');
   assert.equal((iosRunner.match(/-arch "\$simulator_link_arch"/g) ?? []).length, 3);
   assert.ok(iosRunner.includes('grep -Fx "ios_runner_link_architecture=$simulator_link_arch"'));
   assert.ok(iosRunner.includes('ios_simulator_linker_resolution=present'));
@@ -1109,10 +1115,81 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosProductionBuilder.includes('pod install --deployment'));
   assert.ok(iosProductionBuilder.includes('flutter clean'));
   assert.ok(iosProductionBuilder.includes('rm -rf -- build .dart_tool .flutter-plugins-dependencies ios/Pods ios/.symlinks'));
-  assert.match(iosCommands, /verify-ios-test-podfile-lock\.mjs" \\\n\s+< "\$test_metadata_dir\/production-Podfile\.lock"/);
+  assert.ok(iosCommands.includes('prepare-ios-arm64-acceptance.py prepare'));
+  assert.ok(iosRunner.includes('prepare-ios-arm64-acceptance.py\" verify'));
+  const nativeBuild = iosRunner.indexOf('phase=build_simulator_interposer_link');
+  const verifyAfterBuild = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-after-build');
+  const inBuildPodCheck = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-build-pods');
+  const runFixtures = iosRunner.indexOf('phase=execute_flutter_test');
+  const verifyAfterTest = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-after-test');
+  assert.ok(nativeBuild >= 0 && nativeBuild < verifyAfterBuild && verifyAfterBuild < runFixtures);
+  assert.ok(inBuildPodCheck >= 0 && inBuildPodCheck < nativeBuild);
+  assert.ok(iosRunner.includes('alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify OCR test Pods"'));
+  assert.ok(runFixtures < verifyAfterTest && verifyAfterTest < iosRunner.lastIndexOf('echo "status=$status"'));
+  const arm64Setup = read('tools/ocr-models/prepare-ios-arm64-acceptance.py');
+  assert.ok(arm64Setup.includes('PRODUCTION_LOCK_SHA256'));
+  assert.ok(arm64Setup.includes('verify_pod_projection'));
+  assert.ok(arm64Setup.includes('verify_protected_source'));
+  assert.ok(arm64Setup.includes('DartLibrariesChanged'));
+  assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);
   assert.doesNotMatch(serialized, /ios-pod-lock-/);
+});
+
+test('iOS evidence keeps the failed phase before any simulator fixture runs', (t) => {
+  const steps = stepsFor(workflow('mobile-ocr-native-acceptance.yml').jobs['ios-native-acceptance']);
+  const prepare = steps.find((step) => step.name.startsWith('Prepare ARM64 dependencies'));
+  const evidence = steps.find((step) => step.name === 'Build bounded iOS evidence');
+  const temporary = mkdtempSync(path.join(os.tmpdir(), 'ios-projection-phase-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const python = path.join(temporary, 'python3');
+  writeFileSync(python, [
+    '#!/bin/bash',
+    'case " $* " in',
+    '  *"prepare-ios-acceptance-worktree.py --verify "*) exit 0;;',
+    '  *"prepare-ios-arm64-acceptance.py prepare "*) exit "${PREPARE_EXIT:-37}";;',
+    '  *"prepare-ios-arm64-acceptance.py verify "*) exit 43;;',
+    '  *) exit 90;;',
+    'esac',
+    '',
+  ].join('\n'), { mode: 0o700 });
+  const output = path.join(temporary, 'output');
+  const env = {
+    ...process.env,
+    PATH: `${temporary}${path.delimiter}${process.env.PATH}`,
+    GITHUB_OUTPUT: output,
+    GITHUB_WORKSPACE: repoRoot,
+    RUNNER_TEMP: temporary,
+    SETTLEORA_IOS_ACCEPTANCE_ROOT: temporary,
+    PREPARE_EXIT: '37',
+  };
+  function checkFailure(args, expectedStatus, expectedPhase) {
+    writeFileSync(output, '');
+    const result = spawnSync('bash', args, { cwd: repoRoot, env, encoding: 'utf8' });
+    assert.equal(result.status, expectedStatus);
+    assert.equal(readFileSync(output, 'utf8'),
+      `status=${expectedStatus}\nfailure_phase=${expectedPhase}\n`);
+    const record = buildFailureEvidence({
+      platform: 'ios',
+      'test-status': String(expectedStatus),
+      'failure-phase': expectedPhase,
+    }, repoRoot);
+    assert.equal(record.execution.preflightFailurePhase, expectedPhase);
+    assert.equal(record.execution.testExitStatus, expectedStatus);
+    assert.equal(record.acceptance.completed, false);
+  }
+  checkFailure(['-e', '-o', 'pipefail', '-c', prepare.run], 37, 'prepare_projected_pods');
+  checkFailure([path.join(repoRoot, 'tools/ocr-models/run-ios-native-acceptance.sh')],
+    43, 'verify_projected_pods_before_build');
+  assert.equal(prepare.id, 'arm64_dependencies');
+  assert.match(evidence.run, /steps\.arm64_dependencies\.outputs\.status \|\| steps\.acceptance\.outputs\.status/);
+  assert.match(evidence.run, /steps\.arm64_dependencies\.outputs\.failure_phase \|\| steps\.acceptance\.outputs\.failure_phase/);
+  writeFileSync(output, '');
+  const success = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', prepare.run],
+    { cwd: repoRoot, env: { ...env, PREPARE_EXIT: '0' }, encoding: 'utf8' });
+  assert.equal(success.status, 0);
+  assert.equal(readFileSync(output, 'utf8'), '');
 });
 
 test('Android native callback policy rejects masked exits and extra commands', async (t) => {

@@ -80,6 +80,8 @@ const iosPreflightFailurePhases = new Set([
   "initialize",
   "validate_environment",
   "verify_isolated_acceptance_source",
+  "prepare_projected_pods",
+  "verify_projected_pods_before_build",
   "build_network_isolation",
   "build_simulator_link_anchor",
   "verify_simulator_link_anchor_object",
@@ -106,8 +108,10 @@ const iosPreflightFailurePhases = new Set([
   "verify_simulator_interposer_install_name",
   "verify_debug_link_setting_after_build",
   "verify_resolved_debug_link_setting_after_build",
+  "verify_projected_pods_after_build",
   "execute_flutter_test",
   "verify_simulator_interposer_link_after_test",
+  "verify_projected_pods_after_test",
   "cleanup_network_isolation",
 ]);
 

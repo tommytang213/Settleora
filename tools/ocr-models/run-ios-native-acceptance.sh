@@ -126,19 +126,18 @@ phase=validate_environment
 phase=verify_isolated_acceptance_source
 python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-acceptance-worktree.py" --verify
 acceptance_root="$SETTLEORA_IOS_ACCEPTANCE_ROOT"
+phase=verify_projected_pods_before_build
+python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify
 device="${1:-}"
 test "$(printf '%s' "$device" | tr -cd '0-9A-Fa-f-')" = "$device"
 test "${#device}" -eq 36
 
 phase=build_network_isolation
 host_arch=$(uname -m)
-case "$host_arch" in
-  arm64|x86_64) ;;
-  *) exit 98 ;;
-esac
-# Exact-head job 108412705428 linked Runner for x86_64 on an arm64 host.
-# Build the test-only interposer and anchor for the actual Runner target.
-simulator_link_arch=x86_64
+test "$host_arch" = arm64
+# The real Flutter Runner, all pods and the offline interposer share ARM64.
+# The exact test-only dependency projection is verified above; no x86 fallback.
+simulator_link_arch=arm64
 printf 'ios_simulator_host_architecture=%s ios_simulator_interposer_build_architecture=%s\n' "$host_arch" "$simulator_link_arch"
 network_deny="$RUNNER_TEMP/libSettleoraOcrNetworkDeny.dylib"
 network_deny_in_app="@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib"
@@ -206,7 +205,21 @@ debug_config="$acceptance_root/apps/mobile/ios/Flutter/Debug.xcconfig"
 network_config_backup="$RUNNER_TEMP/settleora-ocr-debug.xcconfig.original"
 phase=verify_debug_link_config
 debug_config_sha=$(shasum -a 256 "$debug_config" | cut -d ' ' -f 1)
-case "$debug_config_sha" in
+# Setup verification binds the complete derived bytes. This check separately
+# retains the reviewed original-config whitelist after stripping ONLY the
+# exact architecture selection suffix, before appending interposer settings.
+debug_base_sha=$(python3 - "$debug_config" "$GITHUB_WORKSPACE" <<'PY_ARM64_CONFIG'
+import importlib.util,sys,hashlib
+from pathlib import Path
+module_path=Path(sys.argv[2])/'tools/ocr-models/prepare-ios-arm64-acceptance.py'
+spec=importlib.util.spec_from_file_location('full101_arm64_config',module_path)
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+raw=Path(sys.argv[1]).read_bytes()
+m.require(raw.endswith(m.ARCH_CONFIG))
+print(hashlib.sha256(raw[:-len(m.ARCH_CONFIG)]).hexdigest())
+PY_ARM64_CONFIG
+)
+case "$debug_base_sha" in
   # Tracked one-line config, or exact CocoaPods 1.17.0 projection observed in
   # Xcode 16.4 job 108190884239 before the acceptance link modification.
   a82d7765b37116ee4821d2cd1d65942febf8032353757ffb0826eabde785b4a6) observe_ios_phase debug_source ;;
@@ -229,13 +242,15 @@ phase=save_runner_project
 cp -p "$runner_project" "$runner_project_backup"
 network_project_configured=true
 phase=apply_runner_project_link
-node - "$runner_project" "$network_deny" <<'NODE'
+node - "$runner_project" "$network_deny" "$GITHUB_WORKSPACE" <<'NODE'
 const fs = require('node:fs');
-const [projectPath, dylibPath] = process.argv.slice(2);
+const [projectPath, dylibPath, workspace] = process.argv.slice(2);
 let source = fs.readFileSync(projectPath, 'utf8');
 const buildId = 'E13080000000000000000001';
 const fileId = 'E13080000000000000000002';
-if (source.includes(buildId) || source.includes(fileId) || !/^\/[^\s";]+$/.test(dylibPath)) process.exit(98);
+const podCheckId = 'E13080000000000000000003';
+if ([buildId, fileId, podCheckId].some((id) => source.includes(id)) ||
+    !/^\/[^\s";]+$/.test(dylibPath) || !/^\/[A-Za-z0-9_./-]+$/.test(workspace)) process.exit(98);
 const replaceOnce = (from, to) => {
   if (source.split(from).length !== 2) process.exit(98);
   source = source.replace(from, to);
@@ -244,6 +259,11 @@ replaceOnce('/* End PBXBuildFile section */',
   `\t\t${buildId} /* OCR test interposer in Frameworks */ = {isa = PBXBuildFile; fileRef = ${fileId} /* OCR test interposer */; };\n/* End PBXBuildFile section */`);
 replaceOnce('/* End PBXFileReference section */',
   `\t\t${fileId} /* OCR test interposer */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "${dylibPath}"; sourceTree = "<absolute>"; };\n/* End PBXFileReference section */`);
+const podCheck = `/usr/bin/env python3 -I -B "${workspace}/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-build-pods`;
+replaceOnce('/* End PBXShellScriptBuildPhase section */',
+  `\t\t${podCheckId} /* Verify OCR test Pods */ = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify OCR test Pods"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = ${JSON.stringify(podCheck)}; };\n/* End PBXShellScriptBuildPhase section */`);
+replaceOnce('\t\t\t\tB30000000000000000000000 /* Copy OCR acceptance fixtures */,',
+  `\t\t\t\t${podCheckId} /* Verify OCR test Pods */,\n\t\t\t\tB30000000000000000000000 /* Copy OCR acceptance fixtures */,`);
 replaceOnce('97C146EB1CF9000F007C117D /* Frameworks */ = {\n\t\t\tisa = PBXFrameworksBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (',
   `97C146EB1CF9000F007C117D /* Frameworks */ = {\n\t\t\tisa = PBXFrameworksBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (\n\t\t\t\t${buildId} /* OCR test interposer in Frameworks */,`);
 fs.writeFileSync(projectPath, source);
@@ -396,6 +416,8 @@ fi
 printf 'ios_simulator_link_image=%s\n' "${simulator_link_image##*/}"
 phase=verify_simulator_interposer_install_name
 test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
+phase=verify_projected_pods_after_build
+python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-after-build
 phase=execute_flutter_test
 status=0
 observe_ios_phase flutter_capture_enter
@@ -413,6 +435,8 @@ test -f "$simulator_interposer"
 test -f "$simulator_link_image"
 xcrun otool -L "$simulator_link_image" | grep -F "$network_deny_in_app (" >/dev/null
 observe_ios_phase post_test_link_return
+phase=verify_projected_pods_after_test
+python3 "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-after-test
 echo "status=$status" >> "$GITHUB_OUTPUT"
 echo "failure_phase=" >> "$GITHUB_OUTPUT"
 observe_ios_phase acceptance_outputs_written
