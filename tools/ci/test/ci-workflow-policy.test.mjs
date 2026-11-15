@@ -1137,6 +1137,44 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.doesNotMatch(serialized, /ios-pod-lock-/);
 });
 
+test('iOS-only dispatch selects the ordinary full101 lane and binds exact workflow bytes', () => {
+  const native = workflow('mobile-ocr-native-acceptance.yml');
+  const mode = native.on.workflow_dispatch.inputs.mode;
+  assert.equal(mode.default, 'full101');
+  assert.deepEqual(mode.options, ['full101', 'ios_full101', 'paddle_arm64_compile_v1', 'arm64_ridge_runtime_v1']);
+  const android = native.jobs['android-native-acceptance'];
+  const ios = native.jobs['ios-native-acceptance'];
+  assert.equal(android.if, "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'full101') }}");
+  assert.equal(ios.if, "${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'full101' || inputs.mode == 'ios_full101')) }}");
+  for (const [job, purpose] of [
+    ['ios-paddle-arm64-compatibility', 'paddle_arm64_compile_v1'],
+    ['ios-paddle-arm64-runtime', 'arm64_ridge_runtime_v1'],
+  ]) {
+    assert.equal(native.jobs[job].if, "${{ github.event_name == 'workflow_dispatch' && inputs.mode == '" + purpose + "' }}");
+  }
+  const flutter = stepsFor(ios).find((step) => step.name === 'Setup Flutter');
+  assert.equal(flutter.with.cache, "${{ inputs.mode != 'ios_full101' }}");
+  const verify = stepsFor(ios).find((step) => step.name === 'Verify exact candidate');
+  assert.equal(verify.env.EXECUTION_MODE, '${{ inputs.mode }}');
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' });
+  assert.equal(head.status, 0);
+  const expected = head.stdout.trim();
+  for (const [mode, candidate, workflowSha, status] of [
+    ['ios_full101', expected, expected, 0],
+    ['ios_full101', expected, '', 1],
+    ['ios_full101', '', expected, 1],
+    ['full101', expected, '', 0],
+    ['', expected, '', 0],
+  ]) {
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', verify.run], {
+      cwd: repoRoot,
+      env: { ...process.env, EXECUTION_MODE: mode, EXPECTED_HEAD: candidate, CAPTURE_WORKFLOW_SHA: workflowSha },
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, status, result.stderr);
+  }
+});
+
 test('iOS evidence keeps the failed phase before any simulator fixture runs', (t) => {
   const steps = stepsFor(workflow('mobile-ocr-native-acceptance.yml').jobs['ios-native-acceptance']);
   const prepare = steps.find((step) => step.name.startsWith('Prepare ARM64 dependencies'));

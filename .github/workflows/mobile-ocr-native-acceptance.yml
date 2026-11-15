@@ -36,12 +36,13 @@ on:
         type: string
 
       mode:
-        description: "Execution purpose."
+        description: "Execution purpose. full101 runs both platforms; ios_full101 runs the same iOS lane alone."
         required: false
         type: choice
         default: full101
         options:
           - full101
+          - ios_full101
           - paddle_arm64_compile_v1
           - arm64_ridge_runtime_v1
 
@@ -439,7 +440,7 @@ jobs:
         run: test "${{ steps.acceptance.outputs.status }}" = "0"
 
   ios-native-acceptance:
-    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'full101') }}
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'full101' || inputs.mode == 'ios_full101')) }}
     name: iOS 101-image real-provider acceptance
     runs-on: macos-15
     timeout-minutes: 360
@@ -454,7 +455,14 @@ jobs:
           fetch-depth: 0
 
       - name: Verify exact candidate
-        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+        env:
+          EXECUTION_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          if [[ "$EXECUTION_MODE" == ios_full101 ]]; then
+            test "$CAPTURE_WORKFLOW_SHA" = "$EXPECTED_HEAD"
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -469,7 +477,7 @@ jobs:
         with:
           channel: stable
           flutter-version: "3.44.8"
-          cache: true
+          cache: ${{ inputs.mode != 'ios_full101' }}
 
       - name: Verify immutable OCR models and fixture corpus
         run: npm run validate:ocr-models
