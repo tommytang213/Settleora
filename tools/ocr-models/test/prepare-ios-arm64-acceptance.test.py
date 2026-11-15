@@ -50,6 +50,30 @@ class Arm64FlutterAcceptance(unittest.TestCase):
             "swift_package_manager_enabled": {"ios": False}, "plugins": {"ios": records},
         }))
 
+    def write_pod_build_inputs(self, ios, local_paths, plugins):
+        pods = ios / "Pods"
+        project = pods / "Pods.xcodeproj/project.pbxproj"
+        project.parent.mkdir(parents=True)
+        project.write_text("fixture generated project\n")
+        support = pods / "Target Support Files"
+        roots = {name: Path(value) for name, value in local_paths.items()}
+        roots.update({name: Path(row["root"]) / row["sourceDir"] for name, row in plugins["nativeSources"].items()})
+        for name, source in roots.items():
+            folder = support / name
+            folder.mkdir(parents=True)
+            (folder / (name + ".debug.xcconfig")).write_text(
+                "PODS_TARGET_SRCROOT = ${PODS_ROOT}/" + os.path.relpath(source, pods) + "\n"
+                "FRAMEWORK_SEARCH_PATHS = $(inherited)\n"
+            )
+        for name, framework in (("OpenCV", "opencv2.xcframework"), ("onnxruntime-c", "onnxruntime.xcframework")):
+            script = support / name / (name + "-xcframeworks.sh")
+            script.write_text("fixture CocoaPods bridge\n")
+            (support / name / (name + "-xcframeworks-input-files.xcfilelist")).write_text(
+                "${PODS_ROOT}/" + os.path.relpath(script, pods) + "\n"
+                "${PODS_ROOT}/" + os.path.relpath(roots[name] / framework, pods) + "\n"
+            )
+        return support
+
     def test_native_selection_changes_only_ios_registration(self):
         for name in m.DISABLED_IOS_PLUGINS:
             original = self.plugin(name)
@@ -166,6 +190,44 @@ class Arm64FlutterAcceptance(unittest.TestCase):
         wrong = dict(paths, OpenCV="/tmp/#{not_code}")
         with self.assertRaises(ValueError): m.derive_podfile(original, wrong)
 
+    def test_pod_consumers_depend_on_verification_in_generated_xcode_project(self):
+        try:
+            version = subprocess.run(["ruby", "-rxcodeproj", "-e", "print Xcodeproj::VERSION"],
+                                     capture_output=True, timeout=15)
+        except FileNotFoundError:
+            self.skipTest("Ruby and Xcodeproj are unavailable")
+        if version.returncode:
+            self.skipTest("Xcodeproj is unavailable")
+        original = (MODULE.parents[2] / "apps/mobile/ios/Podfile").read_text()
+        projected = m.derive_podfile(original, {name: "/owned/" + name for name in m.LOCAL_PODS})
+        gate_code = projected[projected.index("  pod_project = installer.pods_project\n"):-len("end\n")]
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first/Pods.xcodeproj"
+            second = Path(directory) / "second/Pods.xcodeproj"
+            for project in (first, second):
+                project.parent.mkdir()
+            program = """require 'xcodeproj'
+project = Xcodeproj::Project.new(ARGV[0])
+project.new_target(:static_library, 'LocalPod', :ios, '15.5')
+project.new_aggregate_target('Pods-Runner', [], :ios, '15.5')
+project.predictabilize_uuids
+installer = Struct.new(:pods_project).new(project)
+$iOSVersion = '15.5'
+""" + gate_code + gate_code + "\nproject.save"
+            for project in (first, second):
+                m.ruby_json(program, project)
+            raw = (first / "project.pbxproj").read_bytes()
+            self.assertNotEqual(raw, (second / "project.pbxproj").read_bytes())
+            self.assertEqual(m.pods_project_selection(first), m.pods_project_selection(second))
+            self.assertEqual(m.pods_project_selection(first)["targetCount"], 2)
+            self.assertEqual((first / "project.pbxproj").read_bytes(), raw)
+            m.ruby_json("""require 'xcodeproj'
+project = Xcodeproj::Project.open(ARGV[0])
+project.targets.find { |target| target.name == 'LocalPod' }.dependencies.clear
+project.save""", first)
+            with self.assertRaises(subprocess.CalledProcessError):
+                m.pods_project_selection(first)
+
     def prepare_with_newer_retained_pod_available(self, subspec=False, require_refresh=False):
         # Exercise the real prepare orchestration. Downloads/tool execution and
         # CocoaPods transport are synthetic; this is not macOS qualification.
@@ -238,6 +300,7 @@ class Arm64FlutterAcceptance(unittest.TestCase):
                  patch.object(m, "project_packages", return_value=projection), \
                  patch.object(m, "verify_protected_source", return_value={"owned.dart": "fixed"}), \
                  patch.object(m, "verify") as verify, \
+                 patch.object(m, "pods_build_selection", return_value={"fixture": "selected"}), \
                  patch.object(m, "ruby_json", side_effect=lambda _program, *args, data=None: json.dumps({name: "b" * 40 for name in json.loads(data)}).encode()), \
                  patch.object(m, "write_pod_lock", create=True, side_effect=lambda path, document: path.write_text(json.dumps(document))), \
                  patch.dict(os.environ, EXPECTED_HEAD="fixture-head", PUB_CACHE=str(cache)):
@@ -478,6 +541,7 @@ print JSON.generate(checksums)
             base = SimpleNamespace(simulator_framework=lambda path: path / "simulator")
             with patch.object(m, "module", return_value=base), \
                  patch.object(m, "verify_protected_source", return_value={"owned.dart": "fixed"}), \
+                 patch.object(m, "pods_project_selection", return_value={"targetCount": 8, "sha256": "a" * 64}), \
                  patch.dict(os.environ, EXPECTED_HEAD="fixture-head"), contextlib.redirect_stdout(io.StringIO()):
                 m.verify(target, root, target)
                 for name in registrations:
@@ -497,8 +561,10 @@ print JSON.generate(checksums)
                 projected["PODFILE CHECKSUM"] = hashlib.sha1((ios / "Podfile").read_bytes()).hexdigest()
                 lock.write_text(json.dumps(projected))
                 manifest.write_bytes(lock.read_bytes())
+                support = self.write_pod_build_inputs(ios, local_paths, proof["iosPluginInputs"])
                 proof.update(opencvObjectCount=1, opencvPlatformIds=[7],
                              ortSimulatorImageCount=1, ortPlatformIds=[7])
+                proof["podsBuildSelection"] = m.pods_build_selection(ios, local_paths, proof["iosPluginInputs"])
                 (root / "setup.json").write_text(json.dumps(proof))
                 debug = ios / "Flutter/Debug.xcconfig"
                 original = debug.read_bytes()
@@ -509,6 +575,19 @@ print JSON.generate(checksums)
                     prepared = json.loads(verification.read_bytes())
                     self.assertEqual(prepared["graphVerifiedAt"], "prepared")
                     m.verify_build_pods(root, target)
+                    normal_lock = lock.read_bytes()
+                    malformed = dict(projected, PODS=[{}])
+                    lock.write_text(json.dumps(malformed))
+                    manifest.write_bytes(lock.read_bytes())
+                    stderr = io.StringIO()
+                    with patch.object(m, "context", return_value=(target, root, target, None)), \
+                         patch.object(sys, "argv", [str(MODULE), "verify"]), contextlib.redirect_stderr(stderr):
+                        with self.assertRaises(SystemExit) as rejected:
+                            m.run_cli()
+                    self.assertEqual(rejected.exception.code, 98)
+                    self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
+                    lock.write_bytes(normal_lock)
+                    manifest.write_bytes(normal_lock)
                     link_tail = (
                         "\nENABLE_DEBUG_DYLIB = NO\n"
                         f"OTHER_LDFLAGS = $(inherited) {root.parent}/settleora-network-interposer-anchor.o "
@@ -523,6 +602,21 @@ print JSON.generate(checksums)
                     self.assertEqual(built["podfileLockSha256"], prepared["podfileLockSha256"])
                     m.verify_build_pods(root, target)
                     frozen_lock, frozen_manifest = lock.read_bytes(), manifest.read_bytes()
+                    generated = support / "onnxruntime-objc/onnxruntime-objc.debug.xcconfig"
+                    contents = generated.read_text()
+                    for replacement in (
+                        contents.replace(os.path.relpath(local_paths["onnxruntime-objc"], ios / "Pods"),
+                                         os.path.relpath(local_paths["Yams"], ios / "Pods")),
+                        contents.replace("FRAMEWORK_SEARCH_PATHS = $(inherited)",
+                                         "FRAMEWORK_SEARCH_PATHS = $(inherited) /unreviewed"),
+                    ):
+                        generated.write_text(replacement)
+                        self.assertEqual(m.local_pod_inputs(root, local_paths), proof["localPodInputs"])
+                        self.assertEqual(lock.read_bytes(), frozen_lock)
+                        self.assertEqual(manifest.read_bytes(), frozen_manifest)
+                        with self.assertRaises(ValueError):
+                            m.verify_build_pods(root, target)
+                    generated.write_text(contents)
                     for pod_input in (objc_source, yams_source, header):
                         with self.subTest(changed=pod_input.name):
                             contents = pod_input.read_bytes()

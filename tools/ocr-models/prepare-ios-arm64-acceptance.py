@@ -30,6 +30,11 @@ ARCH_CONFIG = b"\n// Test-only full101 ARM64 selection.\nARCHS = arm64\nONLY_ACT
 DEBUG_BASE_HASHES = {"a82d7765b37116ee4821d2cd1d65942febf8032353757ffb0826eabde785b4a6", "690b8a8b1ae15ddd29b241429963e971bbc6720ab22f154cf8cf6b085b6d4925"}
 LOCAL_PODS = {"OpenCV", "onnxruntime-c", "onnxruntime-objc", "Yams"}
 MAX_SECONDS = 30 * 60
+PODS_GATE_TARGET = "Verify Settleora OCR Pod Inputs"
+PODS_GATE_SCRIPT = (
+    'exec /usr/bin/env python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py"'
+    ' verify-build-pods'
+)
 
 
 def require(value):
@@ -298,9 +303,8 @@ print JSON.generate(checksums)
 def pod_nodes(document):
     nodes = {}
     for item in document["PODS"]:
-        require(isinstance(item, (str, dict)))
+        require(isinstance(item, str) or isinstance(item, dict) and len(item) == 1)
         signature, dependencies = (item, []) if isinstance(item, str) else next(iter(item.items()))
-        require(isinstance(item, str) or len(item) == 1)
         name = pod_name(signature)
         require(name not in nodes and isinstance(dependencies, list))
         nodes[name] = (signature, dependencies)
@@ -424,7 +428,101 @@ def derive_podfile(original, paths):
                           "      config.build_settings['ARCHS'] = 'arm64'\n"
                           "      config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES'\n"
                           "      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'\n    end", 1)
-    return value
+    require(value.endswith("  end\nend\n"))
+    return value[:-len("end\n")] + f"""
+  pod_project = installer.pods_project
+  verifier = pod_project.targets.find {{ |target| target.name == {json.dumps(PODS_GATE_TARGET)} }}
+  unless verifier
+    verifier = pod_project.new_aggregate_target({json.dumps(PODS_GATE_TARGET)}, [], :ios, $iOSVersion)
+    verifier.build_configurations.each do |config|
+      config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+    end
+    phase = verifier.new_shell_script_build_phase({json.dumps(PODS_GATE_TARGET)})
+    phase.shell_script = {json.dumps(PODS_GATE_SCRIPT)}
+    phase.always_out_of_date = '1'
+  end
+  pod_project.targets.reject {{ |target| target == verifier }}.each {{ |consumer| consumer.add_dependency(verifier) }}
+end
+"""
+
+
+def pods_project_selection(project):
+    program = """
+require 'xcodeproj'
+require 'digest'
+project = Xcodeproj::Project.open(ARGV[0])
+gate = project.targets.select { |target| target.name == ARGV[1] }
+raise ArgumentError unless gate.length == 1
+gate = gate.first
+raise ArgumentError unless gate.isa == 'PBXAggregateTarget' && gate.dependencies.empty?
+phases = gate.shell_script_build_phases
+raise ArgumentError unless phases.length == 1 && phases.first.shell_script == ARGV[2] &&
+  phases.first.always_out_of_date == '1'
+consumers = project.targets - [gate]
+raise ArgumentError if consumers.empty? || consumers.any? { |target| !target.dependency_for_target(gate) }
+raise ArgumentError unless consumers.map(&:name).uniq.length == consumers.length
+# CocoaPods assigns stable IDs before post_install. Normalize only IDs that the
+# verification hook creates later, while keeping every reference and setting.
+ids = {
+  gate.uuid => 'settleora-gate-target',
+  gate.build_configuration_list.uuid => 'settleora-gate-configurations',
+  phases.first.uuid => 'settleora-gate-phase',
+}
+gate.build_configurations.each do |config|
+  ids[config.uuid] = "settleora-gate-config-#{config.name}"
+end
+consumers.each do |target|
+  dependency = target.dependency_for_target(gate)
+  ids[dependency.uuid] = "settleora-gate-dependency-#{target.name}"
+  ids[dependency.target_proxy.uuid] = "settleora-gate-proxy-#{target.name}"
+end
+raise ArgumentError unless ids.values.uniq.length == ids.length
+def stable(value, ids)
+  case value
+  when Hash then value.to_h { |key, item| [ids.fetch(key, key), stable(item, ids)] }.sort.to_h
+  when Array then value.map { |item| stable(item, ids) }
+  when String then ids.fetch(value, value)
+  else value
+  end
+end
+print JSON.generate({'targetCount' => consumers.length,
+                     'sha256' => Digest::SHA256.hexdigest(JSON.generate(stable(project.to_hash, ids)))})
+"""
+    selected = json.loads(ruby_json(program, project, PODS_GATE_TARGET, PODS_GATE_SCRIPT))
+    require(type(selected["targetCount"]) is int and selected["targetCount"] > 0
+            and re.fullmatch(r"[0-9a-f]{64}", selected["sha256"]))
+    return selected
+
+
+def pods_build_selection(ios, paths, plugin_inputs):
+    pods = ios / "Pods"
+    project = pods / "Pods.xcodeproj/project.pbxproj"
+    support = pods / "Target Support Files"
+
+    def resolve(value):
+        value = value.strip().strip('"')
+        prefix = "${PODS_ROOT}/"
+        require(value.startswith(prefix))
+        return (pods / value[len(prefix):]).resolve(strict=True)
+
+    expected = {name: Path(value) for name, value in paths.items()}
+    expected.update({name: Path(row["root"]) / row["sourceDir"] for name, row in plugin_inputs["nativeSources"].items()})
+    for name, source in expected.items():
+        configurations = tuple((support / name).glob("*.xcconfig"))
+        require(configurations)
+        for config in configurations:
+            require(config.is_file() and not config.is_symlink() and config.stat().st_size <= 64 * 1024)
+            roots = re.findall(r"(?m)^PODS_TARGET_SRCROOT\s*=\s*(.+)$", config.read_text())
+            require(len(roots) == 1 and resolve(roots[0]) == source)
+    for name, framework in (("OpenCV", "opencv2.xcframework"), ("onnxruntime-c", "onnxruntime.xcframework")):
+        inputs = support / name / (name + "-xcframeworks-input-files.xcfilelist")
+        require(inputs.is_file() and not inputs.is_symlink() and inputs.stat().st_size <= 64 * 1024)
+        declared = {resolve(line) for line in inputs.read_text().splitlines() if line.strip()}
+        require(declared == {support / name / (name + "-xcframeworks.sh"), expected[name] / framework})
+    require(project.is_file() and not project.is_symlink() and 0 < project.stat().st_size <= 4 * 1024 * 1024)
+    generated = bounded_tree_files(support)
+    return {"podsProject": pods_project_selection(project.parent),
+            "targetSupportFilesSha256": sha(json.dumps(generated, sort_keys=True).encode())}
 
 
 def verify_protected_source(target, tracked):
@@ -574,6 +672,8 @@ def prepare(repo, root, target, manifest):
     require(sha((mobile / "pubspec.lock").read_bytes()) == proof["pubspecLockSha256"])
     verify_pod_projection(production, read_yaml(lock), test_paths, checksums, podfile_checksum)
     base.execute(["pod", "install", "--deployment", "--no-repo-update"], mobile / "ios", root, deadline, "test-pods")
+    proof["podsBuildSelection"] = pods_build_selection(mobile / "ios", paths, plugin_inputs)
+    (root / "setup.json").write_text(json.dumps(proof, indent=2) + "\n")
     verify(repo, root, target, pods=True)
 
 
@@ -637,6 +737,7 @@ def verify(repo, root, target, pods=False, stage="prepared"):
             expected_lock = previous["podfileLockSha256"]
         ios = mobile / "ios"
         lock_sha = verified_installed_pod_lock(ios, expected_lock)
+        require(pods_build_selection(ios, proof["localPodPaths"], plugin_inputs) == proof["podsBuildSelection"])
         production_lock = root / "production-Podfile.lock"
         require(sha(production_lock.read_bytes()) == PRODUCTION_LOCK_SHA256)
         paths = dict(proof["localPodPaths"], integration_test=".symlinks/plugins/integration_test/ios")
@@ -656,6 +757,7 @@ def verify(repo, root, target, pods=False, stage="prepared"):
                       ortSimulatorImageCount=proof["ortSimulatorImageCount"], ortPlatformIds=proof["ortPlatformIds"],
                       opencvBinarySha256=proof["opencvBinarySha256"], ortBinarySha256=proof["ortBinarySha256"],
                       localPodInputsSha256=proof["localPodInputs"],
+                      podsBuildSelection=proof["podsBuildSelection"],
                       retainedNativePluginInputs=len(plugin_inputs["nativeSources"]),
                       retainedNativePluginInputsSha256=sha(json.dumps(plugin_inputs, sort_keys=True).encode()),
                       protectedSourceFiles=len(proof["protectedSource"]),
@@ -678,6 +780,7 @@ def verify_build_pods(root, target):
     setup = json.loads((root / "setup.json").read_bytes())
     require(setup["sourceHead"] == proof["sourceHead"])
     require(local_pod_inputs(root, setup["localPodPaths"]) == proof["localPodInputsSha256"])
+    require(pods_build_selection(mobile / "ios", setup["localPodPaths"], observed) == proof["podsBuildSelection"])
     print("ios_full101_arm64_build_pods=verified")
 
 
