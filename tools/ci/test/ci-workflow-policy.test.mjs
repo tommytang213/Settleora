@@ -1587,9 +1587,8 @@ test('iOS build failure exposes bounded classifications and retains the original
 test('iOS build diagnostic names only catalogued scripts in complete Xcode failure footers', () => {
   const tool = path.join(repoRoot, 'tools/ocr-models/diagnose-ios-link-trace.py');
   const env = { ...process.env, GITHUB_ACTIONS: 'true', GITHUB_JOB: 'ios-native-acceptance' };
-  const pathToken = '/synthetic/PrivateTrace/Script-0123456789ABCDEF01234567.sh';
-  const row = (phase, target, project) =>
-    'PhaseScriptExecution ' + phase + ' ' + pathToken +
+  const row = (phase, target, project, id = '0123456789ABCDEF01234567') =>
+    'PhaseScriptExecution ' + phase + ' /synthetic/PrivateTrace/Script-' + id + '.sh' +
     " (in target '" + target + "' from project '" + project + "')";
   const footer = (rows, count = rows.length) => [
     '[        ]     ** BUILD FAILED **',
@@ -1600,8 +1599,10 @@ test('iOS build diagnostic names only catalogued scripts in complete Xcode failu
   ].join('\n');
   const runner = row('Run\\ Script', 'Runner', 'Runner');
   const pods = row('Verify\\ Settleora\\ OCR\\ Pod\\ Inputs', 'Verify Settleora OCR Pod Inputs', 'Pods');
-  const opencv = row('\\[CP\\]\\ Copy\\ XCFrameworks', 'OpenCV', 'Pods');
-  const onnx = row('[CP]\\ Copy\\ XCFrameworks', 'onnxruntime-c', 'Pods');
+  const opencv = row('\\[CP\\]\\ Copy\\ XCFrameworks', 'OpenCV', 'Pods', '0123456789ABCDEF0123456789ABCDEF');
+  const onnx = row('[CP]\\ Copy\\ XCFrameworks', 'onnxruntime-c', 'Pods', 'FEDCBA9876543210FEDCBA9876543210');
+  const unknown = row('Unknown\\ PrivatePhase', 'Runner', 'Runner');
+  const anotherUnknown = row('Unknown\\ PrivatePhase', 'Runner', 'Runner', 'AAAAAAAAAAAAAAAAAAAAAAAA');
   const cases = [
     [runner + '\n' + footer([pods, 'Building workspace Runner']), 'pods_verify_inputs'],
     [footer([runner]) + '\n' + footer([runner]), 'runner_flutter_build'],
@@ -1609,7 +1610,9 @@ test('iOS build diagnostic names only catalogued scripts in complete Xcode failu
     [footer([onnx]), 'onnx_copy_xcframeworks'],
     [footer([opencv, onnx]), 'multiple'],
     [footer([row('Run\\ Script', 'Runner', 'PrivateProject')]), 'unrecognized'],
-    [footer([row('Unknown\\ PrivatePhase', 'Runner', 'Runner')]), 'unrecognized'],
+    [footer([unknown]), 'unrecognized'],
+    [footer([unknown]) + '\n' + footer([unknown]), 'unrecognized'],
+    [footer([unknown, anotherUnknown]), 'multiple'],
     [footer([runner], 2), 'unavailable'],
     [footer([runner]).split('\n').slice(0, -1).join('\n'), 'unavailable'],
     [runner + '\n' + footer(['Check dependencies']), 'unavailable'],
@@ -1620,7 +1623,8 @@ test('iOS build diagnostic names only catalogued scripts in complete Xcode failu
       { env, input: trace, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.split(' xcode_failed_script=')[1], script + '\n');
-    assert.doesNotMatch(result.stdout + result.stderr, /PrivateTrace|01234567|PrivateProject|PrivatePhase/);
+    assert.doesNotMatch(result.stdout + result.stderr,
+      /PrivateTrace|01234567|FEDCBA98|AAAAAAAA|PrivateProject|PrivatePhase/);
   }
 });
 

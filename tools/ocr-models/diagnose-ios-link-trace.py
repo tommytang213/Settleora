@@ -15,7 +15,8 @@ NEXT_STEP = re.compile(r"\(in target ['\"][^'\"]+['\"] from project ['\"][^'\"]+
 CLANG_COMMAND = re.compile(r"/(?:clang|clang\+\+)\s")
 FLUTTER_LINE_PREFIX = r"^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*"
 FAILED_SCRIPT_ROW = re.compile(
-    r"PhaseScriptExecution[ \t]+(?P<phase>.+?)[ \t]+\"?/[^\"]*/Script-[0-9A-Fa-f]{24}\.sh\"?"
+    r"PhaseScriptExecution[ \t]+(?P<phase>.+?)[ \t]+\"?/[^\"]*/"
+    r"Script-(?P<script_id>[0-9A-Fa-f]{24}(?:[0-9A-Fa-f]{8})?)\.sh\"?"
     r"[ \t]+\(in target '(?P<target>[^']+)' from project '(?P<project>[^']+)'\)"
 )
 FAILED_COMMAND_COUNT = re.compile(r"\(([1-9][0-9]?) failures?\)")
@@ -80,7 +81,7 @@ def failed_xcode_script(lines):
     strip_prefix = re.compile(FLUTTER_LINE_PREFIX)
     after_banner = False
     rows = None
-    labels = set()
+    scripts = set()
     for raw_line in lines:
         line = strip_prefix.sub("", raw_line, count=1).rstrip()
         if not line:
@@ -99,23 +100,24 @@ def failed_xcode_script(lines):
         count = FAILED_COMMAND_COUNT.fullmatch(line)
         if count:
             if int(count[1]) == len(rows):
-                labels.update(rows)
+                scripts.update(row for row in rows if row is not None)
+                if len(scripts) > 1:
+                    return "multiple"
             rows = None
         elif len(rows) == 64 or len(line) > 4096:
             rows = None
         elif line.startswith(("PhaseScriptExecution ", "PhaseScriptExecution\t")):
             step = FAILED_SCRIPT_ROW.fullmatch(line)
-            label = "unrecognized"
             if step:
                 phase = step["phase"].replace(r"\ ", " ").replace(r"\[", "[").replace(r"\]", "]")
-                label = SCRIPT_LABELS.get((step["project"], step["target"], phase), label)
-            rows.append(label)
+                identity = (step["project"], step["target"], step["script_id"].upper())
+                label = SCRIPT_LABELS.get((step["project"], step["target"], phase), "unrecognized")
+                rows.append((identity, label))
+            else:
+                rows.append((None, "unrecognized"))
         else:
             rows.append(None)
-    labels.discard(None)
-    if len(labels) > 1:
-        return "multiple"
-    return next(iter(labels), "unavailable")
+    return next(iter(scripts))[1] if scripts else "unavailable"
 
 
 def report(trace, dylib, capture_status):
