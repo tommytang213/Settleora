@@ -1217,6 +1217,28 @@ test('iOS-only dispatch selects the ordinary full101 lane and binds exact workfl
   assert.equal(supported.status, 0, supported.stderr);
 });
 
+test('iOS dependency setup scopes macOS desktop suppression to Flutter pub get', () => {
+  const native = workflow('mobile-ocr-native-acceptance.yml');
+  const ios = native.jobs['ios-native-acceptance'];
+  const dependencies = stepsFor(ios).find((step) => step.name === 'Install dependencies and pods');
+  assert.equal(dependencies['working-directory'], '${{ runner.temp }}/ios-acceptance-source/apps/mobile');
+  assert.equal(ios.env.FLUTTER_MACOS, undefined);
+  assert.equal(dependencies.env?.FLUTTER_MACOS, undefined);
+
+  const command = [
+    'flutter() { printf "%s\\n" "$FLUTTER_MACOS $*"; }',
+    dependencies.run.split('git diff --exit-code -- pubspec.lock', 1)[0],
+    'printf "%s\\n" "$FLUTTER_MACOS"',
+  ].join('\n');
+  const result = spawnSync('bash', ['-e', '-u', '-o', 'pipefail', '-c', command], {
+    cwd: repoRoot,
+    env: { ...process.env, FLUTTER_MACOS: 'true' },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'false pub get\ntrue\n');
+});
+
 test('iOS evidence keeps the failed phase before any simulator fixture runs', (t) => {
   const steps = stepsFor(workflow('mobile-ocr-native-acceptance.yml').jobs['ios-native-acceptance']);
   const prepare = steps.find((step) => step.name.startsWith('Prepare ARM64 dependencies'));

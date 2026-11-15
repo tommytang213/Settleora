@@ -503,7 +503,8 @@ jobs:
       - name: Install dependencies and pods
         working-directory: ${{ runner.temp }}/ios-acceptance-source/apps/mobile
         run: |
-          flutter pub get
+          # Keep macOS desktop CocoaPods generation out of the iOS test checkout.
+          FLUTTER_MACOS=false flutter pub get
           git diff --exit-code -- pubspec.lock
           # Prove the canonical production CocoaPods graph before restoring the
           # pinned integration_test metadata needed only by the simulator run.
