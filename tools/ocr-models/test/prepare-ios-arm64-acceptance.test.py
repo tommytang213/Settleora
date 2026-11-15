@@ -686,6 +686,12 @@ print JSON.generate(checksums)
             source_types[relative] = stat.S_IFLNK
             (root / "apps/mobile/lib/second.dart").write_bytes(b"reviewed bytes")
             self.assertEqual(m.verify_protected_source(root, tracked, source_types), tracked)
+            with tempfile.TemporaryDirectory() as external:
+                redirected = Path(external) / "lib"
+                path.parent.rename(redirected)
+                path.parent.symlink_to(redirected, target_is_directory=True)
+                # Identical leaves and link texts cannot authenticate an aliased parent.
+                check_rejection("unexpected_type")
 
     def test_cli_cannot_start_a_native_setup_outside_owned_normal_lane(self):
         result = subprocess.run([sys.executable, "-I", "-B", str(MODULE), "prepare"],

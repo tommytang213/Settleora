@@ -179,13 +179,16 @@ export function readIosArm64PreparationFailure(log) {
     closeSync(file);
   }
   let phase = "prepare_projected_pods";
-  const observations = [];
+  let observations = [];
   if (length < bytes.length) {
     // Latin-1 preserves every byte. Only complete newline-terminated records count.
     for (const line of bytes.subarray(0, length).toString("latin1").split("\n").slice(0, -1)) {
       if (line.startsWith(phasePrefix)) {
         const label = line.slice(phasePrefix.length);
-        if (iosArm64PreparationPhases.has(label)) phase = label;
+        if (iosArm64PreparationPhases.has(label)) {
+          phase = label;
+          observations = [];
+        }
       } else if (phase === protectedSourcePhase && line.startsWith(sourcePrefix)) {
         observations.push(line.slice(sourcePrefix.length));
       }

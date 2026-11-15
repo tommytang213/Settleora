@@ -701,6 +701,11 @@ def verify_protected_source(target, tracked, source_types):
             continue
         file = target / relative
         try:
+            ancestor = target
+            for part in path.parts[:-1]:
+                ancestor /= part
+                if not stat.S_ISDIR(ancestor.lstat().st_mode):
+                    raise ProtectedSourceRejection("unexpected_type", relative)
             file_type = stat.S_IFMT(file.lstat().st_mode)
             if file_type != source_types[relative]:
                 raise ProtectedSourceRejection("unexpected_type", relative)

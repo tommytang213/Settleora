@@ -1212,6 +1212,10 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     '    if [[ -n "${PREPARE_SECOND_SOURCE_OBSERVATION:-}" ]]; then',
     '      printf "ios_arm64_detached_source_failure=%s\\n" "$PREPARE_SECOND_SOURCE_OBSERVATION"',
     '    fi',
+    '    if [[ "${PREPARE_REENTER_SOURCE_PHASE:-}" == 1 ]]; then',
+    '      printf "%s\\n" ios_arm64_preparation_phase=hash_projected_native_pod_inputs',
+    '      printf "%s\\n" ios_arm64_preparation_phase=verify_projected_detached_source',
+    '    fi',
     '    if [[ -n "${PREPARE_NUL_SOURCE_OBSERVATION:-}" ]]; then',
     '      printf "ios_arm64_detached_source_failure=%.12s\\0%s\\n" "$PREPARE_NUL_SOURCE_OBSERVATION" "${PREPARE_NUL_SOURCE_OBSERVATION:12}"',
     '    fi',
@@ -1303,6 +1307,7 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     { PREPARE_TRUNCATED_SOURCE_OBSERVATION: validObservation },
     { PREPARE_SOURCE_OBSERVATION: validObservation, PREPARE_SECOND_SOURCE_OBSERVATION: validObservation },
     { PREPARE_SOURCE_OBSERVATION: validObservation, PREPARE_SECOND_SOURCE_OBSERVATION: malformedObservation },
+    { PREPARE_SOURCE_OBSERVATION: validObservation, PREPARE_REENTER_SOURCE_PHASE: '1' },
   ]) {
     checkFailure(prepareCommand, 37, detachedSourcePhase, { PREPARE_PHASE: detachedSourcePhase, ...additional });
   }
