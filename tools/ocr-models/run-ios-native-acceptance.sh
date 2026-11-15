@@ -262,8 +262,8 @@ replaceOnce('/* End PBXFileReference section */',
 const podCheck = `/usr/bin/env python3 -I -B "${workspace}/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-runner-build`;
 replaceOnce('/* End PBXShellScriptBuildPhase section */',
   `\t\t${podCheckId} /* Verify OCR test Pods */ = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify OCR test Pods"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = ${JSON.stringify(podCheck)}; };\n/* End PBXShellScriptBuildPhase section */`);
-replaceOnce('\t\t\t\tB30000000000000000000000 /* Copy OCR acceptance fixtures */,',
-  `\t\t\t\t${podCheckId} /* Verify OCR test Pods */,\n\t\t\t\tB30000000000000000000000 /* Copy OCR acceptance fixtures */,`);
+replaceOnce('\t\t\t\t9740EEB61CF901F6004384FC /* Run Script */,',
+  `\t\t\t\t${podCheckId} /* Verify OCR test Pods */,\n\t\t\t\t9740EEB61CF901F6004384FC /* Run Script */,`);
 replaceOnce('97C146EB1CF9000F007C117D /* Frameworks */ = {\n\t\t\tisa = PBXFrameworksBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (',
   `97C146EB1CF9000F007C117D /* Frameworks */ = {\n\t\t\tisa = PBXFrameworksBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (\n\t\t\t\t${buildId} /* OCR test interposer in Frameworks */,`);
 fs.writeFileSync(projectPath, source);
@@ -422,8 +422,10 @@ phase=retire_first_simulator_bundle
 python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" retire-first-bundle
 phase=execute_flutter_test
 status=0
+listener_directory="$RUNNER_TEMP/settleora-ocr-flutter-test"
+mkdir -m 700 "$listener_directory"
 observe_ios_phase flutter_capture_enter
-node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
+TMPDIR="$listener_directory" node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
   --stdout="$RUNNER_TEMP/ios-acceptance.log" \
   --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
   --max-bytes=33554432 \

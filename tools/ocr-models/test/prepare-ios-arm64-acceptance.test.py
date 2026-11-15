@@ -262,6 +262,11 @@ project.save""", first)
                            input=node, text=True, check=True, capture_output=True, timeout=15)
             self.assertNotEqual(config.read_text(), raw)
             self.assertEqual(m.runner_build_selection(project), expected)
+            phases = json.loads(m.ruby_json("""require 'xcodeproj'
+project = Xcodeproj::Project.open(ARGV[0])
+puts JSON.generate(project.targets.find { |target| target.name == 'Runner' }.build_phases.map(&:display_name))
+""", project))
+            self.assertLess(phases.index("Verify OCR test Pods"), phases.index("Run Script"))
             for original, changed in (
                 ("path = AppDelegate.swift;", "path = Replacement.swift;"),
                 ("path = Assets.xcassets;", "path = Replacement.xcassets;"),
@@ -306,20 +311,54 @@ project.save""", first)
 
     def test_runner_build_phase_checks_actual_effective_input_settings(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            target = Path(directory).resolve()
+            root = target / "setup"
+            root.mkdir()
+            mobile, sdk = target / "apps/mobile", target / "flutter"
+            sdk.mkdir()
+            (mobile / "lib").mkdir(parents=True)
+            (mobile / "lib/main.dart").write_text("void main() {}\n")
             phase = dict(TARGET_NAME="Runner", CONFIGURATION="Debug", PLATFORM_NAME="iphonesimulator",
                          PRODUCT_NAME="Runner", FULL_PRODUCT_NAME="Runner.app", EXECUTABLE_NAME="Runner",
                          PRODUCT_BUNDLE_IDENTIFIER=m.RUNNER_BUNDLE_ID,
-                         SWIFT_OBJC_BRIDGING_HEADER="Runner/Runner-Bridging-Header.h")
+                         SWIFT_OBJC_BRIDGING_HEADER="Runner/Runner-Bridging-Header.h",
+                         FLUTTER_APPLICATION_PATH=str(mobile), FLUTTER_ROOT=str(sdk))
             (root / "setup.json").write_text(json.dumps({
-                "runnerEffectiveInputs": {"Runner": m.runner_input_settings(phase)},
+                "runnerEffectiveInputs": {"Runner": m.runner_input_settings(phase)}, "flutterSdk": str(sdk),
             }))
             with patch.object(m, "verify_build_pods") as verify, patch.dict(os.environ, phase, clear=True):
-                m.verify_runner_build(root, root)
-                verify.assert_called_once_with(root, root)
+                m.verify_runner_build(root, target)
+                verify.assert_called_once_with(root, target)
                 os.environ["EXCLUDED_SOURCE_FILE_NAMES"] = "AppDelegate.swift"
                 with self.assertRaises(ValueError):
-                    m.verify_runner_build(root, root)
+                    m.verify_runner_build(root, target)
+
+    def test_flutter_backend_uses_the_detached_root_and_generated_integration_listener(self):
+        with tempfile.TemporaryDirectory() as directory:
+            top = Path(directory).resolve()
+            root, mobile, sdk = top / "setup", top / "mobile", top / "flutter"
+            for path in (root, mobile / ".dart_tool", mobile / "integration_test", sdk):
+                path.mkdir(parents=True)
+            (mobile / ".dart_tool/package_config.json").write_text("{}")
+            test = mobile / m.OCR_TEST
+            test.write_text("void main() {}\n")
+            listener = top / "settleora-ocr-flutter-test/flutter_test_listener.fixture/listener.dart"
+            listener.parent.mkdir(parents=True)
+            valid = (f"import '{test.as_uri()}' as test;\n"
+                     "const packageConfigLocation = '.dart_tool/package_config.json';\n"
+                     "IntegrationTestWidgetsFlutterBinding.ensureInitialized();\nawait Future(test.main);\n")
+            listener.write_text(valid)
+            (top / "first-ios-acceptance-runner.app").mkdir()
+            settings = dict(FLUTTER_APPLICATION_PATH=str(mobile), FLUTTER_ROOT=str(sdk), FLUTTER_TARGET=str(listener))
+            m.verify_flutter_build_target(root, mobile, sdk, settings)
+            for key in ("FLUTTER_APPLICATION_PATH", "FLUTTER_ROOT"):
+                with self.subTest(changed=key), self.assertRaises(ValueError):
+                    m.verify_flutter_build_target(root, mobile, sdk, dict(settings, **{key: str(top)}))
+            for invalid in (valid.replace(test.as_uri(), (mobile / "replacement.dart").as_uri()),
+                            valid.replace(".dart_tool/package_config.json", (top / "replacement.json").as_uri())):
+                listener.write_text(invalid)
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    m.verify_flutter_build_target(root, mobile, sdk, settings)
 
     def prepare_with_newer_retained_pod_available(self, subspec=False, require_refresh=False):
         # Exercise the real prepare orchestration. Downloads/tool execution and
@@ -395,7 +434,8 @@ project.save""", first)
                  patch.object(m, "verify") as verify, \
                  patch.object(m, "pods_build_selection", return_value={"runnerBuildSelectionSha256": "b" * 64}), \
                  patch.object(m, "runner_build_selection", return_value="b" * 64), \
-                 patch.object(m, "effective_runner_inputs", return_value={"Runner": "fixture"}), \
+                 patch.object(m, "effective_runner_inputs", return_value={"Runner": {
+                     "FLUTTER_APPLICATION_PATH": str(mobile), "FLUTTER_ROOT": str(sdk)}}), \
                  patch.object(m, "ruby_json", side_effect=lambda _program, *args, data=None: json.dumps({name: "b" * 40 for name in json.loads(data)}).encode()), \
                  patch.object(m, "write_pod_lock", create=True, side_effect=lambda path, document: path.write_text(json.dumps(document))), \
                  patch.dict(os.environ, EXPECTED_HEAD="fixture-head", PUB_CACHE=str(cache)):
@@ -802,6 +842,8 @@ print JSON.generate(checksums)
             fixtures = repo / "apps/mobile/test/fixtures/receipt_ocr"
             copied = bundle / "receipt_ocr_acceptance"
             shutil.copytree(fixtures, copied)
+            model_assets = bundle / "Frameworks/App.framework/flutter_assets" / m.MODEL_ASSET_DIRECTORY
+            shutil.copytree(repo / "apps/mobile" / m.MODEL_ASSET_DIRECTORY, model_assets)
             (bundle / "Info.plist").write_bytes(plistlib.dumps({
                 "CFBundleIdentifier": m.RUNNER_BUNDLE_ID, "CFBundleExecutable": "Runner",
             }))
@@ -825,7 +867,24 @@ print JSON.generate(checksums)
                     path.write_bytes(binary() if path == runner else binary() + b"x")
             manifest = json.loads((fixtures / "manifest.json").read_bytes())
             test_image = copied / manifest["fixtures"][0]["file"]
+            image = test_image.read_bytes()
             test_image.write_bytes(b"changed bundled receipt")
+            with self.assertRaises(ValueError):
+                m.verify_test_bundle(repo, target, target)
+            test_image.write_bytes(image)
+            catalog = json.loads((model_assets / "catalog.json").read_bytes())
+            first_model = catalog["packs"][0]
+            asset = Path(first_model["assetDirectory"]) / first_model["files"][0]["name"]
+            shadow = bundle / "flutter_assets" / asset
+            shadow.parent.mkdir(parents=True)
+            source_model = bundle / "Frameworks/App.framework/flutter_assets" / asset
+            shutil.copyfile(source_model, shadow)
+            m.verify_test_bundle(repo, target, target)
+            with shadow.open("r+b") as stream:
+                byte = stream.read(1)
+                stream.seek(0)
+                stream.write(bytes([byte[0] ^ 1]))
+            self.assertEqual(shadow.stat().st_size, source_model.stat().st_size)
             with self.assertRaises(ValueError):
                 m.verify_test_bundle(repo, target, target)
 

@@ -39,11 +39,14 @@ PODS_GATE_SCRIPT = (
 )
 RUNNER_BUNDLE_ID = "com.tommytang213.settleora"
 RUNNER_APP = Path("apps/mobile/build/ios/iphonesimulator/Runner.app")
+OCR_TEST = Path("integration_test/receipt_ocr_real_provider_test.dart")
+MODEL_ASSET_DIRECTORY = Path("assets/receipt_ocr_models")
 RUNNER_INPUT_SETTINGS = (
     "SWIFT_OBJC_BRIDGING_HEADER", "GCC_PREFIX_HEADER", "MODULEMAP_FILE",
     "EXCLUDED_SOURCE_FILE_NAMES", "INCLUDED_SOURCE_FILE_NAMES",
     "PRODUCT_NAME", "FULL_PRODUCT_NAME", "EXECUTABLE_NAME", "PRODUCT_BUNDLE_IDENTIFIER",
     "INFOPLIST_FILE", "GENERATE_INFOPLIST_FILE",
+    "FLUTTER_APPLICATION_PATH", "FLUTTER_ROOT",
 )
 
 
@@ -743,6 +746,7 @@ def prepare(repo, root, target, manifest):
     protected = verify_protected_source(target, tracked)
     proof = {"schemaVersion": 1, "sourceHead": os.environ["EXPECTED_HEAD"], "architecture": "arm64",
              "root": str(root), "target": str(target), "referenceManifestSha256": REFERENCE_SHA256,
+             "flutterSdk": str(sdk),
              "archives": manifest["archives"], "localPodPaths": paths, "protectedSource": protected, "packageProjection": package_proof,
              "localPodInputs": local_pod_inputs(root, paths),
              "nativePluginRefresh": plugin_refresh, "iosPluginInputs": plugin_inputs,
@@ -784,6 +788,9 @@ def prepare(repo, root, target, manifest):
     require(proof["podsBuildSelection"]["runnerBuildSelectionSha256"]
             == runner_build_selection(repo / "apps/mobile/ios/Runner.xcodeproj"))
     proof["runnerEffectiveInputs"] = effective_runner_inputs(mobile / "ios")
+    runner_settings = proof["runnerEffectiveInputs"]["Runner"]
+    require(Path(runner_settings["FLUTTER_APPLICATION_PATH"]).resolve(strict=True) == mobile
+            and Path(runner_settings["FLUTTER_ROOT"]).resolve(strict=True) == sdk)
     (root / "setup.json").write_text(json.dumps(proof, indent=2) + "\n")
     verify(repo, root, target, pods=True)
 
@@ -903,6 +910,33 @@ def verify_runner_build(root, target):
     require(os.environ.get("TARGET_NAME") == "Runner" and os.environ.get("CONFIGURATION") == "Debug"
             and os.environ.get("PLATFORM_NAME") == "iphonesimulator")
     require(runner_input_settings(os.environ) == proof["runnerEffectiveInputs"]["Runner"])
+    verify_flutter_build_target(root, target / "apps/mobile", Path(proof["flutterSdk"]), os.environ)
+
+
+def verify_flutter_build_target(root, mobile, sdk, settings):
+    require(Path(settings["FLUTTER_APPLICATION_PATH"]).resolve(strict=True) == mobile)
+    require(Path(settings["FLUTTER_ROOT"]).resolve(strict=True) == sdk)
+    entrypoint = Path(settings.get("FLUTTER_TARGET", "lib/main.dart"))
+    if not (root.parent / "first-ios-acceptance-runner.app").exists():
+        require((mobile / entrypoint).resolve(strict=True) == mobile / "lib/main.dart")
+        return
+    listener_root = root.parent / "settleora-ocr-flutter-test"
+    require(entrypoint.is_absolute() and entrypoint.name == "listener.dart"
+            and entrypoint.parent.name.startswith("flutter_test_listener.")
+            and entrypoint.parent.parent.resolve(strict=True) == listener_root.resolve(strict=True)
+            and not entrypoint.is_symlink() and entrypoint.is_file()
+            and entrypoint.resolve(strict=True).is_relative_to(listener_root.resolve(strict=True))
+            and 0 < entrypoint.stat().st_size <= 16 * 1024)
+    source = entrypoint.read_text()
+    expected_test = (mobile / OCR_TEST).as_uri()
+    imports = re.findall(r"(?m)^import '([^'\n]+)' as test;$", source)
+    require(imports == [expected_test] and "IntegrationTestWidgetsFlutterBinding.ensureInitialized();" in source
+            and "await Future(test.main);" in source)
+    configurations = re.findall(r"(?m)^const packageConfigLocation = '([^'\n]+)';$", source)
+    require(len(configurations) == 1)
+    config = urlparse(configurations[0])
+    require(config.scheme in ("", "file") and not (config.netloc or config.params or config.query or config.fragment))
+    require((mobile / unquote(config.path)).resolve(strict=True) == mobile / ".dart_tool/package_config.json")
 
 
 def retire_first_bundle(target, temporary):
@@ -911,6 +945,43 @@ def retire_first_bundle(target, temporary):
     require(bundle.is_dir() and bundle.resolve(strict=True) == bundle and not saved.exists() and not saved.is_symlink())
     bundle.rename(saved)
     require(not bundle.exists() and not bundle.is_symlink())
+
+
+def verify_bundled_models(mobile, bundle):
+    source_catalog = mobile / MODEL_ASSET_DIRECTORY / "catalog.json"
+    original = source_catalog.read_bytes()
+    catalog = json.loads(original)
+    assets = {MODEL_ASSET_DIRECTORY / "catalog.json": (len(original), sha(original))}
+    for pack in catalog["packs"]:
+        directory = Path(pack["assetDirectory"])
+        require(directory.is_relative_to(MODEL_ASSET_DIRECTORY) and ".." not in directory.parts)
+        for file in pack["files"]:
+            require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", file["name"]))
+            asset = directory / file["name"]
+            require(asset not in assets and type(file["bytes"]) is int
+                    and 0 < file["bytes"] <= 128 * 1024 * 1024 and re.fullmatch(r"[0-9a-f]{64}", file["sha256"]))
+            assets[asset] = (file["bytes"], file["sha256"])
+    require(len(assets) == 17)
+
+    framework = bundle / "Frameworks/App.framework"
+    for plist in (bundle / "Info.plist", framework / "Info.plist"):
+        if plist.is_file():
+            require(plist.stat().st_size <= 1024 * 1024 and plist.resolve(strict=True).is_relative_to(bundle))
+            require(plistlib.loads(plist.read_bytes()).get("FLTAssetsPath", "flutter_assets") == "flutter_assets")
+    roots = [bundle, *sorted(bundle.glob("*.lproj"))]
+    require(len(roots) <= 128)
+    for asset, (size, digest) in assets.items():
+        key = Path("flutter_assets") / asset
+        # Match the Swift lookup order. Verify every present copy so a localized
+        # resource or a higher-precedence copy cannot shadow verified bytes.
+        candidates = [*(root / key for root in roots), bundle / asset.relative_to("assets"), framework / key]
+        present = [path for path in candidates if path.exists() or path.is_symlink()]
+        require(present)
+        for path in present:
+            require(path.is_file() and not path.is_symlink() and path.resolve(strict=True).is_relative_to(bundle)
+                    and path.stat().st_size == size)
+            with path.open("rb") as stream:
+                require(hashlib.file_digest(stream, "sha256").hexdigest() == digest)
 
 
 def verify_test_bundle(repo, target, temporary):
@@ -946,6 +1017,7 @@ def verify_test_bundle(repo, target, temporary):
     declared = {row["file"] for row in manifest["fixtures"]}
     require(len(manifest["fixtures"]) == len(declared) == 101 and declared <= expected_files.keys())
     require(bounded_tree_files(bundle / "receipt_ocr_acceptance") == expected_files)
+    verify_bundled_models(repo / "apps/mobile", bundle)
     print("ios_full101_test_bundle_arm64=verified")
 
 
