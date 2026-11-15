@@ -80,7 +80,7 @@ def project_plugin_spec(document, name):
     return projected
 
 
-def package_files(root):
+def bounded_tree_files(root):
     require(root.is_dir() and not root.is_symlink() and root.resolve() == root)
     result, total = {}, 0
     for path in sorted(root.rglob("*")):
@@ -88,19 +88,61 @@ def package_files(root):
             continue
         rel = path.relative_to(root).as_posix()
         require(".git" not in Path(rel).parts)
-        mode = path.lstat().st_mode
+        metadata = path.lstat()
+        mode = metadata.st_mode
         require(stat.S_ISREG(mode) or stat.S_ISLNK(mode))
         if stat.S_ISLNK(mode):
             require(path.resolve().is_relative_to(root))
             raw = os.readlink(path).encode()
         else:
+            require(0 <= metadata.st_size <= 64 * 1024 * 1024 - total)
             raw = path.read_bytes()
         total += len(raw)
         require(len(result) < 10000 and total <= 64 * 1024 * 1024)
         result[rel] = {"sha256": sha(raw), "symlink": stat.S_ISLNK(mode),
                        "executable": bool(mode & 0o111)}
+    return result
+
+
+def package_files(root):
+    result = bounded_tree_files(root)
     require("pubspec.yaml" in result and any(name.startswith("lib/") for name in result))
     return result
+
+
+def ios_plugin_inputs(mobile, installed=False):
+    data = json.loads((mobile / ".flutter-plugins-dependencies").read_bytes())
+    require(data["swift_package_manager_enabled"]["ios"] is False)
+    plugins = data["plugins"]["ios"]
+    require(isinstance(plugins, list) and 0 < len(plugins) <= 128)
+    records = {}
+    sources = {}
+    for plugin in plugins:
+        name = plugin["name"]
+        require(re.fullmatch(r"[a-z][a-z0-9_]*", name) and name not in records and name not in DISABLED_IOS_PLUGINS)
+        native = plugin.get("native_build", True)
+        shared = plugin.get("shared_darwin_source", False)
+        require(type(native) is bool and type(shared) is bool)
+        path = Path(plugin["path"])
+        require(path.is_absolute())
+        resolved = path.resolve(strict=True)
+        require(resolved.is_dir())
+        records[name] = plugin
+        if native:
+            directory = "darwin" if shared else "ios"
+            source = resolved / directory
+            require((source / (name + ".podspec")).is_file())
+            files = bounded_tree_files(source)
+            sources[name] = {"root": str(resolved), "sourceDir": directory,
+                             "inputSha256": sha(json.dumps(files, sort_keys=True).encode())}
+    if installed:
+        links = mobile / "ios/.symlinks/plugins"
+        require(links.is_dir() and not links.is_symlink())
+        require({path.name for path in links.iterdir()} == set(sources))
+        for name, source in sources.items():
+            link = links / name
+            require(link.is_symlink() and link.resolve(strict=True) == Path(source["root"]))
+    return {"inventory": records, "nativeSources": sources}
 
 
 def project_packages(config_path, destination, approved_roots):
@@ -454,6 +496,7 @@ def prepare(repo, root, target, manifest):
                       "google_mlkit_text_recognition": pub_cache / "hosted/pub.dev/google_mlkit_text_recognition-0.15.1"}
     package_proof = project_packages(mobile / ".dart_tool/package_config.json", root / "flutter-packages", approved_roots)
     plugin_refresh = regenerate_native_plugins(base, sdk, mobile, root, deadline)
+    plugin_inputs = ios_plugin_inputs(mobile)
     paths = {"OpenCV": str(output), "onnxruntime-c": str(source["ort-c"]),
              "onnxruntime-objc": str(source["ort-objc"]), "Yams": str(base.single_directory(source["yams"]))}
     (mobile / "ios/Podfile").write_text(derive_podfile(original_podfile, paths))
@@ -465,7 +508,7 @@ def prepare(repo, root, target, manifest):
     proof = {"schemaVersion": 1, "sourceHead": os.environ["EXPECTED_HEAD"], "architecture": "arm64",
              "root": str(root), "target": str(target), "referenceManifestSha256": REFERENCE_SHA256,
              "archives": manifest["archives"], "localPodPaths": paths, "protectedSource": protected, "packageProjection": package_proof,
-             "nativePluginRefresh": plugin_refresh,
+             "nativePluginRefresh": plugin_refresh, "iosPluginInputs": plugin_inputs,
              "derivedPodfileSha256": sha((mobile / "ios/Podfile").read_bytes()),
              "debugBaseSha256": sha(original_debug), "debugDerivedSha256": sha(debug.read_bytes()),
              "pubspecLockSha256": sha((mobile / "pubspec.lock").read_bytes()),
@@ -544,9 +587,10 @@ def verify(repo, root, target, pods=False, stage="prepared"):
     for row in proof["packageProjection"]["packages"].values():
         require(package_files(Path(row["original"])) == row["originalFiles"])
         require(package_files(Path(row["clone"])) == row["files"])
-    plugins = json.loads((mobile / ".flutter-plugins-dependencies").read_bytes())["plugins"]["ios"]
-    names = {plugin["name"] for plugin in plugins}
-    require(not set(DISABLED_IOS_PLUGINS) & names and {"integration_test", "file_picker", "image_picker_ios", "flutter_secure_storage_darwin"} <= names)
+    plugin_inputs = ios_plugin_inputs(mobile, installed=pods)
+    require(plugin_inputs == proof["iosPluginInputs"])
+    require({"integration_test", "file_picker", "image_picker_ios", "flutter_secure_storage_darwin"}
+            <= plugin_inputs["nativeSources"].keys())
     registrant = (mobile / "ios/Runner/GeneratedPluginRegistrant.m").read_text()
     require(not re.search(r"GoogleMlKit|google_mlkit", registrant))
     require("IntegrationTestPlugin" in registrant and "FLTImagePickerPlugin" in registrant)
@@ -579,6 +623,8 @@ def verify(repo, root, target, pods=False, stage="prepared"):
                       opencvObjectCount=proof["opencvObjectCount"], opencvPlatformIds=proof["opencvPlatformIds"],
                       ortSimulatorImageCount=proof["ortSimulatorImageCount"], ortPlatformIds=proof["ortPlatformIds"],
                       opencvBinarySha256=proof["opencvBinarySha256"], ortBinarySha256=proof["ortBinarySha256"],
+                      retainedNativePluginInputs=len(plugin_inputs["nativeSources"]),
+                      retainedNativePluginInputsSha256=sha(json.dumps(plugin_inputs, sort_keys=True).encode()),
                       protectedSourceFiles=len(proof["protectedSource"]),
                       protectedSourceDigest=sha(json.dumps(proof["protectedSource"],sort_keys=True).encode()))
         with tempfile.NamedTemporaryFile(mode="w", dir=root, prefix=".verification-", delete=False) as receipt:
@@ -592,14 +638,41 @@ def verify_build_pods(root, target):
     proof = json.loads((root / "verification.json").read_bytes())
     require(proof["sourceHead"] == os.environ["EXPECTED_HEAD"])
     require(proof["graphVerifiedAt"] in ("prepared", "after_simulator_build"))
-    verified_installed_pod_lock(target / "apps/mobile/ios", proof["podfileLockSha256"])
+    mobile = target / "apps/mobile"
+    verified_installed_pod_lock(mobile / "ios", proof["podfileLockSha256"])
+    observed = ios_plugin_inputs(mobile, installed=True)
+    require(sha(json.dumps(observed, sort_keys=True).encode()) == proof["retainedNativePluginInputsSha256"])
     print("ios_full101_arm64_build_pods=verified")
+
+
+def verify_test_bundle(repo, target, temporary):
+    base = module(repo / "tools/ocr-models/ios-paddle-arm64-compatibility.py", "full101_test_bundle")
+    bundle = target / "apps/mobile/build/ios/iphonesimulator/Runner.app"
+    runner = bundle / "Runner"
+    debug_image = bundle / "Runner.debug.dylib"
+    embedded = bundle / "Frameworks/libSettleoraOcrNetworkDeny.dylib"
+    original = temporary / embedded.name
+    required_images = [runner, embedded]
+    if debug_image.exists() or debug_image.is_symlink():
+        required_images.append(debug_image)
+    for path in required_images:
+        require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(bundle))
+        require(0 < path.stat().st_size <= 64 * 1024 * 1024)
+        binary = path.read_bytes()
+        require(binary.startswith(b"\xcf\xfa\xed\xfe") and base.macho_platforms(binary) == [7])
+    require(original.is_file() and not original.is_symlink()
+            and original.stat().st_size == embedded.stat().st_size and original.read_bytes() == embedded.read_bytes())
+    print("ios_full101_test_bundle_arm64=verified")
 
 
 def main():
     if sys.argv[1:] == ["verify-build-pods"]:
         _, root, target, _ = context()
         verify_build_pods(root, target)
+        return
+    if sys.argv[1:] == ["verify-test-bundle"]:
+        repo, root, target, _ = context()
+        verify_test_bundle(repo, target, root.parent)
         return
     stages = {
         "verify": "prepared",

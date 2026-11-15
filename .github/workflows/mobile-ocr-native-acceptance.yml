@@ -455,6 +455,7 @@ jobs:
           fetch-depth: 0
 
       - name: Verify exact candidate
+        id: verify_candidate
         env:
           EXECUTION_MODE: ${{ inputs.mode }}
         shell: bash
@@ -540,9 +541,12 @@ jobs:
           SETTLEORA_IOS_ACCEPTANCE_ROOT: ${{ runner.temp }}/ios-acceptance-source
         shell: bash
         run: |
+          umask 077
           status=0
-          python3 -I -B tools/ocr-models/prepare-ios-arm64-acceptance.py prepare || status=$?
+          python3 -I -B tools/ocr-models/prepare-ios-arm64-acceptance.py prepare \
+            >"$RUNNER_TEMP/ios-arm64-preparation.log" 2>&1 || status=$?
           if test "$status" -ne 0; then
+            printf 'ios_arm64_preparation=failed\n' >&2
             printf 'status=%s\nfailure_phase=prepare_projected_pods\n' "$status" >> "$GITHUB_OUTPUT"
           fi
           exit "$status"
@@ -580,7 +584,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-ios-native-acceptance.sh" "${{ steps.simulator.outputs.udid }}"
 
       - name: Measure iOS app and model payload delta
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.verify_candidate.outcome == 'success' }}
         id: package
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -642,9 +646,23 @@ jobs:
           echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded iOS evidence
-        if: always()
+        if: ${{ always() && steps.verify_candidate.outcome == 'success' }}
         working-directory: ${{ github.workspace }}
+        env:
+          PREPARATION_OUTCOME: ${{ steps.arm64_dependencies.outcome }}
+          PREPARATION_STATUS: ${{ steps.arm64_dependencies.outputs.status }}
+          PREPARATION_PHASE: ${{ steps.arm64_dependencies.outputs.failure_phase }}
+          ACCEPTANCE_STATUS: ${{ steps.acceptance.outputs.status }}
+          ACCEPTANCE_PHASE: ${{ steps.acceptance.outputs.failure_phase }}
         run: |
+          test_status="${PREPARATION_STATUS:-$ACCEPTANCE_STATUS}"
+          failure_phase="${PREPARATION_PHASE:-$ACCEPTANCE_PHASE}"
+          case "$PREPARATION_OUTCOME" in
+            failure|cancelled)
+              test_status="${test_status:-98}"
+              failure_phase="${failure_phase:-prepare_projected_pods}"
+              ;;
+          esac
           test -f "$RUNNER_TEMP/ios-acceptance.log" || : >"$RUNNER_TEMP/ios-acceptance.log"
           test -f "$RUNNER_TEMP/ios-acceptance.stderr.log" || : >"$RUNNER_TEMP/ios-acceptance.stderr.log"
           node tools/ocr-models/native-acceptance-evidence.mjs \
@@ -653,8 +671,8 @@ jobs:
             --out="$RUNNER_TEMP/ios-ocr-acceptance.json" \
             --platform=ios \
             --source-sha="$EXPECTED_HEAD" \
-            --test-status="${{ steps.arm64_dependencies.outputs.status || steps.acceptance.outputs.status }}" \
-            --failure-phase="${{ steps.arm64_dependencies.outputs.failure_phase || steps.acceptance.outputs.failure_phase }}" \
+            --test-status="$test_status" \
+            --failure-phase="$failure_phase" \
             --runner-image="${{ steps.simulator.outputs.runner_image }}" \
             --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \
             --sdk-toolchain="${{ steps.simulator.outputs.sdk_toolchain }}" \
@@ -673,7 +691,7 @@ jobs:
             --require-complete=true
 
       - name: Upload bounded iOS evidence
-        if: always()
+        if: ${{ always() && steps.verify_candidate.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ios-ocr-native-acceptance-${{ env.EXPECTED_HEAD }}

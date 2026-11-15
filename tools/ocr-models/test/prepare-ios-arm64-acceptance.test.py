@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -24,6 +26,27 @@ class Arm64FlutterAcceptance(unittest.TestCase):
                 "flutter": {"plugin": {"platforms": {
                     "android": {"package": "real.android", "pluginClass": "ActualPlugin"},
                     "ios": {"pluginClass": "ActualPlugin"}}}}}
+
+    def write_projected_plugins(self, mobile):
+        links = mobile / "ios/.symlinks/plugins"
+        links.mkdir(parents=True)
+        records = []
+        for name in ("integration_test", "image_picker_ios", "file_picker",
+                     "flutter_secure_storage_darwin", "path_provider_foundation"):
+            package = mobile.parent / "pub-cache" / name
+            package.mkdir(parents=True)
+            native = name != "path_provider_foundation"
+            shared = name == "flutter_secure_storage_darwin"
+            records.append(dict(name=name, path=str(package), native_build=native, shared_darwin_source=shared))
+            if native:
+                source = package / ("darwin" if shared else "ios")
+                source.mkdir()
+                (source / (name + ".podspec")).write_text("fixture podspec\n")
+                (source / "Plugin.swift").write_text("fixture Swift\n")
+                (links / name).symlink_to(package)
+        (mobile / ".flutter-plugins-dependencies").write_text(json.dumps({
+            "swift_package_manager_enabled": {"ios": False}, "plugins": {"ios": records},
+        }))
 
     def test_native_selection_changes_only_ios_registration(self):
         for name in m.DISABLED_IOS_PLUGINS:
@@ -160,6 +183,7 @@ class Arm64FlutterAcceptance(unittest.TestCase):
             (mobile / "pubspec.lock").write_bytes(b"unchanged Dart lock\n")
             (mobile / ".dart_tool").mkdir(); (mobile / ".dart_tool/package_config.json").write_text("{}")
             (ios / "Runner").mkdir(); (ios / "Runner/GeneratedPluginRegistrant.m").write_text("GoogleMlKitCommonsPlugin")
+            self.write_projected_plugins(mobile)
             sdk = top / "sdk"; (sdk / "bin").mkdir(parents=True); (sdk / "bin/flutter").write_bytes(b"test tool marker")
             (sdk / "packages/flutter_tools/.dart_tool").mkdir(parents=True)
             (sdk / "packages/flutter_tools/.dart_tool/package_config.json").write_text("{}")
@@ -399,8 +423,7 @@ print JSON.generate(checksums)
             (mobile / "ios/Podfile").write_bytes(b"reviewed pod selection")
             (mobile / "ios/Flutter/Debug.xcconfig").write_bytes(b"arm64 configuration")
             (mobile / ".dart_tool/package_config.json").write_text("{}")
-            names = ["integration_test", "image_picker_ios", "file_picker", "flutter_secure_storage_darwin", "path_provider_foundation"]
-            (mobile / ".flutter-plugins-dependencies").write_text(json.dumps({"plugins": {"ios": [{"name": n} for n in names]}}))
+            self.write_projected_plugins(mobile)
             registrations = ["IntegrationTestPlugin", "FLTImagePickerPlugin", "FilePickerPlugin", "FlutterSecureStoragePlugin", "PathProviderPlugin"]
             raw = ("\n".join(registrations) + "\n").encode()
             registrant = mobile / "ios/Runner/GeneratedPluginRegistrant.m"; registrant.write_bytes(raw)
@@ -415,6 +438,7 @@ print JSON.generate(checksums)
                      "derivedPodfileSha256": m.sha((mobile / "ios/Podfile").read_bytes()),
                      "debugDerivedSha256": m.sha((mobile / "ios/Flutter/Debug.xcconfig").read_bytes()),
                      "packageProjection": {"projectedConfig": {}, "packages": {}},
+                     "iosPluginInputs": m.ios_plugin_inputs(mobile),
                      "nativePluginRefresh": {"nativeRegistrantSha256": m.sha(raw)}}
             (root / "setup.json").write_text(json.dumps(proof))
             base = SimpleNamespace(simulator_framework=lambda path: path / "simulator")
@@ -465,6 +489,23 @@ print JSON.generate(checksums)
                     self.assertEqual(built["graphVerifiedAt"], "after_simulator_build")
                     self.assertEqual(built["podfileLockSha256"], prepared["podfileLockSha256"])
                     m.verify_build_pods(root, target)
+                    link = ios / ".symlinks/plugins/image_picker_ios"
+                    plugin = link.resolve()
+                    swift = plugin / "ios/Plugin.swift"
+                    source = swift.read_bytes()
+                    swift.write_bytes(b"same Pod constraints, different native input")
+                    with self.assertRaises(ValueError):
+                        m.verify_build_pods(root, target)
+                    swift.write_bytes(source)
+                    moved = plugin.with_name("also_image_picker")
+                    shutil.copytree(plugin, moved)
+                    link.unlink()
+                    link.symlink_to(moved)
+                    with self.assertRaises(ValueError):
+                        m.verify_build_pods(root, target)
+                    link.unlink()
+                    link.symlink_to(plugin)
+                    m.verify_build_pods(root, target)
                     manifest.write_bytes(b"changed")
                     with self.assertRaises(ValueError):
                         m.verify_build_pods(root, target)
@@ -481,6 +522,35 @@ print JSON.generate(checksums)
                     self.assertEqual(tested["podsManifestLockSha256"], built["podfileLockSha256"])
                     with self.assertRaises(ValueError):
                         m.verify_build_pods(root, target)
+
+    def test_actual_integration_bundle_requires_arm64_simulator_and_interposer_bytes(self):
+        def binary(cpu=0x0100000c, platform=7):
+            header = struct.pack("<IIIIIIII", 0xfeedfacf, cpu, 0, 2, 1, 24, 0, 0)
+            build_version = struct.pack("<IIIIII", 0x32, 24, platform, 0, 0, 0)
+            return header + build_version
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory).resolve()
+            bundle = target / "apps/mobile/build/ios/iphonesimulator/Runner.app"
+            embedded = bundle / "Frameworks/libSettleoraOcrNetworkDeny.dylib"
+            embedded.parent.mkdir(parents=True)
+            original = target / embedded.name
+            runner = bundle / "Runner"
+            original.write_bytes(binary() + b"x")
+            embedded.write_bytes(binary() + b"x")
+            runner.write_bytes(binary())
+            repo = MODULE.parents[2]
+            m.verify_test_bundle(repo, target, target)
+            for name, path, raw in (
+                ("x86", runner, binary(cpu=0x01000007)),
+                ("device", runner, binary(platform=2)),
+                ("changed interposer", embedded, binary() + b"y"),
+            ):
+                with self.subTest(name=name):
+                    path.write_bytes(raw)
+                    with self.assertRaises(ValueError):
+                        m.verify_test_bundle(repo, target, target)
+                    path.write_bytes(binary() if path == runner else binary() + b"x")
 
 
 if __name__ == "__main__": unittest.main()

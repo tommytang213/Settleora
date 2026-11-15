@@ -1121,11 +1121,13 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const verifyAfterBuild = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-after-build');
   const inBuildPodCheck = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-build-pods');
   const runFixtures = iosRunner.indexOf('phase=execute_flutter_test');
+  const verifyTestBundle = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-test-bundle');
   const verifyAfterTest = iosRunner.indexOf('prepare-ios-arm64-acceptance.py" verify-after-test');
   assert.ok(nativeBuild >= 0 && nativeBuild < verifyAfterBuild && verifyAfterBuild < runFixtures);
   assert.ok(inBuildPodCheck >= 0 && inBuildPodCheck < nativeBuild);
   assert.ok(iosRunner.includes('alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify OCR test Pods"'));
-  assert.ok(runFixtures < verifyAfterTest && verifyAfterTest < iosRunner.lastIndexOf('echo "status=$status"'));
+  assert.ok(runFixtures < verifyTestBundle && verifyTestBundle < verifyAfterTest);
+  assert.ok(verifyAfterTest < iosRunner.lastIndexOf('echo "status=$status"'));
   const arm64Setup = read('tools/ocr-models/prepare-ios-arm64-acceptance.py');
   assert.ok(arm64Setup.includes('PRODUCTION_LOCK_SHA256'));
   assert.ok(arm64Setup.includes('verify_pod_projection'));
@@ -1156,6 +1158,14 @@ test('iOS-only dispatch selects the ordinary full101 lane and binds exact workfl
   assert.equal(flutter.with.cache, "${{ inputs.mode != 'ios_full101' }}");
   const verify = stepsFor(ios).find((step) => step.name === 'Verify exact candidate');
   assert.equal(verify.env.EXECUTION_MODE, '${{ inputs.mode }}');
+  assert.equal(verify.id, 'verify_candidate');
+  const packageStep = stepsFor(ios).find((step) => step.id === 'package');
+  const evidenceStep = stepsFor(ios).find((step) => step.name === 'Build bounded iOS evidence');
+  const upload = stepsFor(ios).find((step) => step.name === 'Upload bounded iOS evidence');
+  assert.equal(packageStep.if, "${{ !cancelled() && steps.verify_candidate.outcome == 'success' }}");
+  for (const step of [evidenceStep, upload]) {
+    assert.equal(step.if, "${{ always() && steps.verify_candidate.outcome == 'success' }}");
+  }
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' });
   assert.equal(head.status, 0);
   const expected = head.stdout.trim();
@@ -1186,7 +1196,7 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     '#!/bin/bash',
     'case " $* " in',
     '  *"prepare-ios-acceptance-worktree.py --verify "*) exit 0;;',
-    '  *"prepare-ios-arm64-acceptance.py prepare "*) exit "${PREPARE_EXIT:-37}";;',
+    '  *"prepare-ios-arm64-acceptance.py prepare "*) echo synthetic_private_tool_output >&2; exit "${PREPARE_EXIT:-37}";;',
     '  *"prepare-ios-arm64-acceptance.py verify "*) exit 43;;',
     '  *) exit 90;;',
     'esac',
@@ -1216,13 +1226,44 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     assert.equal(record.execution.preflightFailurePhase, expectedPhase);
     assert.equal(record.execution.testExitStatus, expectedStatus);
     assert.equal(record.acceptance.completed, false);
+    return result;
   }
-  checkFailure(['-e', '-o', 'pipefail', '-c', prepare.run], 37, 'prepare_projected_pods');
+  const rejected = checkFailure(['-e', '-o', 'pipefail', '-c', prepare.run], 37, 'prepare_projected_pods');
+  assert.equal(rejected.stdout, '');
+  assert.equal(rejected.stderr, 'ios_arm64_preparation=failed\n');
+  assert.equal(readFileSync(path.join(temporary, 'ios-arm64-preparation.log'), 'utf8'), 'synthetic_private_tool_output\n');
   checkFailure([path.join(repoRoot, 'tools/ocr-models/run-ios-native-acceptance.sh')],
     43, 'verify_projected_pods_before_build');
   assert.equal(prepare.id, 'arm64_dependencies');
-  assert.match(evidence.run, /steps\.arm64_dependencies\.outputs\.status \|\| steps\.acceptance\.outputs\.status/);
-  assert.match(evidence.run, /steps\.arm64_dependencies\.outputs\.failure_phase \|\| steps\.acceptance\.outputs\.failure_phase/);
+  assert.equal(evidence.env.PREPARATION_OUTCOME, '${{ steps.arm64_dependencies.outcome }}');
+  assert.equal(evidence.env.PREPARATION_STATUS, '${{ steps.arm64_dependencies.outputs.status }}');
+  assert.equal(evidence.env.PREPARATION_PHASE, '${{ steps.arm64_dependencies.outputs.failure_phase }}');
+  assert.equal(evidence.env.ACCEPTANCE_STATUS, '${{ steps.acceptance.outputs.status }}');
+  assert.equal(evidence.env.ACCEPTANCE_PHASE, '${{ steps.acceptance.outputs.failure_phase }}');
+  const command = evidence.run.split('test -f "$RUNNER_TEMP/ios-acceptance.log"')[0]
+    + 'printf "%s\\n%s\\n" "$test_status" "$failure_phase"';
+  for (const [outcome, status, phase, acceptanceStatus, acceptancePhase, expectedStatus, expectedPhase] of [
+    ['failure', '', '', '', '', '98', 'prepare_projected_pods'],
+    ['cancelled', '', '', '', '', '98', 'prepare_projected_pods'],
+    ['failure', '37', 'prepare_projected_pods', '', '', '37', 'prepare_projected_pods'],
+    ['success', '', '', '43', 'verify_projected_pods_before_build', '43', 'verify_projected_pods_before_build'],
+    ['success', '', '', '0', '', '0', ''],
+  ]) {
+    const result = spawnSync('bash', ['-e', '-u', '-o', 'pipefail', '-c', command], {
+      encoding: 'utf8',
+      env: { ...env, PREPARATION_OUTCOME: outcome, PREPARATION_STATUS: status, PREPARATION_PHASE: phase,
+        ACCEPTANCE_STATUS: acceptanceStatus, ACCEPTANCE_PHASE: acceptancePhase },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expectedStatus + '\n' + expectedPhase + '\n');
+    if (outcome === 'failure' || outcome === 'cancelled') {
+      const record = buildFailureEvidence({
+        platform: 'ios', 'test-status': expectedStatus, 'failure-phase': expectedPhase,
+      }, repoRoot);
+      assert.equal(record.execution.preflightFailurePhase, 'prepare_projected_pods');
+      assert.equal(record.acceptance.completed, false);
+    }
+  }
   writeFileSync(output, '');
   const success = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', prepare.run],
     { cwd: repoRoot, env: { ...env, PREPARE_EXIT: '0' }, encoding: 'utf8' });
