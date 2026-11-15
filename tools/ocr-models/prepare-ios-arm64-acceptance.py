@@ -676,7 +676,19 @@ class ProtectedSourceRejection(ValueError):
         self.observation = f"{reason}:{sha(relative.encode())}"
 
 
-def verify_protected_source(target, tracked):
+def git_source_types(base, repo):
+    modes = {b"100644": stat.S_IFREG, b"100755": stat.S_IFREG, b"120000": stat.S_IFLNK}
+    output = base.git(repo, "ls-tree", "-rz", os.environ["EXPECTED_HEAD"])
+    types = {}
+    for entry in output.rstrip(b"\0").split(b"\0"):
+        metadata, name = entry.split(b"\t", 1)
+        mode, kind, _ = metadata.split(b" ")
+        require(kind == b"blob" and mode in modes)
+        types[name.decode()] = modes[mode]
+    return types
+
+
+def verify_protected_source(target, tracked, source_types):
     protected = {}
     for relative, digest in tracked.items():
         path = Path(relative)
@@ -689,13 +701,10 @@ def verify_protected_source(target, tracked):
             continue
         file = target / relative
         try:
-            mode = file.lstat().st_mode
-            if stat.S_ISLNK(mode):
-                raw = os.readlink(file).encode()
-            elif stat.S_ISREG(mode):
-                raw = file.read_bytes()
-            else:
+            file_type = stat.S_IFMT(file.lstat().st_mode)
+            if file_type != source_types[relative]:
                 raise ProtectedSourceRejection("unexpected_type", relative)
+            raw = os.readlink(file).encode() if file_type == stat.S_IFLNK else file.read_bytes()
         except FileNotFoundError:
             raise ProtectedSourceRejection("missing", relative) from None
         except OSError:
@@ -730,10 +739,10 @@ def observe_preparation_phase(phase):
     print(f"ios_arm64_preparation_phase={phase}", flush=True)
 
 
-def verify_projected_detached_source(target, tracked):
+def verify_projected_detached_source(target, tracked, source_types):
     observe_preparation_phase("verify_projected_detached_source")
     try:
-        return verify_protected_source(target, tracked)
+        return verify_protected_source(target, tracked, source_types)
     except ProtectedSourceRejection as exc:
         print(f"ios_arm64_detached_source_failure={exc.observation}", flush=True)
         raise
@@ -746,6 +755,7 @@ def prepare(repo, root, target, manifest):
     deadline = time.time() + MAX_SECONDS
     base = module(repo / "tools/ocr-models/ios-paddle-arm64-compatibility.py", "full101_dependencies")
     tracked = base.verify_source(repo, os.environ["EXPECTED_HEAD"], deadline)
+    source_types = git_source_types(base, repo)
     require(subprocess.check_output(["xcodebuild", "-version"], text=True).strip() == "Xcode 16.4\nBuild version 16F6")
     require(subprocess.check_output(["pod", "--version"], text=True).strip() == "1.17.0")
     base.execute(["flutter", "precache", "--ios"], repo, root, deadline, "flutter-precache")
@@ -815,7 +825,7 @@ def prepare(repo, root, target, manifest):
     original_debug = debug.read_bytes()
     require(sha(original_debug) in DEBUG_BASE_HASHES)
     debug.write_bytes(original_debug + ARCH_CONFIG)
-    protected = verify_projected_detached_source(target, tracked)
+    protected = verify_projected_detached_source(target, tracked, source_types)
     observe_preparation_phase("hash_projected_native_pod_inputs")
     proof = {"schemaVersion": 1, "sourceHead": os.environ["EXPECTED_HEAD"], "architecture": "arm64",
              "root": str(root), "target": str(target), "referenceManifestSha256": REFERENCE_SHA256,
@@ -895,7 +905,8 @@ def verify(repo, root, target, pods=False, stage="prepared"):
             and sha(ort.read_bytes()) == proof["ortBinarySha256"])
     require(local_pod_inputs(root, proof["localPodPaths"]) == proof["localPodInputs"])
     mobile = target / "apps/mobile"
-    require(verify_protected_source(target, proof["protectedSource"]) == proof["protectedSource"])
+    require(verify_protected_source(target, proof["protectedSource"], git_source_types(base, repo))
+            == proof["protectedSource"])
     require(sha((mobile / "pubspec.lock").read_bytes()) == proof["pubspecLockSha256"])
     require(sha((mobile / "ios/Podfile").read_bytes()) == proof["derivedPodfileSha256"])
     debug = (mobile / "ios/Flutter/Debug.xcconfig").read_bytes()

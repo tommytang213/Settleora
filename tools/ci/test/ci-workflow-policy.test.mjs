@@ -1209,6 +1209,16 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     '    if [[ -n "${PREPARE_SOURCE_OBSERVATION:-}" ]]; then',
     '      printf "ios_arm64_detached_source_failure=%s\\n" "$PREPARE_SOURCE_OBSERVATION"',
     '    fi',
+    '    if [[ -n "${PREPARE_SECOND_SOURCE_OBSERVATION:-}" ]]; then',
+    '      printf "ios_arm64_detached_source_failure=%s\\n" "$PREPARE_SECOND_SOURCE_OBSERVATION"',
+    '    fi',
+    '    if [[ -n "${PREPARE_NUL_SOURCE_OBSERVATION:-}" ]]; then',
+    '      printf "ios_arm64_detached_source_failure=%.12s\\0%s\\n" "$PREPARE_NUL_SOURCE_OBSERVATION" "${PREPARE_NUL_SOURCE_OBSERVATION:12}"',
+    '    fi',
+    '    if [[ -n "${PREPARE_TRUNCATED_SOURCE_OBSERVATION:-}" ]]; then',
+    '      printf "ios_arm64_detached_source_failure=%s" "$PREPARE_TRUNCATED_SOURCE_OBSERVATION"',
+    '    fi',
+    '    if [[ "${PREPARE_OVERSIZED_LOG:-}" == 1 ]]; then printf "%17000s\\n" ""; fi',
     '    if [[ -n "${PREPARE_PRIVATE_SOURCE_OBSERVATION:-}" ]]; then',
     '      printf "ios_arm64_detached_source_failure=%s\\n" "$PREPARE_PRIVATE_SOURCE_OBSERVATION" >&2',
     '    fi',
@@ -1288,6 +1298,25 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
       PREPARE_PRIVATE_SOURCE_OBSERVATION: validObservation });
   checkFailure(prepareCommand, 37, 'hash_projected_native_pod_inputs',
     { PREPARE_PHASE: 'hash_projected_native_pod_inputs', PREPARE_SOURCE_OBSERVATION: validObservation });
+  for (const additional of [
+    { PREPARE_NUL_SOURCE_OBSERVATION: validObservation },
+    { PREPARE_TRUNCATED_SOURCE_OBSERVATION: validObservation },
+    { PREPARE_SOURCE_OBSERVATION: validObservation, PREPARE_SECOND_SOURCE_OBSERVATION: validObservation },
+    { PREPARE_SOURCE_OBSERVATION: validObservation, PREPARE_SECOND_SOURCE_OBSERVATION: malformedObservation },
+  ]) {
+    checkFailure(prepareCommand, 37, detachedSourcePhase, { PREPARE_PHASE: detachedSourcePhase, ...additional });
+  }
+  checkFailure(prepareCommand, 37, 'prepare_projected_pods',
+    { PREPARE_PHASE: detachedSourcePhase, PREPARE_SOURCE_OBSERVATION: validObservation, PREPARE_OVERSIZED_LOG: '1' });
+  const outputUnavailable = spawnSync('bash', prepareCommand, {
+    cwd: repoRoot,
+    env: { ...env, PREPARE_PHASE: detachedSourcePhase, PREPARE_SOURCE_OBSERVATION: validObservation,
+      GITHUB_OUTPUT: path.join(temporary, 'nonexistent-directory', 'output') },
+    encoding: 'utf8',
+  });
+  assert.equal(outputUnavailable.status, 37);
+  assert.equal(outputUnavailable.stdout, '');
+  assert.equal(outputUnavailable.stderr, 'ios_arm64_preparation=failed\n');
   for (const [platform, status, phase, observation] of [
     ['ios', '37', detachedSourcePhase, malformedObservation],
     ['ios', '37', detachedSourcePhase, validObservation + '\n'],

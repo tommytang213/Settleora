@@ -549,42 +549,14 @@ jobs:
               2>"$RUNNER_TEMP/ios-arm64-preparation.log" >"$phase_log"
           } 2>/dev/null || status=$?
           if test "$status" -ne 0; then
-            failure_phase=prepare_projected_pods
-            source_failure=
-            source_failure_pattern='^ios_arm64_detached_source_failure=((missing|unexpected_type|read_error|hash_mismatch):[0-9a-f]{64})$'
-            while IFS= read -r observation; do
-              case "$observation" in
-                ios_arm64_preparation_phase=prepare_flutter_toolchain|\
-                ios_arm64_preparation_phase=fetch_projected_native_sources|\
-                ios_arm64_preparation_phase=build_projected_opencv|\
-                ios_arm64_preparation_phase=verify_projected_native_frameworks|\
-                ios_arm64_preparation_phase=project_flutter_native_plugins|\
-                ios_arm64_preparation_phase=project_flutter_package_config|\
-                ios_arm64_preparation_phase=bootstrap_projected_flutter_tools|\
-                ios_arm64_preparation_phase=regenerate_projected_plugin_registrants|\
-                ios_arm64_preparation_phase=verify_projected_plugin_registrants|\
-                ios_arm64_preparation_phase=verify_projected_plugin_inventory|\
-                ios_arm64_preparation_phase=derive_projected_pod_sources|\
-                ios_arm64_preparation_phase=verify_projected_detached_source|\
-                ios_arm64_preparation_phase=hash_projected_native_pod_inputs|\
-                ios_arm64_preparation_phase=verify_projected_candidate_checkout|\
-                ios_arm64_preparation_phase=seed_projected_pod_lock|\
-                ios_arm64_preparation_phase=configure_projected_ios_app|\
-                ios_arm64_preparation_phase=install_projected_pods|\
-                ios_arm64_preparation_phase=verify_projected_xcode_configuration)
-                  failure_phase="${observation#*=}"
-                  source_failure=
-                  ;;
-              esac
-              if [[ "$failure_phase" == verify_projected_detached_source && "$observation" =~ $source_failure_pattern ]]; then
-                source_failure="${BASH_REMATCH[1]}"
-              fi
-            done 2>/dev/null < "$phase_log" || :
+            failure_outputs="$(
+              node --input-type=module - "$phase_log" 2>/dev/null <<'JS'
+          import { readIosArm64PreparationFailure } from "./tools/ocr-models/native-acceptance-evidence.mjs";
+          process.stdout.write(readIosArm64PreparationFailure(process.argv[2]));
+          JS
+            )" || failure_outputs='failure_phase=prepare_projected_pods'
             printf 'ios_arm64_preparation=failed\n' >&2
-            printf 'status=%s\nfailure_phase=%s\n' "$status" "$failure_phase" >> "$GITHUB_OUTPUT"
-            if test -n "$source_failure"; then
-              printf 'protected_source_failure=%s\n' "$source_failure" >> "$GITHUB_OUTPUT"
-            fi
+            { printf 'status=%s\n%s\n' "$status" "$failure_outputs" >> "$GITHUB_OUTPUT"; } 2>/dev/null || :
           fi
           exit "$status"
 

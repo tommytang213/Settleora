@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeFlutterRunner } from "./flutter-runner-diagnostics.mjs";
@@ -76,11 +76,7 @@ const androidPreflightFailurePhases = new Set([
   "verify_mobile_data",
   "execute_flutter_test",
 ]);
-const iosPreflightFailurePhases = new Set([
-  "initialize",
-  "validate_environment",
-  "verify_isolated_acceptance_source",
-  "prepare_projected_pods",
+const iosArm64PreparationPhases = new Set([
   "prepare_flutter_toolchain",
   "fetch_projected_native_sources",
   "build_projected_opencv",
@@ -99,6 +95,13 @@ const iosPreflightFailurePhases = new Set([
   "configure_projected_ios_app",
   "install_projected_pods",
   "verify_projected_xcode_configuration",
+]);
+const iosPreflightFailurePhases = new Set([
+  "initialize",
+  "validate_environment",
+  "verify_isolated_acceptance_source",
+  "prepare_projected_pods",
+  ...iosArm64PreparationPhases,
   "verify_projected_pods_before_build",
   "build_network_isolation",
   "build_simulator_link_anchor",
@@ -155,15 +158,52 @@ function immutableFixtureIds(repoRoot) {
   return expectedFixtureIds;
 }
 
-function protectedSourceObservation(args, phase, status) {
-  if (args.platform !== "ios" || phase !== "verify_projected_detached_source" || !(status > 0)) {
-    return {};
-  }
-  const token = args["protected-source-failure"] ?? "";
+const protectedSourcePhase = "verify_projected_detached_source";
+
+function parseProtectedSourceToken(token) {
   const fields = /^(missing|unexpected_type|read_error|hash_mismatch):([0-9a-f]{64})$/.exec(token);
   return fields?.[0] === token
-    ? { protectedSourceFailure: { reason: fields[1], expectedPathSha256: fields[2] } }
-    : {};
+    ? { reason: fields[1], expectedPathSha256: fields[2] }
+    : null;
+}
+
+export function readIosArm64PreparationFailure(log) {
+  const phasePrefix = "ios_arm64_preparation_phase=";
+  const sourcePrefix = "ios_arm64_detached_source_failure=";
+  const bytes = Buffer.alloc(16 * 1024 + 1);
+  const file = openSync(log, "r");
+  let length;
+  try {
+    length = readSync(file, bytes, 0, bytes.length, 0);
+  } finally {
+    closeSync(file);
+  }
+  let phase = "prepare_projected_pods";
+  const observations = [];
+  if (length < bytes.length) {
+    // Latin-1 preserves every byte. Only complete newline-terminated records count.
+    for (const line of bytes.subarray(0, length).toString("latin1").split("\n").slice(0, -1)) {
+      if (line.startsWith(phasePrefix)) {
+        const label = line.slice(phasePrefix.length);
+        if (iosArm64PreparationPhases.has(label)) phase = label;
+      } else if (phase === protectedSourcePhase && line.startsWith(sourcePrefix)) {
+        observations.push(line.slice(sourcePrefix.length));
+      }
+    }
+  }
+  const outputs = [`failure_phase=${phase}`];
+  if (phase === protectedSourcePhase && observations.length === 1 && parseProtectedSourceToken(observations[0])) {
+    outputs.push(`protected_source_failure=${observations[0]}`);
+  }
+  return outputs.join("\n");
+}
+
+function protectedSourceObservation(args, phase, status) {
+  if (args.platform !== "ios" || phase !== protectedSourcePhase || !(status > 0)) {
+    return {};
+  }
+  const observation = parseProtectedSourceToken(args["protected-source-failure"] ?? "");
+  return observation ? { protectedSourceFailure: observation } : {};
 }
 
 export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {

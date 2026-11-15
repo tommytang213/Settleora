@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import plistlib
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -466,6 +467,7 @@ project.save
                  patch.object(m, "PRODUCTION_LOCK_SHA256", m.sha(original_lock)), \
                  patch.object(m, "DEBUG_BASE_HASHES", {m.sha(debug.read_bytes())}), \
                  patch.object(m, "project_packages", return_value=projection), \
+                 patch.object(m, "git_source_types", return_value={"owned.dart": stat.S_IFREG}), \
                  patch.object(m, "verify_protected_source", return_value={"owned.dart": "fixed"}), \
                  patch.object(m, "verify") as verify, \
                  patch.object(m, "pods_build_selection", return_value={"runnerBuildSelectionSha256": "b" * 64}), \
@@ -642,10 +644,11 @@ print JSON.generate(checksums)
             ]:
                 path = root / rel; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b"actual bytes")
                 files[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
-            self.assertEqual(m.verify_protected_source(root, files), files)
+            source_types = dict.fromkeys(files, stat.S_IFREG)
+            self.assertEqual(m.verify_protected_source(root, files, source_types), files)
             for rel in files:
                 path = root / rel; path.write_bytes(b"changed")
-                with self.assertRaises(ValueError): m.verify_protected_source(root, files)
+                with self.assertRaises(ValueError): m.verify_protected_source(root, files, source_types)
                 path.write_bytes(b"actual bytes")
 
     def test_preparation_reports_first_rejected_tracked_path_with_bounded_reason(self):
@@ -657,12 +660,13 @@ print JSON.generate(checksums)
             expected = m.sha(b"reviewed bytes")
             tracked = {relative: expected, "apps/mobile/lib/second.dart": expected}
             path_digest = m.sha(relative.encode())
+            source_types = dict.fromkeys(tracked, stat.S_IFREG)
 
             def check_rejection(reason):
                 stdout = io.StringIO()
                 with contextlib.redirect_stdout(stdout), self.assertRaisesRegex(
                         ValueError, "^ios_arm64_acceptance_setup_rejected$"):
-                    m.verify_projected_detached_source(root, tracked)
+                    m.verify_projected_detached_source(root, tracked, source_types)
                 self.assertEqual(stdout.getvalue(),
                                  "ios_arm64_preparation_phase=verify_projected_detached_source\n"
                                  f"ios_arm64_detached_source_failure={reason}:{path_digest}\n")
@@ -675,6 +679,13 @@ print JSON.generate(checksums)
             check_rejection("hash_mismatch")
             with patch.object(Path, "read_bytes", side_effect=PermissionError("synthetic private error")):
                 check_rejection("read_error")
+            path.unlink()
+            path.symlink_to("reviewed bytes")
+            check_rejection("unexpected_type")
+            # The corresponding Git type still permits an authentic tracked link.
+            source_types[relative] = stat.S_IFLNK
+            (root / "apps/mobile/lib/second.dart").write_bytes(b"reviewed bytes")
+            self.assertEqual(m.verify_protected_source(root, tracked, source_types), tracked)
 
     def test_cli_cannot_start_a_native_setup_outside_owned_normal_lane(self):
         result = subprocess.run([sys.executable, "-I", "-B", str(MODULE), "prepare"],
@@ -747,6 +758,7 @@ print JSON.generate(checksums)
             (root / "setup.json").write_text(json.dumps(proof))
             base = SimpleNamespace(simulator_framework=lambda path: path / "simulator")
             with patch.object(m, "module", return_value=base), \
+                 patch.object(m, "git_source_types", return_value={"owned.dart": stat.S_IFREG}), \
                  patch.object(m, "verify_protected_source", return_value={"owned.dart": "fixed"}), \
                  patch.object(m, "pods_project_selection", return_value={"targetCount": 8, "sha256": "a" * 64}), \
                  patch.object(m, "runner_build_selection", return_value="b" * 64), \
