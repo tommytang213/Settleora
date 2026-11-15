@@ -23,6 +23,7 @@ import tempfile
 import time
 from urllib.parse import unquote, urljoin, urlparse
 from xml.etree import ElementTree
+from xml.parsers.expat import ExpatError
 
 ROOT_NAME = "ios-paddle-full101-arm64-v1"
 REFERENCE_SHA256 = "e9d53614fdfa07d60ac8c9b017cdd71a821918172a8955f086fb2912f8013636"
@@ -979,6 +980,18 @@ def retire_first_bundle(target, temporary):
     require(not bundle.exists() and not bundle.is_symlink())
 
 
+def read_bundled_plist(path, bundle):
+    require(path.is_file() and path.stat().st_size <= 1024 * 1024
+            and path.resolve(strict=True).is_relative_to(bundle))
+    try:
+        values = plistlib.loads(path.read_bytes())
+    except (ExpatError, AttributeError, IndexError):
+        # Malformed XML plist values can raise errors from parser callbacks.
+        raise ValueError("Invalid bundled plist") from None
+    require(isinstance(values, dict))
+    return values
+
+
 def verify_bundled_models(mobile, bundle):
     source_catalog = mobile / MODEL_ASSET_DIRECTORY / "catalog.json"
     original = source_catalog.read_bytes()
@@ -998,21 +1011,14 @@ def verify_bundled_models(mobile, bundle):
     frameworks = bundle / "Frameworks"
     framework = frameworks / "App.framework"
 
-    def read_plist(path):
-        require(path.is_file() and path.stat().st_size <= 1024 * 1024
-                and path.resolve(strict=True).is_relative_to(bundle))
-        values = plistlib.loads(path.read_bytes())
-        require(isinstance(values, dict))
-        return values
-
     # The pinned embedder selects the private framework with this identifier,
     # falls back to the main bundle, and then derives the lookup key prefix.
-    infos = [read_plist(directory / "Info.plist")
+    infos = [read_bundled_plist(directory / "Info.plist", bundle)
              for directory in frameworks.iterdir() if not directory.name.startswith(".")
              and (directory / "Info.plist").is_file()]
     selected = [info for info in infos if info.get("CFBundleIdentifier") == "io.flutter.flutter.app"]
     require(len(selected) <= 1)
-    settings = selected[0] if selected else read_plist(bundle / "Info.plist")
+    settings = selected[0] if selected else read_bundled_plist(bundle / "Info.plist", bundle)
     prefix = Path(settings.get("FLTAssetsPath", "Frameworks/App.framework/flutter_assets"))
     require(prefix.parts and not prefix.is_absolute() and ".." not in prefix.parts)
     roots = [bundle, *sorted(bundle.glob("*.lproj"))]
@@ -1041,8 +1047,8 @@ def verify_test_bundle(repo, target, temporary):
     require(bundle.is_dir() and bundle.resolve(strict=True) == bundle)
     require((bundle.stat().st_dev, bundle.stat().st_ino) != (saved.stat().st_dev, saved.stat().st_ino))
     info = bundle / "Info.plist"
-    require(info.is_file() and not info.is_symlink() and info.stat().st_size <= 1024 * 1024)
-    values = plistlib.loads(info.read_bytes())
+    require(not info.is_symlink())
+    values = read_bundled_plist(info, bundle)
     require(values["CFBundleIdentifier"] == RUNNER_BUNDLE_ID and values["CFBundleExecutable"] == "Runner")
     runner = bundle / "Runner"
     debug_image = bundle / "Runner.debug.dylib"

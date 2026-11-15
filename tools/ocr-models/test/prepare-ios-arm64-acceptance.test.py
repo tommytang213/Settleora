@@ -899,16 +899,26 @@ print JSON.generate(checksums)
                 m.verify_test_bundle(repo, target, target)
             shutil.copytree(saved, bundle)
             m.verify_test_bundle(repo, target, target)
-            original_info = framework_info.read_bytes()
-            framework_info.write_bytes(plistlib.dumps(["unexpected framework metadata"]))
-            stderr = io.StringIO()
-            with patch.object(m, "context", return_value=(repo, target / "setup", target, None)), \
-                 patch.object(sys, "argv", [str(MODULE), "verify-test-bundle"]), \
-                 contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as rejection:
-                m.run_cli()
-            self.assertEqual(rejection.exception.code, 98)
-            self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
-            framework_info.write_bytes(original_info)
+            xml = b'<?xml version="1.0"?><plist version="1.0">'
+            bad_plists = {
+                "array root": plistlib.dumps(["unexpected metadata"]),
+                "truncated XML": xml + b"<dict>",
+                "invalid date": xml + b"<date>invalid</date></plist>",
+                "orphan key": xml + b"<key>CFBundleIdentifier</key></plist>",
+            }
+            for info in (framework_info, bundle / "Info.plist"):
+                original_info = info.read_bytes()
+                for name, content in bad_plists.items():
+                    with self.subTest(plist=info.parent.name, malformed=name):
+                        info.write_bytes(content)
+                        stderr = io.StringIO()
+                        with patch.object(m, "context", return_value=(repo, target / "setup", target, None)), \
+                             patch.object(sys, "argv", [str(MODULE), "verify-test-bundle"]), \
+                             contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as rejection:
+                            m.run_cli()
+                        self.assertEqual(rejection.exception.code, 98)
+                        self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
+                info.write_bytes(original_info)
             for name, path, raw in (
                 ("x86", runner, binary(cpu=0x01000007)),
                 ("device", runner, binary(platform=2)),
