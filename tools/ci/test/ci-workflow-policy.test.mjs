@@ -1537,7 +1537,7 @@ test('iOS build failure exposes bounded classifications and retains the original
     '::notice title=Settleora iOS simulator build classification::classes=library_not_found ' +
     'runner_link=false swift_error=false linker_error=true interposer_undefined_symbol=false ' +
     'pod_install_failed=false xcode_build_failed=false xcode_script_failed=false ' +
-    'build_guard_rejected=false build_pods_verified=false\n');
+    'build_guard_rejected=false build_pods_verified=false xcode_failed_script=unavailable\n');
   assert.doesNotMatch(diagnostic.stdout + diagnostic.stderr, /SyntheticPrivateTraceValue/);
   const gateTrace = [
     '[  +23 ms]     ios_full101_arm64_build_pods=verified',
@@ -1550,12 +1550,12 @@ test('iOS build failure exposes bounded classifications and retains the original
     { env, input: gateTrace, encoding: 'utf8' });
   assert.equal(gate.status, 0, gate.stderr);
   assert.match(gate.stdout,
-    /classes=unclassified runner_link=false swift_error=false linker_error=false interposer_undefined_symbol=false pod_install_failed=false xcode_build_failed=true xcode_script_failed=true build_guard_rejected=true build_pods_verified=true\n$/);
+    /classes=unclassified runner_link=false swift_error=false linker_error=false interposer_undefined_symbol=false pod_install_failed=false xcode_build_failed=true xcode_script_failed=true build_guard_rejected=true build_pods_verified=true xcode_failed_script=unavailable\n$/);
   const pods = spawnSync('python3', ['-I', '-B', tool, dylib, '1'],
     { env, input: '[  +1 ms] Error running pod install\n', encoding: 'utf8' });
   assert.equal(pods.status, 0, pods.stderr);
   assert.match(pods.stdout,
-    /pod_install_failed=true xcode_build_failed=false xcode_script_failed=false build_guard_rejected=false build_pods_verified=false\n$/);
+    /pod_install_failed=true xcode_build_failed=false xcode_script_failed=false build_guard_rejected=false build_pods_verified=false xcode_failed_script=unavailable\n$/);
   for (const [status, overrides] of [
     ['0', {}],
     ['37', { GITHUB_JOB: 'another-job' }],
@@ -1582,6 +1582,46 @@ test('iOS build failure exposes bounded classifications and retains the original
     encoding: 'utf8',
   });
   assert.equal(result.status, 37, result.stderr);
+});
+
+test('iOS build diagnostic names only catalogued scripts in complete Xcode failure footers', () => {
+  const tool = path.join(repoRoot, 'tools/ocr-models/diagnose-ios-link-trace.py');
+  const env = { ...process.env, GITHUB_ACTIONS: 'true', GITHUB_JOB: 'ios-native-acceptance' };
+  const pathToken = '/synthetic/PrivateTrace/Script-0123456789ABCDEF01234567.sh';
+  const row = (phase, target, project) =>
+    'PhaseScriptExecution ' + phase + ' ' + pathToken +
+    " (in target '" + target + "' from project '" + project + "')";
+  const footer = (rows, count = rows.length) => [
+    '[        ]     ** BUILD FAILED **',
+    '[        ]',
+    '[        ]     The following build commands failed:',
+    ...rows.map((line) => '[        ]       ' + line),
+    '[        ]     (' + count + (count === 1 ? ' failure)' : ' failures)'),
+  ].join('\n');
+  const runner = row('Run\\ Script', 'Runner', 'Runner');
+  const pods = row('Verify\\ Settleora\\ OCR\\ Pod\\ Inputs', 'Verify Settleora OCR Pod Inputs', 'Pods');
+  const opencv = row('\\[CP\\]\\ Copy\\ XCFrameworks', 'OpenCV', 'Pods');
+  const onnx = row('[CP]\\ Copy\\ XCFrameworks', 'onnxruntime-c', 'Pods');
+  const cases = [
+    [runner + '\n' + footer([pods, 'Building workspace Runner']), 'pods_verify_inputs'],
+    [footer([runner]) + '\n' + footer([runner]), 'runner_flutter_build'],
+    [footer([opencv]), 'opencv_copy_xcframeworks'],
+    [footer([onnx]), 'onnx_copy_xcframeworks'],
+    [footer([opencv, onnx]), 'multiple'],
+    [footer([row('Run\\ Script', 'Runner', 'PrivateProject')]), 'unrecognized'],
+    [footer([row('Unknown\\ PrivatePhase', 'Runner', 'Runner')]), 'unrecognized'],
+    [footer([runner], 2), 'unavailable'],
+    [footer([runner]).split('\n').slice(0, -1).join('\n'), 'unavailable'],
+    [runner + '\n' + footer(['Check dependencies']), 'unavailable'],
+    ['The following build commands failed:\n' + runner + '\n(1 failure)', 'unavailable'],
+  ];
+  for (const [trace, script] of cases) {
+    const result = spawnSync('python3', ['-I', '-B', tool, '/synthetic/libSettleora.dylib', '1'],
+      { env, input: trace, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.split(' xcode_failed_script=')[1], script + '\n');
+    assert.doesNotMatch(result.stdout + result.stderr, /PrivateTrace|01234567|PrivateProject|PrivatePhase/);
+  }
 });
 
 test('iOS linker diagnostic binds the needed-library flag to the exact Runner invocation', () => {

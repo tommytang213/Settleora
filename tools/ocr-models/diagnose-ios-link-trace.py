@@ -13,6 +13,25 @@ LINK_STEP = re.compile(
 )
 NEXT_STEP = re.compile(r"\(in target ['\"][^'\"]+['\"] from project ['\"][^'\"]+['\"]\)")
 CLANG_COMMAND = re.compile(r"/(?:clang|clang\+\+)\s")
+FLUTTER_LINE_PREFIX = r"^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*"
+FAILED_SCRIPT_ROW = re.compile(
+    r"PhaseScriptExecution[ \t]+(?P<phase>.+?)[ \t]+\"?/[^\"]*/Script-[0-9A-Fa-f]{24}\.sh\"?"
+    r"[ \t]+\(in target '(?P<target>[^']+)' from project '(?P<project>[^']+)'\)"
+)
+FAILED_COMMAND_COUNT = re.compile(r"\(([1-9][0-9]?) failures?\)")
+SCRIPT_LABELS = {
+    ("Runner", "Runner", "Verify OCR test Pods"): "runner_verify_pods",
+    ("Runner", "Runner", "Run Script"): "runner_flutter_build",
+    ("Runner", "Runner", "Thin Binary"): "runner_embed_flutter",
+    ("Runner", "Runner", "Embed OCR network interposer"): "runner_embed_interposer",
+    ("Runner", "Runner", "Copy OCR acceptance fixtures"): "runner_copy_fixtures",
+    ("Runner", "Runner", "[CP] Check Pods Manifest.lock"): "runner_check_pods_manifest",
+    ("Runner", "Runner", "[CP] Copy Pods Resources"): "runner_copy_pods_resources",
+    ("Runner", "Runner", "[CP] Embed Pods Frameworks"): "runner_embed_pods_frameworks",
+    ("Pods", "Verify Settleora OCR Pod Inputs", "Verify Settleora OCR Pod Inputs"): "pods_verify_inputs",
+    ("Pods", "OpenCV", "[CP] Copy XCFrameworks"): "opencv_copy_xcframeworks",
+    ("Pods", "onnxruntime-c", "[CP] Copy XCFrameworks"): "onnx_copy_xcframeworks",
+}
 
 
 def trace_bytes():
@@ -48,11 +67,55 @@ def prelink_signals(text):
         "build_guard_rejected": "ios_arm64_acceptance_setup_rejected",
         "build_pods_verified": "ios_full101_arm64_build_pods=verified",
     }
-    prefix = r"^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*(?:error:[ \t]*)?"
+    prefix = FLUTTER_LINE_PREFIX + r"(?:error:[ \t]*)?"
     return {
         key: bool(re.search(prefix + re.escape(message) + r"[ \t\r]*$", text, re.MULTILINE))
         for key, message in messages.items()
     }
+
+
+def failed_xcode_script(lines):
+    # Verbose Flutter can repeat Xcode's footer. Deduplicate reported scripts
+    # and ignore normal phase starts outside the failed-command list.
+    strip_prefix = re.compile(FLUTTER_LINE_PREFIX)
+    after_banner = False
+    rows = None
+    labels = set()
+    for raw_line in lines:
+        line = strip_prefix.sub("", raw_line, count=1).rstrip()
+        if not line:
+            continue
+        if line == "** BUILD FAILED **":
+            after_banner = True
+            rows = None
+            continue
+        if after_banner and line == "The following build commands failed:":
+            rows = []
+            after_banner = False
+            continue
+        after_banner = False
+        if rows is None:
+            continue
+        count = FAILED_COMMAND_COUNT.fullmatch(line)
+        if count:
+            if int(count[1]) == len(rows):
+                labels.update(rows)
+            rows = None
+        elif len(rows) == 64 or len(line) > 4096:
+            rows = None
+        elif line.startswith(("PhaseScriptExecution ", "PhaseScriptExecution\t")):
+            step = FAILED_SCRIPT_ROW.fullmatch(line)
+            label = "unrecognized"
+            if step:
+                phase = step["phase"].replace(r"\ ", " ").replace(r"\[", "[").replace(r"\]", "]")
+                label = SCRIPT_LABELS.get((step["project"], step["target"], phase), label)
+            rows.append(label)
+        else:
+            rows.append(None)
+    labels.discard(None)
+    if len(labels) > 1:
+        return "multiple"
+    return next(iter(labels), "unavailable")
 
 
 def report(trace, dylib, capture_status):
@@ -206,7 +269,9 @@ def report(trace, dylib, capture_status):
             **prelink_signals(text),
         }
         values = " ".join(f"{name}={str(found).lower()}" for name, found in signals.items())
-        print(f"::notice title=Settleora iOS simulator build classification::classes={error_classes} {values}")
+        script = failed_xcode_script(lines)
+        print(f"::notice title=Settleora iOS simulator build classification::classes={error_classes} {values} "
+              f"xcode_failed_script={script}")
 
 
 def main():
