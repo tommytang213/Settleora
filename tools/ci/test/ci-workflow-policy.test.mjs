@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1141,7 +1141,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.doesNotMatch(serialized, /ios-pod-lock-/);
 });
 
-test('iOS-only dispatch selects the ordinary full101 lane and binds exact workflow bytes', () => {
+test('iOS-only dispatch selects the ordinary full101 lane and binds exact workflow bytes', (t) => {
   const native = workflow('mobile-ocr-native-acceptance.yml');
   const mode = native.on.workflow_dispatch.inputs.mode;
   assert.equal(mode.default, 'full101');
@@ -1185,6 +1185,36 @@ test('iOS-only dispatch selects the ordinary full101 lane and binds exact workfl
     });
     assert.equal(result.status, status, result.stderr);
   }
+
+  const checkout = mkdtempSync(path.join(os.tmpdir(), 'ios-cross-ref-preparation-'));
+  t.after(() => rmSync(checkout, { recursive: true, force: true }));
+  const env = {
+    PATH: process.env.PATH, HOME: checkout, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_AUTHOR_NAME: 'Synthetic fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Synthetic fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+  };
+  const git = (...args) => execFileSync('git', args, { cwd: checkout, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git('init', '--initial-branch=candidate');
+  git('commit', '--allow-empty', '--no-gpg-sign', '-m', 'candidate before iOS ARM64 preparation');
+  const older = git('rev-parse', 'HEAD');
+  assert.notEqual(older, expected);
+  const verifyPairedCandidate = (candidate) => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', verify.run], {
+    cwd: checkout,
+    env: { ...env, EXECUTION_MODE: 'full101', EXPECTED_HEAD: candidate, CAPTURE_WORKFLOW_SHA: expected },
+    encoding: 'utf8',
+  });
+  const missing = verifyPairedCandidate(older);
+  assert.equal(missing.status, 98);
+  assert.match(missing.stderr, /exact iOS candidate must track tools\/ocr-models\/prepare-ios-arm64-acceptance\.py/);
+
+  const preparationTool = 'tools/ocr-models/prepare-ios-arm64-acceptance.py';
+  mkdirSync(path.join(checkout, 'tools/ocr-models'), { recursive: true });
+  writeFileSync(path.join(checkout, preparationTool), '# synthetic preparation fixture\n');
+  assert.equal(verifyPairedCandidate(older).status, 98);
+  git('add', preparationTool);
+  git('commit', '--no-gpg-sign', '-m', 'candidate with iOS ARM64 preparation');
+  const supported = verifyPairedCandidate(git('rev-parse', 'HEAD'));
+  assert.equal(supported.status, 0, supported.stderr);
 });
 
 test('iOS evidence keeps the failed phase before any simulator fixture runs', (t) => {

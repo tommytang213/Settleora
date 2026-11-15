@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       checkout_ref:
-        description: "full101: branch, tag, or SHA to validate. ARM64 modes: must resolve to the same commit as the dispatched ref."
+        description: "full101: candidate branch, tag, or SHA with the iOS ARM64 preparation script. Other modes require the dispatched commit."
         required: true
         type: string
       expected_head:
@@ -463,6 +463,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           if [[ "$EXECUTION_MODE" == ios_full101 ]]; then
             test "$CAPTURE_WORKFLOW_SHA" = "$EXPECTED_HEAD"
+          fi
+          preparation_tool=tools/ocr-models/prepare-ios-arm64-acceptance.py
+          preparation_entry="$(git ls-tree "$EXPECTED_HEAD" -- "$preparation_tool")"
+          if [[ "$preparation_entry" != '100644 blob '* && "$preparation_entry" != '100755 blob '* ]] ||
+             [[ ! -f "$preparation_tool" || -L "$preparation_tool" ]]; then
+            printf '%s\n' '::error::The exact iOS candidate must track tools/ocr-models/prepare-ios-arm64-acceptance.py as a regular file.' >&2
+            exit 98
           fi
 
       - name: Setup Node
