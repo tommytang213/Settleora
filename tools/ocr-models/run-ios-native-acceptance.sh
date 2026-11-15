@@ -333,7 +333,7 @@ NODE
 if test "$build_status" -ne 0; then
   { cat "$build_trace"; printf '\n'; cat "$build_errors"; } | \
     python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
-      "$network_deny" "$build_status"
+      "$network_deny" "$build_status" || :
   exit "$build_status"
 fi
 phase=verify_simulator_interposer_link_invocation

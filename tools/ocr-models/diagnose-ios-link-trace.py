@@ -2,6 +2,7 @@
 """Print bounded linker facts from a failed simulator build trace."""
 
 import hashlib
+import os
 import re
 import sys
 
@@ -167,8 +168,9 @@ def report(trace, dylib, capture_status):
             ("ignoring file" in line.lower() or "incompatible" in line.lower() or
              "built for" in line.lower()) for line in error_lines),
     }
+    error_classes = ",".join(key for key, found in classes.items() if found) or "unclassified"
     print(f"ios_build_error_line_count={len(error_lines)}", file=sys.stderr)
-    print("ios_build_error_classes=" + (",".join(k for k, v in classes.items() if v) or "unclassified"), file=sys.stderr)
+    print(f"ios_build_error_classes={error_classes}", file=sys.stderr)
     print("ios_build_error_anchor_symbol=" + (
         "present" if "_settleora_require_network_interposer" in "\n".join(error_lines) else "absent"
     ), file=sys.stderr)
@@ -178,6 +180,16 @@ def report(trace, dylib, capture_status):
     if error_lines:
         print("ios_build_error_digest_sha256=" + hashlib.sha256(
             "\n".join(error_lines).encode("utf-8")).hexdigest(), file=sys.stderr)
+    if (capture_status != "0" and os.environ.get("GITHUB_ACTIONS") == "true"
+            and os.environ.get("GITHUB_JOB") == "ios-native-acceptance"):
+        signals = {
+            "runner_link": bool(commands["Runner"] or commands["Runner.debug.dylib"]),
+            "swift_error": diagnostics["swift_error"],
+            "linker_error": diagnostics["linker_error"],
+            "interposer_undefined_symbol": diagnostics["undefined_interposer_symbol"],
+        }
+        values = " ".join(f"{name}={str(found).lower()}" for name, found in signals.items())
+        print(f"::notice title=Settleora iOS simulator build classification::classes={error_classes} {values}")
 
 
 def main():

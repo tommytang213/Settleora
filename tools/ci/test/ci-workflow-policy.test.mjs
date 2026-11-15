@@ -1526,6 +1526,45 @@ test('native fixture scoring policy rejects removed comparisons and disconnected
   }
 });
 
+test('iOS build failure exposes bounded classifications and retains the original status', (t) => {
+  const tool = path.join(repoRoot, 'tools/ocr-models/diagnose-ios-link-trace.py');
+  const dylib = '/synthetic/libSettleoraOcrNetworkDeny.dylib';
+  const trace = 'ld: library not found for -lSyntheticPrivateTraceValue\n';
+  const env = { ...process.env, GITHUB_ACTIONS: 'true', GITHUB_JOB: 'ios-native-acceptance' };
+  const diagnostic = spawnSync('python3', ['-I', '-B', tool, dylib, '37'], { env, input: trace, encoding: 'utf8' });
+  assert.equal(diagnostic.status, 0, diagnostic.stderr);
+  assert.equal(diagnostic.stdout,
+    '::notice title=Settleora iOS simulator build classification::classes=library_not_found ' +
+    'runner_link=false swift_error=false linker_error=true interposer_undefined_symbol=false\n');
+  assert.doesNotMatch(diagnostic.stdout + diagnostic.stderr, /SyntheticPrivateTraceValue/);
+  for (const [status, overrides] of [
+    ['0', {}],
+    ['37', { GITHUB_JOB: 'another-job' }],
+    ['37', { GITHUB_ACTIONS: 'false' }],
+  ]) {
+    const other = spawnSync('python3', ['-I', '-B', tool, dylib, status],
+      { env: { ...env, ...overrides }, input: trace, encoding: 'utf8' });
+    assert.equal(other.status, 0, other.stderr);
+    assert.equal(other.stdout, '');
+  }
+
+  const temporary = mkdtempSync(path.join(os.tmpdir(), 'ios-build-classification-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const buildTrace = path.join(temporary, 'trace');
+  const buildErrors = path.join(temporary, 'errors');
+  writeFileSync(buildTrace, trace);
+  writeFileSync(buildErrors, '');
+  const runner = read('tools/ocr-models/run-ios-native-acceptance.sh');
+  const guard = 'if test "$build_status" -ne 0; then';
+  const failureBranch = guard + runner.split(guard, 2)[1].split('\nphase=verify_simulator_interposer_link_invocation', 1)[0];
+  const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c',
+    'python3() { return 98; }\nbuild_status=37\n' + failureBranch], {
+    env: { ...env, GITHUB_WORKSPACE: repoRoot, build_trace: buildTrace, build_errors: buildErrors, network_deny: dylib },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 37, result.stderr);
+});
+
 test('iOS linker diagnostic binds the needed-library flag to the exact Runner invocation', () => {
   const dylib = '/tmp/libSettleoraOcrNetworkDeny.dylib';
   const diagnose = (trace, captureStatus = '1') => {
