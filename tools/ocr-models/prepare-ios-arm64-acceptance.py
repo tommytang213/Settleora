@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 from urllib.parse import unquote, urljoin, urlparse
+from xml.etree import ElementTree
 
 ROOT_NAME = "ios-paddle-full101-arm64-v1"
 REFERENCE_SHA256 = "e9d53614fdfa07d60ac8c9b017cdd71a821918172a8955f086fb2912f8013636"
@@ -494,7 +495,35 @@ print JSON.generate({'targetCount' => consumers.length,
     return selected
 
 
+def verified_xcode_workspace(ios):
+    # Pinned Flutter selects the first visible project and workspace in ios/.
+    for suffix, name in ((".xcodeproj", "Runner.xcodeproj"), (".xcworkspace", "Runner.xcworkspace")):
+        require({item.name for item in ios.iterdir() if item.suffix == suffix and not item.name.startswith(".")}
+                == {name})
+    workspace = ios / "Runner.xcworkspace"
+    require(workspace.is_dir() and workspace.resolve(strict=True) == workspace)
+    contents = workspace / "contents.xcworkspacedata"
+    require(contents.is_file() and not contents.is_symlink() and 0 < contents.stat().st_size <= 16 * 1024)
+    raw = contents.read_bytes()
+    require(b"<!DOCTYPE" not in raw)
+    root = ElementTree.fromstring(raw)
+    require(root.tag == "Workspace" and root.attrib == {"version": "1.0"})
+    expected = ["Runner.xcodeproj", "Pods/Pods.xcodeproj"]
+    locations = []
+    for reference in root:
+        require(reference.tag == "FileRef" and len(reference) == 0 and set(reference.attrib) == {"location"})
+        locations.append(reference.attrib["location"])
+    require(sorted(locations) == sorted("group:" + name for name in expected))
+    for name in expected:
+        project = ios / name
+        require(project.is_dir() and project.resolve(strict=True) == project)
+        file = project / "project.pbxproj"
+        require(file.is_file() and not file.is_symlink())
+    return sorted(locations)
+
+
 def pods_build_selection(ios, paths, plugin_inputs):
+    workspace = verified_xcode_workspace(ios)
     pods = ios / "Pods"
     project = pods / "Pods.xcodeproj/project.pbxproj"
     support = pods / "Target Support Files"
@@ -521,7 +550,7 @@ def pods_build_selection(ios, paths, plugin_inputs):
         require(declared == {support / name / (name + "-xcframeworks.sh"), expected[name] / framework})
     require(project.is_file() and not project.is_symlink() and 0 < project.stat().st_size <= 4 * 1024 * 1024)
     generated = bounded_tree_files(support)
-    return {"podsProject": pods_project_selection(project.parent),
+    return {"workspaceProjects": workspace, "podsProject": pods_project_selection(project.parent),
             "targetSupportFilesSha256": sha(json.dumps(generated, sort_keys=True).encode())}
 
 
@@ -829,7 +858,7 @@ def main():
 def run_cli():
     try:
         main()
-    except (ValueError, KeyError, OSError, TypeError, subprocess.SubprocessError):
+    except (ValueError, KeyError, OSError, TypeError, ElementTree.ParseError, subprocess.SubprocessError):
         sys.stderr.write("ios_arm64_acceptance_setup_rejected\n")
         sys.exit(98)
 

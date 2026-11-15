@@ -55,6 +55,15 @@ class Arm64FlutterAcceptance(unittest.TestCase):
         project = pods / "Pods.xcodeproj/project.pbxproj"
         project.parent.mkdir(parents=True)
         project.write_text("fixture generated project\n")
+        runner = ios / "Runner.xcodeproj"
+        runner.mkdir()
+        (runner / "project.pbxproj").write_text("fixture Runner project\n")
+        workspace = ios / "Runner.xcworkspace"
+        workspace.mkdir()
+        (workspace / "contents.xcworkspacedata").write_text(
+            '<Workspace version="1.0"><FileRef location="group:Runner.xcodeproj"/>'
+            '<FileRef location="group:Pods/Pods.xcodeproj"/></Workspace>\n'
+        )
         support = pods / "Target Support Files"
         roots = {name: Path(value) for name, value in local_paths.items()}
         roots.update({name: Path(row["root"]) / row["sourceDir"] for name, row in plugins["nativeSources"].items()})
@@ -602,6 +611,27 @@ print JSON.generate(checksums)
                     self.assertEqual(built["podfileLockSha256"], prepared["podfileLockSha256"])
                     m.verify_build_pods(root, target)
                     frozen_lock, frozen_manifest = lock.read_bytes(), manifest.read_bytes()
+                    workspace = ios / "Runner.xcworkspace/contents.xcworkspacedata"
+                    workspace_xml = workspace.read_text()
+                    original_project = (ios / "Pods/Pods.xcodeproj/project.pbxproj").read_bytes()
+                    for reference in ("group:Runner.xcodeproj", "group:Pods/Pods.xcodeproj"):
+                        with self.subTest(redirected=reference):
+                            workspace.write_text(workspace_xml.replace(reference, "group:Other/Replacement.xcodeproj"))
+                            self.assertEqual(lock.read_bytes(), frozen_lock)
+                            self.assertEqual(manifest.read_bytes(), frozen_manifest)
+                            self.assertEqual(m.local_pod_inputs(root, local_paths), proof["localPodInputs"])
+                            self.assertEqual((ios / "Pods/Pods.xcodeproj/project.pbxproj").read_bytes(), original_project)
+                            with self.assertRaises(ValueError):
+                                m.verify_build_pods(root, target)
+                            with self.assertRaises(ValueError):
+                                m.verify(target, root, target, pods=True, stage="after_test_command")
+                    workspace.write_text(workspace_xml)
+                    alternate = ios / "Other.xcworkspace"
+                    alternate.mkdir()
+                    with self.assertRaises(ValueError):
+                        m.verify_build_pods(root, target)
+                    alternate.rmdir()
+                    m.verify_build_pods(root, target)
                     generated = support / "onnxruntime-objc/onnxruntime-objc.debug.xcconfig"
                     contents = generated.read_text()
                     for replacement in (
