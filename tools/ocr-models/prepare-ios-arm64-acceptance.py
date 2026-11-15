@@ -263,6 +263,7 @@ def regenerate_native_plugins(base, sdk, mobile, root, deadline):
     tools = sdk / "packages/flutter_tools"
     packages = tools / ".dart_tool/package_config.json"
     if not packages.is_file():
+        observe_preparation_phase("bootstrap_projected_flutter_tools")
         # Flutter release archives can ship a ready tool snapshot while
         # omitting the tool's package config needed to import its source.
         lock = tools / "pubspec.lock"
@@ -271,6 +272,7 @@ def regenerate_native_plugins(base, sdk, mobile, root, deadline):
                      tools, root, deadline, "flutter-tool-packages")
         require(lock.read_bytes() == lock_bytes)
     require(packages.is_file())
+    observe_preparation_phase("regenerate_projected_plugin_registrants")
     program = """import 'dart:convert';
 import 'package:flutter_tools/src/cache.dart';
 import 'package:flutter_tools/src/base/template.dart';
@@ -299,6 +301,7 @@ Future<void> main(List<String> args) async {
     driver.chmod(0o400)
     base.execute([str(sdk / "bin/dart"), "--packages=" + str(packages), str(driver), str(sdk), str(mobile)],
                  mobile, root, deadline, "flutter-native-plugin-refresh")
+    observe_preparation_phase("verify_projected_plugin_registrants")
     require(sha(config.read_bytes()) == before_config and sha(dart_lock.read_bytes()) == before_lock)
     return {"scriptSha256": sha(driver.read_bytes()), "projectedPackageConfigSha256": before_config,
             "pubspecLockSha256": before_lock, "nativeRegistrant": generated_registrant_hashes(mobile),
@@ -770,12 +773,15 @@ def prepare(repo, root, target, manifest):
     (root / "production-Podfile.lock").write_bytes(production_lock)
     original_podfile = (mobile / "ios/Podfile").read_text()
     require(original_podfile.encode() == (repo / "apps/mobile/ios/Podfile").read_bytes())
+    observe_preparation_phase("project_flutter_package_config")
     pub_cache = Path(os.environ.get("PUB_CACHE", str(Path.home() / ".pub-cache"))).resolve(strict=True)
     approved_roots = {"google_mlkit_commons": target / "packages/google_mlkit_commons",
                       "google_mlkit_text_recognition": pub_cache / "hosted/pub.dev/google_mlkit_text_recognition-0.15.1"}
     package_proof = project_packages(mobile / ".dart_tool/package_config.json", root / "flutter-packages", approved_roots)
     plugin_refresh = regenerate_native_plugins(base, sdk, mobile, root, deadline)
+    observe_preparation_phase("verify_projected_plugin_inventory")
     plugin_inputs = ios_plugin_inputs(mobile)
+    observe_preparation_phase("derive_projected_pod_sources")
     paths = {"OpenCV": str(output), "onnxruntime-c": str(source["ort-c"]),
              "onnxruntime-objc": str(source["ort-objc"]), "Yams": str(base.single_directory(source["yams"]))}
     (mobile / "ios/Podfile").write_text(derive_podfile(original_podfile, paths))
@@ -783,7 +789,9 @@ def prepare(repo, root, target, manifest):
     original_debug = debug.read_bytes()
     require(sha(original_debug) in DEBUG_BASE_HASHES)
     debug.write_bytes(original_debug + ARCH_CONFIG)
+    observe_preparation_phase("verify_projected_detached_source")
     protected = verify_protected_source(target, tracked)
+    observe_preparation_phase("hash_projected_native_pod_inputs")
     proof = {"schemaVersion": 1, "sourceHead": os.environ["EXPECTED_HEAD"], "architecture": "arm64",
              "root": str(root), "target": str(target), "referenceManifestSha256": REFERENCE_SHA256,
              "flutterSdk": str(sdk),
@@ -800,6 +808,7 @@ def prepare(repo, root, target, manifest):
              "FlutterRunnerAndIntegrationTestPreserved": True, "fixtures": 101,
              "DartLibrariesChanged": False, "productionSourceModified": False, "nativeCallsDuringSetup": 0,
              "diagnosticAllowanceReused": False}
+    observe_preparation_phase("verify_projected_candidate_checkout")
     require(base.verify_source(repo, os.environ["EXPECTED_HEAD"], deadline) == tracked)
     (root / "setup.json").write_text(json.dumps(proof, indent=2) + "\n")
     observe_preparation_phase("seed_projected_pod_lock")

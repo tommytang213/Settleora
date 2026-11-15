@@ -1247,7 +1247,7 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
   assert.equal(readFileSync(path.join(temporary, 'ios-arm64-preparation.log'), 'utf8'), 'synthetic_private_tool_output\n');
   const observedPhases = [...read('tools/ocr-models/prepare-ios-arm64-acceptance.py')
     .matchAll(/^\s+observe_preparation_phase\("([a-z_]+)"\)$/gm)].map((match) => match[1]);
-  assert.equal(observedPhases.length, 9);
+  assert.equal(observedPhases.length, 18);
   assert.equal(new Set(observedPhases).size, observedPhases.length);
   for (const phase of observedPhases) {
     const reported = checkFailure(['-e', '-o', 'pipefail', '-c', prepare.run], 37, phase,

@@ -530,7 +530,13 @@ project.save
                         registrant.with_suffix(".h").write_text("#import <Flutter/Flutter.h>\n")
                         registrant.write_text("IntegrationTestPlugin FLTImagePickerPlugin")
 
-                m.regenerate_native_plugins(SimpleNamespace(execute=execute), sdk, mobile, root, 1234)
+                observed = io.StringIO()
+                with contextlib.redirect_stdout(observed):
+                    m.regenerate_native_plugins(SimpleNamespace(execute=execute), sdk, mobile, root, 1234)
+                phases = [] if cached else ["bootstrap_projected_flutter_tools"]
+                phases.extend(["regenerate_projected_plugin_registrants", "verify_projected_plugin_registrants"])
+                self.assertEqual(observed.getvalue().splitlines(),
+                                 [f"ios_arm64_preparation_phase={phase}" for phase in phases])
                 expected = [] if cached else [
                     ([str(sdk / "bin/dart"), "--suppress-analytics", "pub", "get", "--enforce-lockfile"],
                      tools, "flutter-tool-packages"),
