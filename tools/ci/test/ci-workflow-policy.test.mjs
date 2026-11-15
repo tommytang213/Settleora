@@ -1247,6 +1247,7 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     ['cancelled', '', '', '', '', '98', 'prepare_projected_pods'],
     ['failure', '37', 'prepare_projected_pods', '', '', '37', 'prepare_projected_pods'],
     ['success', '', '', '43', 'verify_projected_pods_before_build', '43', 'verify_projected_pods_before_build'],
+    ['success', '', '', '98', 'verify_projected_pods_after_build', '98', 'verify_projected_pods_after_build'],
     ['success', '', '', '0', '', '0', ''],
   ]) {
     const result = spawnSync('bash', ['-e', '-u', '-o', 'pipefail', '-c', command], {
@@ -1256,11 +1257,11 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, expectedStatus + '\n' + expectedPhase + '\n');
-    if (outcome === 'failure' || outcome === 'cancelled') {
+    if (expectedPhase) {
       const record = buildFailureEvidence({
         platform: 'ios', 'test-status': expectedStatus, 'failure-phase': expectedPhase,
       }, repoRoot);
-      assert.equal(record.execution.preflightFailurePhase, 'prepare_projected_pods');
+      assert.equal(record.execution.preflightFailurePhase, expectedPhase);
       assert.equal(record.acceptance.completed, false);
     }
   }

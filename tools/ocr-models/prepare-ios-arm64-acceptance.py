@@ -80,7 +80,7 @@ def project_plugin_spec(document, name):
     return projected
 
 
-def bounded_tree_files(root):
+def bounded_tree_files(root, max_bytes=64 * 1024 * 1024):
     require(root.is_dir() and not root.is_symlink() and root.resolve() == root)
     result, total = {}, 0
     for path in sorted(root.rglob("*")):
@@ -94,12 +94,15 @@ def bounded_tree_files(root):
         if stat.S_ISLNK(mode):
             require(path.resolve().is_relative_to(root))
             raw = os.readlink(path).encode()
+            size, digest = len(raw), sha(raw)
         else:
-            require(0 <= metadata.st_size <= 64 * 1024 * 1024 - total)
-            raw = path.read_bytes()
-        total += len(raw)
-        require(len(result) < 10000 and total <= 64 * 1024 * 1024)
-        result[rel] = {"sha256": sha(raw), "symlink": stat.S_ISLNK(mode),
+            size = metadata.st_size
+            require(0 <= size <= max_bytes - total)
+            with path.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        total += size
+        require(len(result) < 10000 and total <= max_bytes)
+        result[rel] = {"sha256": digest, "symlink": stat.S_ISLNK(mode),
                        "executable": bool(mode & 0o111)}
     return result
 
@@ -143,6 +146,30 @@ def ios_plugin_inputs(mobile, installed=False):
             link = links / name
             require(link.is_symlink() and link.resolve(strict=True) == Path(source["root"]))
     return {"inventory": records, "nativeSources": sources}
+
+
+def local_pod_inputs(root, paths):
+    require(set(paths) == LOCAL_PODS)
+    digests = {}
+    for name, directory in paths.items():
+        source = Path(directory)
+        require(source.is_relative_to(root) and source.resolve(strict=True) == source)
+        # OpenCV's work directory also contains compiler scratch. CocoaPods uses
+        # only the podspec, license and exported framework (including headers).
+        if name == "OpenCV":
+            framework = bounded_tree_files(source / "opencv2.xcframework", max_bytes=512 * 1024 * 1024)
+            require(framework)
+            metadata = {}
+            for relative in ("LICENSE", "OpenCV.podspec.json"):
+                file = source / relative
+                require(file.is_file() and not file.is_symlink() and file.stat().st_size <= 1024 * 1024)
+                metadata[relative] = sha(file.read_bytes())
+            inputs = {"framework": framework, "metadata": metadata}
+        else:
+            inputs = bounded_tree_files(source, max_bytes=512 * 1024 * 1024)
+        require(inputs)
+        digests[name] = sha(json.dumps(inputs, sort_keys=True).encode())
+    return digests
 
 
 def project_packages(config_path, destination, approved_roots):
@@ -429,7 +456,10 @@ def context():
     require(platform.system() == "Darwin" and platform.machine() == "arm64")
     repo, temporary = Path(env["GITHUB_WORKSPACE"]), Path(env["RUNNER_TEMP"])
     isolation = module(repo / "tools/ocr-models/prepare-ios-acceptance-worktree.py", "full101_isolation")
-    target = isolation.verify(repo, temporary, env["EXPECTED_HEAD"])
+    try:
+        target = isolation.verify(repo, temporary, env["EXPECTED_HEAD"])
+    except isolation.IsolationError:
+        raise ValueError("ios_arm64_acceptance_setup_rejected") from None
     require(Path(env["SETTLEORA_IOS_ACCEPTANCE_ROOT"]) == target)
     reference = repo / "tools/ocr-models/ios-paddle-arm64-dependencies.json"
     require(sha(reference.read_bytes()) == REFERENCE_SHA256)
@@ -508,6 +538,7 @@ def prepare(repo, root, target, manifest):
     proof = {"schemaVersion": 1, "sourceHead": os.environ["EXPECTED_HEAD"], "architecture": "arm64",
              "root": str(root), "target": str(target), "referenceManifestSha256": REFERENCE_SHA256,
              "archives": manifest["archives"], "localPodPaths": paths, "protectedSource": protected, "packageProjection": package_proof,
+             "localPodInputs": local_pod_inputs(root, paths),
              "nativePluginRefresh": plugin_refresh, "iosPluginInputs": plugin_inputs,
              "derivedPodfileSha256": sha((mobile / "ios/Podfile").read_bytes()),
              "debugBaseSha256": sha(original_debug), "debugDerivedSha256": sha(debug.read_bytes()),
@@ -565,6 +596,7 @@ def verify(repo, root, target, pods=False, stage="prepared"):
     ort = base.simulator_framework(root / "ort-c/onnxruntime.xcframework") / "onnxruntime"
     require(sha(cv.read_bytes()) == proof["opencvBinarySha256"]
             and sha(ort.read_bytes()) == proof["ortBinarySha256"])
+    require(local_pod_inputs(root, proof["localPodPaths"]) == proof["localPodInputs"])
     mobile = target / "apps/mobile"
     require(verify_protected_source(target, proof["protectedSource"]) == proof["protectedSource"])
     require(sha((mobile / "pubspec.lock").read_bytes()) == proof["pubspecLockSha256"])
@@ -623,6 +655,7 @@ def verify(repo, root, target, pods=False, stage="prepared"):
                       opencvObjectCount=proof["opencvObjectCount"], opencvPlatformIds=proof["opencvPlatformIds"],
                       ortSimulatorImageCount=proof["ortSimulatorImageCount"], ortPlatformIds=proof["ortPlatformIds"],
                       opencvBinarySha256=proof["opencvBinarySha256"], ortBinarySha256=proof["ortBinarySha256"],
+                      localPodInputsSha256=proof["localPodInputs"],
                       retainedNativePluginInputs=len(plugin_inputs["nativeSources"]),
                       retainedNativePluginInputsSha256=sha(json.dumps(plugin_inputs, sort_keys=True).encode()),
                       protectedSourceFiles=len(proof["protectedSource"]),
@@ -642,6 +675,9 @@ def verify_build_pods(root, target):
     verified_installed_pod_lock(mobile / "ios", proof["podfileLockSha256"])
     observed = ios_plugin_inputs(mobile, installed=True)
     require(sha(json.dumps(observed, sort_keys=True).encode()) == proof["retainedNativePluginInputsSha256"])
+    setup = json.loads((root / "setup.json").read_bytes())
+    require(setup["sourceHead"] == proof["sourceHead"])
+    require(local_pod_inputs(root, setup["localPodPaths"]) == proof["localPodInputsSha256"])
     print("ios_full101_arm64_build_pods=verified")
 
 
@@ -687,9 +723,13 @@ def main():
         verify(repo, root, target, pods=True, stage=stages[sys.argv[1]])
 
 
-if __name__ == "__main__":
+def run_cli():
     try:
         main()
     except (ValueError, KeyError, OSError, TypeError, subprocess.SubprocessError):
         sys.stderr.write("ios_arm64_acceptance_setup_rejected\n")
         sys.exit(98)
+
+
+if __name__ == "__main__":
+    run_cli()

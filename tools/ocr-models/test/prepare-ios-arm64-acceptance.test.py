@@ -1,6 +1,8 @@
 import copy
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -82,8 +84,8 @@ class Arm64FlutterAcceptance(unittest.TestCase):
             # A mismatched source URI cannot make preparation walk arbitrary home data.
             with self.assertRaises(ValueError): m.project_packages(config, root / "wrong", roots)
 
-    def graph(self):
-        paths = {name: "/owned/" + name for name in m.LOCAL_PODS}
+    def graph(self, local_paths=None):
+        paths = dict(local_paths) if local_paths is not None else {name: "/owned/" + name for name in m.LOCAL_PODS}
         paths["integration_test"] = ".symlinks/plugins/integration_test/ios"
         checks = {name: "b" * 40 for name in paths}
         production = {
@@ -195,6 +197,7 @@ class Arm64FlutterAcceptance(unittest.TestCase):
 
             def extract(_archive, destination):
                 destination.mkdir()
+                (destination / "source-marker").write_text("extracted fixture source\n")
                 if destination.name == "opencv":
                     (destination / "modules/core").mkdir(parents=True)
                     (destination / "modules/imgproc").mkdir(); (destination / "LICENSE").write_bytes(b"fixture license")
@@ -410,11 +413,26 @@ print JSON.generate(checksums)
         self.assertEqual(result.returncode, 98)
         self.assertEqual(result.stderr, b"ios_arm64_acceptance_setup_rejected\n")
 
+    def test_post_build_isolation_failure_does_not_expose_paths(self):
+        repo = MODULE.parents[2]
+        isolation = m.module(repo / "tools/ocr-models/prepare-ios-acceptance-worktree.py", "rejected_test_isolation")
+        stderr = io.StringIO()
+        with patch.object(m, "module", return_value=isolation), \
+             patch.object(isolation, "verify", side_effect=isolation.IsolationError("/synthetic/private/path")), \
+             patch.object(m.platform, "system", return_value="Darwin"), \
+             patch.object(m.platform, "machine", return_value="arm64"), \
+             patch.object(sys, "argv", [str(MODULE), "verify-after-build"]), \
+             patch.dict(os.environ, GITHUB_ACTIONS="true", GITHUB_REPOSITORY="tommytang213/Settleora",
+                        GITHUB_JOB="ios-native-acceptance", GITHUB_EVENT_NAME="workflow_dispatch",
+                        SETTLEORA_IOS_ACCEPTANCE_ARCH="arm64", GITHUB_WORKSPACE=str(repo),
+                        RUNNER_TEMP="/synthetic", EXPECTED_HEAD="fixture-head"), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as rejected:
+                m.run_cli()
+        self.assertEqual(rejected.exception.code, 98)
+        self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
 
     def test_verify_rejects_changed_retained_registrations(self):
         # Real verification, synthetic transport/files: no native execution.
-        import contextlib
-        import io
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve(); target = root / "target"; mobile = target / "apps/mobile"
             (mobile / "ios/Runner").mkdir(parents=True)
@@ -430,6 +448,21 @@ print JSON.generate(checksums)
             cv = root / "opencv-build/opencv2.xcframework/simulator/opencv2"
             ort = root / "ort-c/onnxruntime.xcframework/simulator/onnxruntime"
             for path in [cv, ort]: path.parent.mkdir(parents=True); path.write_bytes(b"verified framework")
+            cv_license = root / "opencv-build/LICENSE"
+            cv_license.write_bytes(b"fixture license")
+            cv_license.with_name("OpenCV.podspec.json").write_text("{}")
+            header = ort.parent / "Headers/onnxruntime_c_api.h"
+            header.parent.mkdir()
+            header.write_bytes(b"verified native header")
+            objc_source = root / "ort-objc/objectivec/ort_session.mm"
+            yams_source = root / "yams/Sources/Yams/Parser.swift"
+            for path in (objc_source, yams_source):
+                path.parent.mkdir(parents=True)
+                path.write_bytes(b"verified local source")
+            local_paths = {name: str(root / directory) for name, directory in {
+                "OpenCV": "opencv-build", "onnxruntime-c": "ort-c",
+                "onnxruntime-objc": "ort-objc", "Yams": "yams",
+            }.items()}
             proof = {"sourceHead": "fixture-head", "target": str(target), "architecture": "arm64",
                      "referenceManifestSha256": m.REFERENCE_SHA256,
                      "opencvBinarySha256": m.sha(cv.read_bytes()), "ortBinarySha256": m.sha(ort.read_bytes()),
@@ -439,6 +472,7 @@ print JSON.generate(checksums)
                      "debugDerivedSha256": m.sha((mobile / "ios/Flutter/Debug.xcconfig").read_bytes()),
                      "packageProjection": {"projectedConfig": {}, "packages": {}},
                      "iosPluginInputs": m.ios_plugin_inputs(mobile),
+                     "localPodPaths": local_paths, "localPodInputs": m.local_pod_inputs(root, local_paths),
                      "nativePluginRefresh": {"nativeRegistrantSha256": m.sha(raw)}}
             (root / "setup.json").write_text(json.dumps(proof))
             base = SimpleNamespace(simulator_framework=lambda path: path / "simulator")
@@ -453,7 +487,7 @@ print JSON.generate(checksums)
                 registrant.write_bytes(raw)
                 m.verify(target, root, target)
 
-                production, projected, paths, checksums = self.graph()
+                production, projected, _, checksums = self.graph(local_paths)
                 ios = mobile / "ios"
                 lock = ios / "Podfile.lock"
                 manifest = ios / "Pods/Manifest.lock"
@@ -463,8 +497,7 @@ print JSON.generate(checksums)
                 projected["PODFILE CHECKSUM"] = hashlib.sha1((ios / "Podfile").read_bytes()).hexdigest()
                 lock.write_text(json.dumps(projected))
                 manifest.write_bytes(lock.read_bytes())
-                proof.update(localPodPaths={name: paths[name] for name in m.LOCAL_PODS},
-                             opencvObjectCount=1, opencvPlatformIds=[7],
+                proof.update(opencvObjectCount=1, opencvPlatformIds=[7],
                              ortSimulatorImageCount=1, ortPlatformIds=[7])
                 (root / "setup.json").write_text(json.dumps(proof))
                 debug = ios / "Flutter/Debug.xcconfig"
@@ -488,6 +521,19 @@ print JSON.generate(checksums)
                     built = json.loads(verification.read_bytes())
                     self.assertEqual(built["graphVerifiedAt"], "after_simulator_build")
                     self.assertEqual(built["podfileLockSha256"], prepared["podfileLockSha256"])
+                    m.verify_build_pods(root, target)
+                    frozen_lock, frozen_manifest = lock.read_bytes(), manifest.read_bytes()
+                    for pod_input in (objc_source, yams_source, header):
+                        with self.subTest(changed=pod_input.name):
+                            contents = pod_input.read_bytes()
+                            pod_input.write_bytes(b"changed without modifying specs or locks")
+                            self.assertEqual(lock.read_bytes(), frozen_lock)
+                            self.assertEqual(manifest.read_bytes(), frozen_manifest)
+                            with self.assertRaises(ValueError):
+                                m.verify_build_pods(root, target)
+                            with self.assertRaises(ValueError):
+                                m.verify(target, root, target, pods=True, stage="after_test_command")
+                            pod_input.write_bytes(contents)
                     m.verify_build_pods(root, target)
                     link = ios / ".symlinks/plugins/image_picker_ios"
                     plugin = link.resolve()
