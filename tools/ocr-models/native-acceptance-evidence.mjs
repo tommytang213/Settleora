@@ -155,6 +155,17 @@ function immutableFixtureIds(repoRoot) {
   return expectedFixtureIds;
 }
 
+function protectedSourceObservation(args, phase, status) {
+  if (args.platform !== "ios" || phase !== "verify_projected_detached_source" || !(status > 0)) {
+    return {};
+  }
+  const token = args["protected-source-failure"] ?? "";
+  const fields = /^(missing|unexpected_type|read_error|hash_mismatch):([0-9a-f]{64})$/.exec(token);
+  return fields?.[0] === token
+    ? { protectedSourceFailure: { reason: fields[1], expectedPathSha256: fields[2] } }
+    : {};
+}
+
 export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {
   // Snapshot before any best-effort recovery; recovery does not establish cause.
   const collectionRejection = firstCollectionRejection(collectionError);
@@ -208,6 +219,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     execution: {
       testExitStatus,
       preflightFailurePhase,
+      ...protectedSourceObservation(args, preflightFailurePhase, testExitStatus),
       stdoutBytes: boundedSize(args.log),
       stderrBytes: boundedSize(args["stderr-log"]),
     },
@@ -1724,6 +1736,7 @@ function collectEvidence(args, repoRoot, observe) {
       testExitStatus,
       protocolSucceeded: protocol.protocolSucceeded,
       preflightFailurePhase,
+      ...protectedSourceObservation(args, preflightFailurePhase, testExitStatus),
       environment: sanitizeEnvironment(args),
     },
     acceptance,

@@ -1206,6 +1206,12 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     '      echo ios_arm64_preparation_phase=synthetic_private_label',
     '      echo ios_arm64_preparation_phase=verify_projected_xcode_configuration >&2',
     '    fi',
+    '    if [[ -n "${PREPARE_SOURCE_OBSERVATION:-}" ]]; then',
+    '      printf "ios_arm64_detached_source_failure=%s\\n" "$PREPARE_SOURCE_OBSERVATION"',
+    '    fi',
+    '    if [[ -n "${PREPARE_PRIVATE_SOURCE_OBSERVATION:-}" ]]; then',
+    '      printf "ios_arm64_detached_source_failure=%s\\n" "$PREPARE_PRIVATE_SOURCE_OBSERVATION" >&2',
+    '    fi',
     '    if [[ "${PREPARE_REMOVE_PHASE_LOG:-}" == 1 ]]; then',
     '      rm -- "$RUNNER_TEMP/ios-arm64-preparation-phases.log"',
     '    fi',
@@ -1225,12 +1231,13 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     SETTLEORA_IOS_ACCEPTANCE_ROOT: temporary,
     PREPARE_EXIT: '37',
   };
-  function checkFailure(args, expectedStatus, expectedPhase, options = {}) {
+  function checkFailure(args, expectedStatus, expectedPhase, options = {}, expectedSourceObservation = '') {
     writeFileSync(output, '');
     const result = spawnSync('bash', args, { cwd: repoRoot, env: { ...env, ...options }, encoding: 'utf8' });
     assert.equal(result.status, expectedStatus);
     assert.equal(readFileSync(output, 'utf8'),
-      `status=${expectedStatus}\nfailure_phase=${expectedPhase}\n`);
+      `status=${expectedStatus}\nfailure_phase=${expectedPhase}\n` +
+      (expectedSourceObservation ? `protected_source_failure=${expectedSourceObservation}\n` : ''));
     const record = buildFailureEvidence({
       platform: 'ios',
       'test-status': String(expectedStatus),
@@ -1257,6 +1264,42 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
   }
   assert.match(readFileSync(path.join(temporary, 'ios-arm64-preparation.log'), 'utf8'),
     /^synthetic_private_tool_output\nios_arm64_preparation_phase=verify_projected_xcode_configuration\n$/);
+  const prepareCommand = ['-e', '-o', 'pipefail', '-c', prepare.run];
+  const detachedSourcePhase = 'verify_projected_detached_source';
+  const expectedPathSha256 = 'a'.repeat(64);
+  for (const reason of ['missing', 'unexpected_type', 'read_error', 'hash_mismatch']) {
+    const sourceObservation = `${reason}:${expectedPathSha256}`;
+    const observed = checkFailure(prepareCommand, 37, detachedSourcePhase,
+      { PREPARE_PHASE: detachedSourcePhase, PREPARE_SOURCE_OBSERVATION: sourceObservation },
+      sourceObservation);
+    assert.equal(observed.stdout, '');
+    assert.equal(observed.stderr, 'ios_arm64_preparation=failed\n');
+    const record = buildFailureEvidence({
+      platform: 'ios', 'test-status': '37', 'failure-phase': detachedSourcePhase,
+      'protected-source-failure': sourceObservation,
+    }, repoRoot);
+    assert.deepEqual(record.execution.protectedSourceFailure, { reason, expectedPathSha256 });
+    assert.equal(record.acceptance.completed, false);
+  }
+  const validObservation = `read_error:${expectedPathSha256}`;
+  const malformedObservation = `${validObservation} synthetic_private_path`;
+  checkFailure(prepareCommand, 37, detachedSourcePhase,
+    { PREPARE_PHASE: detachedSourcePhase, PREPARE_SOURCE_OBSERVATION: malformedObservation,
+      PREPARE_PRIVATE_SOURCE_OBSERVATION: validObservation });
+  checkFailure(prepareCommand, 37, 'hash_projected_native_pod_inputs',
+    { PREPARE_PHASE: 'hash_projected_native_pod_inputs', PREPARE_SOURCE_OBSERVATION: validObservation });
+  for (const [platform, status, phase, observation] of [
+    ['ios', '37', detachedSourcePhase, malformedObservation],
+    ['ios', '37', detachedSourcePhase, validObservation + '\n'],
+    ['ios', '0', detachedSourcePhase, validObservation],
+    ['ios', '37', 'project_flutter_native_plugins', validObservation],
+    ['android', '37', detachedSourcePhase, validObservation],
+  ]) {
+    const record = buildFailureEvidence({
+      platform, 'test-status': status, 'failure-phase': phase, 'protected-source-failure': observation,
+    }, repoRoot);
+    assert.equal(record.execution.protectedSourceFailure, undefined);
+  }
   const missingObservation = checkFailure(['-e', '-o', 'pipefail', '-c', prepare.run], 37, 'prepare_projected_pods',
     { PREPARE_PHASE: 'install_projected_pods', PREPARE_REMOVE_PHASE_LOG: '1' });
   assert.equal(missingObservation.stdout, '');
@@ -1267,6 +1310,9 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
   assert.equal(evidence.env.PREPARATION_OUTCOME, '${{ steps.arm64_dependencies.outcome }}');
   assert.equal(evidence.env.PREPARATION_STATUS, '${{ steps.arm64_dependencies.outputs.status }}');
   assert.equal(evidence.env.PREPARATION_PHASE, '${{ steps.arm64_dependencies.outputs.failure_phase }}');
+  assert.equal(evidence.env.PROTECTED_SOURCE_FAILURE,
+    '${{ steps.arm64_dependencies.outputs.protected_source_failure }}');
+  assert.match(evidence.run, /--protected-source-failure="\$PROTECTED_SOURCE_FAILURE"/);
   assert.equal(evidence.env.ACCEPTANCE_STATUS, '${{ steps.acceptance.outputs.status }}');
   assert.equal(evidence.env.ACCEPTANCE_PHASE, '${{ steps.acceptance.outputs.failure_phase }}');
   const command = evidence.run.split('test -f "$RUNNER_TEMP/ios-acceptance.log"')[0]

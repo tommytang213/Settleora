@@ -550,6 +550,8 @@ jobs:
           } 2>/dev/null || status=$?
           if test "$status" -ne 0; then
             failure_phase=prepare_projected_pods
+            source_failure=
+            source_failure_pattern='^ios_arm64_detached_source_failure=((missing|unexpected_type|read_error|hash_mismatch):[0-9a-f]{64})$'
             while IFS= read -r observation; do
               case "$observation" in
                 ios_arm64_preparation_phase=prepare_flutter_toolchain|\
@@ -571,11 +573,18 @@ jobs:
                 ios_arm64_preparation_phase=install_projected_pods|\
                 ios_arm64_preparation_phase=verify_projected_xcode_configuration)
                   failure_phase="${observation#*=}"
+                  source_failure=
                   ;;
               esac
+              if [[ "$failure_phase" == verify_projected_detached_source && "$observation" =~ $source_failure_pattern ]]; then
+                source_failure="${BASH_REMATCH[1]}"
+              fi
             done 2>/dev/null < "$phase_log" || :
             printf 'ios_arm64_preparation=failed\n' >&2
             printf 'status=%s\nfailure_phase=%s\n' "$status" "$failure_phase" >> "$GITHUB_OUTPUT"
+            if test -n "$source_failure"; then
+              printf 'protected_source_failure=%s\n' "$source_failure" >> "$GITHUB_OUTPUT"
+            fi
           fi
           exit "$status"
 
@@ -680,6 +689,7 @@ jobs:
           PREPARATION_OUTCOME: ${{ steps.arm64_dependencies.outcome }}
           PREPARATION_STATUS: ${{ steps.arm64_dependencies.outputs.status }}
           PREPARATION_PHASE: ${{ steps.arm64_dependencies.outputs.failure_phase }}
+          PROTECTED_SOURCE_FAILURE: ${{ steps.arm64_dependencies.outputs.protected_source_failure }}
           ACCEPTANCE_STATUS: ${{ steps.acceptance.outputs.status }}
           ACCEPTANCE_PHASE: ${{ steps.acceptance.outputs.failure_phase }}
         run: |
@@ -701,6 +711,7 @@ jobs:
             --source-sha="$EXPECTED_HEAD" \
             --test-status="$test_status" \
             --failure-phase="$failure_phase" \
+            --protected-source-failure="$PROTECTED_SOURCE_FAILURE" \
             --runner-image="${{ steps.simulator.outputs.runner_image }}" \
             --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \
             --sdk-toolchain="${{ steps.simulator.outputs.sdk_toolchain }}" \

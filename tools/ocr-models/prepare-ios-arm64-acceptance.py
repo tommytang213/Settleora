@@ -670,6 +670,12 @@ def pods_build_selection(ios, paths, plugin_inputs, verifier_script=None):
             "targetSupportFilesSha256": sha(json.dumps(generated, sort_keys=True).encode())}
 
 
+class ProtectedSourceRejection(ValueError):
+    def __init__(self, reason, relative):
+        super().__init__("ios_arm64_acceptance_setup_rejected")
+        self.observation = f"{reason}:{sha(relative.encode())}"
+
+
 def verify_protected_source(target, tracked):
     protected = {}
     for relative, digest in tracked.items():
@@ -682,9 +688,20 @@ def verify_protected_source(target, tracked):
         if relative == "apps/mobile/ios/Runner/GeneratedPluginRegistrant.m":
             continue
         file = target / relative
-        require(file.is_file() or file.is_symlink())
-        raw = os.readlink(file).encode() if file.is_symlink() else file.read_bytes()
-        require(sha(raw) == digest)
+        try:
+            mode = file.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                raw = os.readlink(file).encode()
+            elif stat.S_ISREG(mode):
+                raw = file.read_bytes()
+            else:
+                raise ProtectedSourceRejection("unexpected_type", relative)
+        except FileNotFoundError:
+            raise ProtectedSourceRejection("missing", relative) from None
+        except OSError:
+            raise ProtectedSourceRejection("read_error", relative) from None
+        if sha(raw) != digest:
+            raise ProtectedSourceRejection("hash_mismatch", relative)
         protected[relative] = digest
     require(protected)
     return protected
@@ -711,6 +728,15 @@ def context():
 
 def observe_preparation_phase(phase):
     print(f"ios_arm64_preparation_phase={phase}", flush=True)
+
+
+def verify_projected_detached_source(target, tracked):
+    observe_preparation_phase("verify_projected_detached_source")
+    try:
+        return verify_protected_source(target, tracked)
+    except ProtectedSourceRejection as exc:
+        print(f"ios_arm64_detached_source_failure={exc.observation}", flush=True)
+        raise
 
 
 def prepare(repo, root, target, manifest):
@@ -789,8 +815,7 @@ def prepare(repo, root, target, manifest):
     original_debug = debug.read_bytes()
     require(sha(original_debug) in DEBUG_BASE_HASHES)
     debug.write_bytes(original_debug + ARCH_CONFIG)
-    observe_preparation_phase("verify_projected_detached_source")
-    protected = verify_protected_source(target, tracked)
+    protected = verify_projected_detached_source(target, tracked)
     observe_preparation_phase("hash_projected_native_pod_inputs")
     proof = {"schemaVersion": 1, "sourceHead": os.environ["EXPECTED_HEAD"], "architecture": "arm64",
              "root": str(root), "target": str(target), "referenceManifestSha256": REFERENCE_SHA256,

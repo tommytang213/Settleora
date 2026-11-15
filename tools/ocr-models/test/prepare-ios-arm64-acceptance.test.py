@@ -648,6 +648,34 @@ print JSON.generate(checksums)
                 with self.assertRaises(ValueError): m.verify_protected_source(root, files)
                 path.write_bytes(b"actual bytes")
 
+    def test_preparation_reports_first_rejected_tracked_path_with_bounded_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            relative = "apps/mobile/lib/first.dart"
+            path = root / relative
+            path.parent.mkdir(parents=True)
+            expected = m.sha(b"reviewed bytes")
+            tracked = {relative: expected, "apps/mobile/lib/second.dart": expected}
+            path_digest = m.sha(relative.encode())
+
+            def check_rejection(reason):
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout), self.assertRaisesRegex(
+                        ValueError, "^ios_arm64_acceptance_setup_rejected$"):
+                    m.verify_projected_detached_source(root, tracked)
+                self.assertEqual(stdout.getvalue(),
+                                 "ios_arm64_preparation_phase=verify_projected_detached_source\n"
+                                 f"ios_arm64_detached_source_failure={reason}:{path_digest}\n")
+
+            check_rejection("missing")
+            path.mkdir()
+            check_rejection("unexpected_type")
+            path.rmdir()
+            path.write_bytes(b"synthetic private bytes")
+            check_rejection("hash_mismatch")
+            with patch.object(Path, "read_bytes", side_effect=PermissionError("synthetic private error")):
+                check_rejection("read_error")
+
     def test_cli_cannot_start_a_native_setup_outside_owned_normal_lane(self):
         result = subprocess.run([sys.executable, "-I", "-B", str(MODULE), "prepare"],
                                 env={"PATH": os.environ["PATH"]}, capture_output=True)
