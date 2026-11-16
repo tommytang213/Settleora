@@ -1731,6 +1731,11 @@ test("ordinary iOS test-build failures retain only allowlisted verifier phases",
     chmodSync(setup, 0o755);
     assert.equal(read(), undefined);
     chmodSync(setup, 0o700);
+    for (const token of ["01", "1.0", "+1", " 1 ", "1\n"]) {
+      const malformed = { ...args, "test-status": token };
+      assert.equal(read({ "test-status": token }), undefined);
+      assert.equal(buildEvidence(malformed, repoRoot).execution.iosTestBuildVerifierPhases, undefined);
+    }
     for (const overrides of [
       { platform: "android" }, { "failure-phase": "build_simulator_interposer_link" },
       { "test-status": "0" }, { "test-status": "98" }, { "test-status": "01" },

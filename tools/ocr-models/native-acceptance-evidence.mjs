@@ -266,10 +266,10 @@ function readTestBuildVerifierPhase(directory, head, verifier) {
   }
 }
 
-function iosTestBuildVerifierObservation(args, repoRoot, phase, status) {
+function iosTestBuildVerifierObservation(args, repoRoot, phase) {
   const root = args["ios-build-capture-root"];
   const head = args["source-sha"];
-  if (args.platform !== "ios" || phase !== "execute_flutter_test" || status !== 1 ||
+  if (args.platform !== "ios" || phase !== "execute_flutter_test" || args["test-status"] !== "1" ||
       typeof root !== "string" || !path.isAbsolute(root) || !/^[0-9a-f]{40}$/.test(head ?? "")) return {};
   try {
     const directory = path.join(root, "ios-paddle-full101-arm64-v1");
@@ -349,7 +349,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
       preflightFailurePhase,
       ...preparationObservation(args, preflightFailurePhase, testExitStatus),
       ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
-      ...iosTestBuildVerifierObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
+      ...iosTestBuildVerifierObservation(args, repoRoot, preflightFailurePhase),
       stdoutBytes: boundedSize(args.log),
       stderrBytes: boundedSize(args["stderr-log"]),
     },
@@ -1868,7 +1868,7 @@ function collectEvidence(args, repoRoot, observe) {
       preflightFailurePhase,
       ...preparationObservation(args, preflightFailurePhase, testExitStatus),
       ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
-      ...iosTestBuildVerifierObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
+      ...iosTestBuildVerifierObservation(args, repoRoot, preflightFailurePhase),
       environment: sanitizeEnvironment(args),
     },
     acceptance,
