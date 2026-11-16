@@ -1533,6 +1533,9 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     'error: unrelated_customer_text\n', swiftObservation);
   exercise('ld: library not found for -lSECRET_FIXTURE_TOKEN\n' + safe, '',
     { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
+  exercise('warning: private build settings: Permission denied\nld: warning: ignoring duplicate libraries\n' +
+    'ld: library not found for -lSECRET_FIXTURE_TOKEN\n', '',
+    { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
   exercise('clang: error: related to unrelated_customer_text\n' + safe, '',
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise('ordinary progress without newline', "error: 'SECRET_FIXTURE_TOKEN.h' file not found\n",
@@ -1553,6 +1556,10 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise("error: no such module '" + 'A'.repeat(4096) + "'\n", '',
     { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise('/private/PrivateBuilder/Script.sh: line 7: ' + 'A'.repeat(4096) + ': command not found\n' + safe, '',
+    { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise("lib/main.dart:12:7: Error: Method not found: 'SECRET_FIXTURE_TOKEN'.\n" + safe, '',
+    { status: 'observed', stream: 'stdout', message: "Method not found: '[redacted]'", sourceLocation: null });
   exercise(safe.trimEnd(), '', { status: 'partial_line', stream: 'stdout' });
   exercise('unrelated_customer_text\n', '', { status: 'no_error' });
   exercise('', '', { status: 'capture_limit_exceeded', stream: 'stdout' }, { oversizeCapture: true });

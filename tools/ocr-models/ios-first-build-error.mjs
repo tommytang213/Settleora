@@ -6,10 +6,12 @@ const captureBytes = 32 * 1024 * 1024;
 const lineBytes = 4096;
 const sourceBytes = 1024 * 1024;
 const sourcePath = /^(?:apps\/mobile\/(?:ios|lib)|tools\/ocr-models)\/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:dart|swift|m|mm|h|hpp|c|cc|cpp|py|rb|sh)$/;
-const locationPrefix = /^(\/[^:\x00-\x1f]{1,1024}):\s*(?:line )?([1-9][0-9]{0,5})(?::([1-9][0-9]{0,5}))?:[ \t]*/;
+const locationPrefix = /^([^:\x00-\x1f]{1,1024}):[ \t]*(?:line )?([1-9][0-9]{0,5})(?::([1-9][0-9]{0,5}))?:[ \t]*/;
 const flutterPrefix = /^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*/;
 const errorPrefix = /^(?:(?:clang(?:\+\+)?:[ \t]+)?(?:fatal )?error:|ld:|Error(?: \(Xcode\))?:)[ \t]*/;
-const scriptError = /^(?:[A-Za-z]+Error:|(?:.+:[ \t]*)?(?:command not found|No such file or directory|Permission denied)$|cannot load such file -- )/;
+const warningPrefix = /^(?:(?:ld|clang(?:\+\+)?):[ \t]*)?(?:warning|note):/i;
+const interpreterError = /^(?:[A-Za-z]+Error:|cannot load such file -- )/;
+const shellError = /(?:^|:[ \t]*)(?:command not found|No such file or directory|Permission denied)$/;
 const verifierRejection = "ios_arm64_acceptance_setup_rejected";
 
 // Copy only reviewed words from a recognized diagnostic form. Arguments,
@@ -17,6 +19,7 @@ const verifierRejection = "ios_arm64_acceptance_setup_rejected";
 const redactions = [
   [/^no such module ['"][^'"]+['"]$/, "no such module '[redacted]'"],
   [/^cannot find ['"][^'"]+['"] in scope$/, "cannot find '[redacted]' in scope"],
+  [/^Method not found: ['"][^'"]+['"]\.?$/, "Method not found: '[redacted]'"],
   [/^use of undeclared identifier ['"][^'"]+['"]$/, "use of undeclared identifier '[redacted]'"],
   [/^['"][^'"]+['"] file not found$/, "'[redacted]' file not found"],
   [/^library not found(?: for .+)?$/, "library not found"],
@@ -100,13 +103,18 @@ function firstError(bytes) {
     const length = stop - start;
     const line = bytes.subarray(start, Math.min(stop, start + lineBytes))
       .toString("utf8").replace(flutterPrefix, "").trimEnd();
+    const tail = length > lineBytes
+      ? bytes.subarray(stop - 128, stop).toString("utf8").trimEnd()
+      : null;
     start = stop + 1;
-    const location = locationPrefix.exec(line);
+    const location = errorPrefix.test(line) ? null : locationPrefix.exec(line);
     const detail = line.slice(location?.[0].length ?? 0)
       .replace(/^in [\x60'][^\x60'\x00-\x1f]{1,96}['\x60]:[ \t]+/, "");
+    if (warningPrefix.test(detail)) continue;
     const prefixed = errorPrefix.test(detail);
     const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
-    if (!prefixed && detail !== verifierRejection && !scriptError.test(detail)) continue;
+    if (!prefixed && detail !== verifierRejection && !interpreterError.test(detail) &&
+        !shellError.test(tail ?? detail)) continue;
     if (length > lineBytes) return { status: "line_limit_exceeded" };
     if (end === -1) return { status: "partial_line" };
     // These summaries do not identify the underlying error.
