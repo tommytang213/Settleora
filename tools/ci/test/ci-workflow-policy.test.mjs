@@ -1296,21 +1296,27 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     RUNNER_TEMP: temporary,
     SETTLEORA_IOS_ACCEPTANCE_ROOT: temporary,
     PREPARE_EXIT: '37',
+    IOS_ACCEPTANCE_MODE: 'full101',
   };
-  function checkFailure(args, expectedStatus, expectedPhase, options = {}, expectedSourceObservation = '') {
+  function checkFailure(args, expectedStatus, expectedPhase, options = {}, expectedSourceObservation = '', traceLimit = false) {
     writeFileSync(output, '');
     const result = spawnSync('bash', args, { cwd: repoRoot, env: { ...env, ...options }, encoding: 'utf8' });
     assert.equal(result.status, expectedStatus);
     assert.equal(readFileSync(output, 'utf8'),
       `status=${expectedStatus}\nfailure_phase=${expectedPhase}\n` +
+      (traceLimit ? 'preparation_trace_limit_exceeded=true\n' : '') +
       (expectedSourceObservation ? `protected_source_failure=${expectedSourceObservation}\n` : ''));
+    const outputs = Object.fromEntries(readFileSync(output, 'utf8').trimEnd().split('\n').map((row) => row.split('=')));
     const record = buildFailureEvidence({
       platform: 'ios',
       'test-status': String(expectedStatus),
       'failure-phase': expectedPhase,
+      'ios-build-capture-root': options.IOS_ACCEPTANCE_MODE === 'ios_full101' ? temporary : '',
+      'preparation-trace-limit-exceeded': outputs.preparation_trace_limit_exceeded,
     }, repoRoot);
     assert.equal(record.execution.preflightFailurePhase, expectedPhase);
     assert.equal(record.execution.testExitStatus, expectedStatus);
+    assert.equal(record.execution.preparationTraceLimitExceeded, traceLimit || undefined);
     assert.equal(record.acceptance.completed, false);
     return result;
   }
@@ -1365,6 +1371,9 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
   }
   checkFailure(prepareCommand, 37, 'prepare_projected_pods',
     { PREPARE_PHASE: detachedSourcePhase, PREPARE_SOURCE_OBSERVATION: validObservation, PREPARE_OVERSIZED_LOG: '1' });
+  checkFailure(prepareCommand, 37, 'prepare_projected_pods',
+    { PREPARE_PHASE: detachedSourcePhase, PREPARE_SOURCE_OBSERVATION: validObservation,
+      PREPARE_OVERSIZED_LOG: '1', IOS_ACCEPTANCE_MODE: 'ios_full101' }, '', true);
   const outputUnavailable = spawnSync('bash', prepareCommand, {
     cwd: repoRoot,
     env: { ...env, PREPARE_PHASE: detachedSourcePhase, PREPARE_SOURCE_OBSERVATION: validObservation,
@@ -1396,9 +1405,12 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
   assert.equal(evidence.env.PREPARATION_OUTCOME, '${{ steps.arm64_dependencies.outcome }}');
   assert.equal(evidence.env.PREPARATION_STATUS, '${{ steps.arm64_dependencies.outputs.status }}');
   assert.equal(evidence.env.PREPARATION_PHASE, '${{ steps.arm64_dependencies.outputs.failure_phase }}');
+  assert.equal(prepare.env.IOS_ACCEPTANCE_MODE, '${{ inputs.mode }}');
+  assert.equal(evidence.env.PREPARATION_TRACE_LIMIT_EXCEEDED, '${{ steps.arm64_dependencies.outputs.preparation_trace_limit_exceeded }}');
   assert.equal(evidence.env.PROTECTED_SOURCE_FAILURE,
     '${{ steps.arm64_dependencies.outputs.protected_source_failure }}');
   assert.match(evidence.run, /--protected-source-failure="\$PROTECTED_SOURCE_FAILURE"/);
+  assert.match(evidence.run, /--preparation-trace-limit-exceeded="\$PREPARATION_TRACE_LIMIT_EXCEEDED"/);
   assert.equal(evidence.env.ACCEPTANCE_STATUS, '${{ steps.acceptance.outputs.status }}');
   assert.equal(evidence.env.ACCEPTANCE_PHASE, '${{ steps.acceptance.outputs.failure_phase }}');
   const command = evidence.run.split('test -f "$RUNNER_TEMP/ios-acceptance.log"')[0]
@@ -1469,6 +1481,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     'fi',
     'printf %s "$BUILD_STDOUT"',
     'printf %s "$BUILD_STDERR" >&2',
+    'if test "$BUILD_INTERRUPTED" = 1; then kill -TERM "$$"; fi',
     'exit 37',
     '',
   ].join('\n'), { mode: 0o700 });
@@ -1490,7 +1503,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   function exercise(stdout, stderr, expected, options = {}) {
     writeFileSync(output, '');
-    const captureStatus = options.buildOverflow ? 97 : 37;
+    const captureStatus = options.buildOverflow ? 97 : options.interruptedBuild ? 98 : 37;
     const status = options.cleanupFailure ? 98 : captureStatus;
     const mode = options.mode ?? 'ios_full101';
     const failurePhase = options.cleanupFailure ? 'cleanup_network_isolation' : 'build_simulator_interposer_link';
@@ -1501,6 +1514,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
         ...env, BUILD_STDOUT: stdout, BUILD_STDERR: stderr,
         RUN_REGISTERED_VERIFIER: options.registeredVerifier ? '1' : '0',
         BUILD_OVERFLOW: options.buildOverflow ? '1' : '0',
+        BUILD_INTERRUPTED: options.interruptedBuild ? '1' : '0',
         IOS_ACCEPTANCE_MODE: mode,
       },
       encoding: 'utf8', timeout: 20000,
@@ -1556,6 +1570,9 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise("Swift Compiler Error (Xcode): cannot find 'SECRET_FIXTURE_TOKEN' in scope\n" + safe, '',
     { status: 'observed', stream: 'stdout', message: "cannot find '[redacted]' in scope", sourceLocation: null });
+  exercise('Swift Compiler Warning (Xcode): runtime: Permission denied\n' +
+    "Semantic Issue (Xcode): Use of undeclared identifier 'SECRET_FIXTURE_TOKEN'\n" + safe, '',
+    { status: 'observed', stream: 'stdout', message: "use of undeclared identifier '[redacted]'", sourceLocation: null });
   exercise('ordinary progress without newline', "error: 'SECRET_FIXTURE_TOKEN.h' file not found\n",
     { status: 'observed', stream: 'stderr', message: "'[redacted]' file not found", sourceLocation: null });
   exercise('Failed to build iOS app\nCommand PhaseScriptExecution failed with a nonzero exit code\n',
@@ -1582,6 +1599,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   exercise('unrelated_customer_text\n', '', { status: 'no_error' });
   exercise('', '', { status: 'capture_limit_exceeded', stream: 'stdout' }, { oversizeCapture: true });
   exercise('', '', { status: 'capture_may_be_truncated' }, { buildOverflow: true });
+  exercise(safe, '', { status: 'capture_may_be_incomplete' }, { interruptedBuild: true });
   exercise(safe, '', swiftObservation, { cleanupFailure: true });
   exercise('', '', { status: 'capture_may_be_truncated' }, { cleanupFailure: true, buildOverflow: true });
   exercise(safe, '', undefined, { env: { IOS_BUILD_CAPTURE_ROOT: '' } });

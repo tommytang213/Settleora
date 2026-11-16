@@ -546,6 +546,7 @@ jobs:
         id: arm64_dependencies
         timeout-minutes: 35
         env:
+          IOS_ACCEPTANCE_MODE: ${{ inputs.mode }}
           SETTLEORA_IOS_ACCEPTANCE_ROOT: ${{ runner.temp }}/ios-acceptance-source
         shell: bash
         run: |
@@ -560,7 +561,7 @@ jobs:
             failure_outputs="$(
               node --input-type=module - "$phase_log" 2>/dev/null <<'JS'
           import { readIosArm64PreparationFailure } from "./tools/ocr-models/native-acceptance-evidence.mjs";
-          process.stdout.write(readIosArm64PreparationFailure(process.argv[2]));
+          process.stdout.write(readIosArm64PreparationFailure(process.argv[2], process.env.IOS_ACCEPTANCE_MODE === "ios_full101"));
           JS
             )" || failure_outputs='failure_phase=prepare_projected_pods'
             printf 'ios_arm64_preparation=failed\n' >&2
@@ -672,6 +673,7 @@ jobs:
           PREPARATION_OUTCOME: ${{ steps.arm64_dependencies.outcome }}
           PREPARATION_STATUS: ${{ steps.arm64_dependencies.outputs.status }}
           PREPARATION_PHASE: ${{ steps.arm64_dependencies.outputs.failure_phase }}
+          PREPARATION_TRACE_LIMIT_EXCEEDED: ${{ steps.arm64_dependencies.outputs.preparation_trace_limit_exceeded }}
           PROTECTED_SOURCE_FAILURE: ${{ steps.arm64_dependencies.outputs.protected_source_failure }}
           ACCEPTANCE_STATUS: ${{ steps.acceptance.outputs.status }}
           ACCEPTANCE_PHASE: ${{ steps.acceptance.outputs.failure_phase }}
@@ -696,6 +698,7 @@ jobs:
             --failure-phase="$failure_phase" \
             --ios-build-capture-root="$IOS_BUILD_CAPTURE_ROOT" \
             --ios-build-capture-status="$IOS_BUILD_CAPTURE_STATUS" \
+            --preparation-trace-limit-exceeded="$PREPARATION_TRACE_LIMIT_EXCEEDED" \
             --protected-source-failure="$PROTECTED_SOURCE_FAILURE" \
             --runner-image="${{ steps.simulator.outputs.runner_image }}" \
             --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \

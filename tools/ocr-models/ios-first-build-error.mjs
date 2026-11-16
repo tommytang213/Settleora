@@ -8,8 +8,8 @@ const sourceBytes = 1024 * 1024;
 const sourcePath = /^(?:apps\/mobile\/(?:ios|lib)|tools\/ocr-models)\/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:dart|swift|m|mm|h|hpp|c|cc|cpp|py|rb|sh)$/;
 const locationPrefix = /^([^:\x00-\x1f]{1,1024}):[ \t]*(?:line )?([1-9][0-9]{0,5})(?::([1-9][0-9]{0,5}))?:[ \t]*/;
 const flutterPrefix = /^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*/;
-const errorPrefix = /^(?:(?:(?:clang(?:\+\+)?|xcodebuild):[ \t]+)?(?:fatal )?error:|ld:|Error:|(?:Swift Compiler )?Error \(Xcode\):)[ \t]*/;
-const warningPrefix = /^(?:(?:ld|clang(?:\+\+)?|xcodebuild):[ \t]*)?(?:warning|note):/i;
+const errorPrefix = /^(?:(?:(?:clang(?:\+\+)?|xcodebuild):[ \t]+)?(?:fatal )?error:|ld:|Error:|(?:(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}(?:Error|Issue)|Unknown) \(Xcode\):)[ \t]*/;
+const warningPrefix = /^(?:(?:(?:ld|clang(?:\+\+)?|xcodebuild):[ \t]*)?(?:warning|note):|(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}Warning \(Xcode\):)/i;
 const interpreterError = /^(?:[A-Za-z]+Error:|cannot load such file -- )/;
 const shellError = /(?:^|:[ \t]*)(?:command not found|No such file or directory|Permission denied)$/;
 const verifierRejection = "ios_arm64_acceptance_setup_rejected";
@@ -20,7 +20,7 @@ const redactions = [
   [/^no such module ['"][^'"]+['"]$/, "no such module '[redacted]'"],
   [/^cannot find ['"][^'"]+['"] in scope$/, "cannot find '[redacted]' in scope"],
   [/^Method not found: ['"][^'"]+['"]\.?$/, "Method not found: '[redacted]'"],
-  [/^use of undeclared identifier ['"][^'"]+['"]$/, "use of undeclared identifier '[redacted]'"],
+  [/^[Uu]se of undeclared identifier ['"][^'"]+['"]$/, "use of undeclared identifier '[redacted]'"],
   [/^['"][^'"]+['"] file not found$/, "'[redacted]' file not found"],
   [/^library not found(?: for .+)?$/, "library not found"],
   [/^linker command failed(?: with exit code [1-9][0-9]{0,2}(?: \(use -v to see invocation\))?)?$/,

@@ -168,7 +168,7 @@ function parseProtectedSourceToken(token) {
     : null;
 }
 
-export function readIosArm64PreparationFailure(log) {
+export function readIosArm64PreparationFailure(log, reportTraceLimit = false) {
   const phasePrefix = "ios_arm64_preparation_phase=";
   const sourcePrefix = "ios_arm64_detached_source_failure=";
   const bytes = Buffer.alloc(16 * 1024 + 1);
@@ -179,20 +179,22 @@ export function readIosArm64PreparationFailure(log) {
   } finally {
     closeSync(file);
   }
+  if (length === bytes.length) {
+    return "failure_phase=prepare_projected_pods" +
+      (reportTraceLimit ? "\npreparation_trace_limit_exceeded=true" : "");
+  }
   let phase = "prepare_projected_pods";
   let observations = [];
-  if (length < bytes.length) {
-    // Latin-1 preserves every byte. Only complete newline-terminated records count.
-    for (const line of bytes.subarray(0, length).toString("latin1").split("\n").slice(0, -1)) {
-      if (line.startsWith(phasePrefix)) {
-        const label = line.slice(phasePrefix.length);
-        if (iosArm64PreparationPhases.has(label)) {
-          phase = label;
-          observations = [];
-        }
-      } else if (phase === protectedSourcePhase && line.startsWith(sourcePrefix)) {
-        observations.push(line.slice(sourcePrefix.length));
+  // Latin-1 preserves every byte. Only complete newline-terminated records count.
+  for (const line of bytes.subarray(0, length).toString("latin1").split("\n").slice(0, -1)) {
+    if (line.startsWith(phasePrefix)) {
+      const label = line.slice(phasePrefix.length);
+      if (iosArm64PreparationPhases.has(label)) {
+        phase = label;
+        observations = [];
       }
+    } else if (phase === protectedSourcePhase && line.startsWith(sourcePrefix)) {
+      observations.push(line.slice(sourcePrefix.length));
     }
   }
   const outputs = [`failure_phase=${phase}`];
@@ -202,10 +204,13 @@ export function readIosArm64PreparationFailure(log) {
   return outputs.join("\n");
 }
 
-function protectedSourceObservation(args, phase, status) {
-  if (args.platform !== "ios" || phase !== protectedSourcePhase || !(status > 0)) {
-    return {};
+function preparationObservation(args, phase, status) {
+  if (args.platform !== "ios" || !(status > 0)) return {};
+  if (phase === "prepare_projected_pods" && args["ios-build-capture-root"] &&
+      args["preparation-trace-limit-exceeded"] === "true") {
+    return { preparationTraceLimitExceeded: true };
   }
+  if (phase !== protectedSourcePhase) return {};
   const observation = parseProtectedSourceToken(args["protected-source-failure"] ?? "");
   return observation ? { protectedSourceFailure: observation } : {};
 }
@@ -220,11 +225,16 @@ function iosBuildErrorObservation(args, repoRoot, phase, status) {
   if (args.platform !== "ios" || !captureRoot || !relevantFailure ||
       !Number.isInteger(captureExitStatus) || captureExitStatus < 1 || captureExitStatus > 255 ||
       String(captureExitStatus) !== token) return {};
-  // The capture wrapper returns 97 on overflow. A child may also exit 97,
-  // so do not assume either stream of that capture is complete.
-  const observation = captureExitStatus === 97
-    ? { status: "capture_may_be_truncated" }
-    : readIosFirstBuildError(captureRoot, repoRoot, args["source-sha"]);
+  // The wrapper uses 97 for overflow and 98 for startup/termination failure.
+  // A child can also return either number, so these statuses are conservative.
+  let observation;
+  if (captureExitStatus === 97) {
+    observation = { status: "capture_may_be_truncated" };
+  } else if (captureExitStatus === 98) {
+    observation = { status: "capture_may_be_incomplete" };
+  } else {
+    observation = readIosFirstBuildError(captureRoot, repoRoot, args["source-sha"]);
+  }
   return { iosFirstBuildError: { ...observation, captureExitStatus } };
 }
 
@@ -281,7 +291,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     execution: {
       testExitStatus,
       preflightFailurePhase,
-      ...protectedSourceObservation(args, preflightFailurePhase, testExitStatus),
+      ...preparationObservation(args, preflightFailurePhase, testExitStatus),
       ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
       stdoutBytes: boundedSize(args.log),
       stderrBytes: boundedSize(args["stderr-log"]),
@@ -1799,7 +1809,7 @@ function collectEvidence(args, repoRoot, observe) {
       testExitStatus,
       protocolSucceeded: protocol.protocolSucceeded,
       preflightFailurePhase,
-      ...protectedSourceObservation(args, preflightFailurePhase, testExitStatus),
+      ...preparationObservation(args, preflightFailurePhase, testExitStatus),
       ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
       environment: sanitizeEnvironment(args),
     },
