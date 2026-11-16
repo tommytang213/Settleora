@@ -1,5 +1,9 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readSync,
+  realpathSync, statSync, writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeFlutterRunner } from "./flutter-runner-diagnostics.mjs";
@@ -238,6 +242,58 @@ function iosBuildErrorObservation(args, repoRoot, phase, status) {
   return { iosFirstBuildError: { ...observation, captureExitStatus } };
 }
 
+const iosTestBuildVerificationPhases = {
+  pods: ["entered", "verified"],
+  runner: ["entered", "pods_verified", "build_settings_verified", "registrant_verified", "flutter_target_verified"],
+};
+
+function readTestBuildVerifierPhase(directory, head, verifier) {
+  let fd;
+  try {
+    fd = openSync(path.join(directory, `test-build-verify-${verifier}.phase`),
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const info = fstatSync(fd);
+    if (!info.isFile() || (info.mode & 0o777) !== 0o600 || info.uid !== process.getuid() ||
+        info.size < 43 || info.size > 96) return "unavailable";
+    const bytes = Buffer.alloc(info.size + 1);
+    if (readSync(fd, bytes, 0, bytes.length, 0) !== info.size) return "unavailable";
+    return iosTestBuildVerificationPhases[verifier].find((phase) =>
+      bytes.subarray(0, info.size).equals(Buffer.from(`${head}\n${phase}\n`))) ?? "unavailable";
+  } catch (error) {
+    return error.code === "ENOENT" ? "not_observed" : "unavailable";
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+function iosTestBuildVerifierObservation(args, repoRoot, phase, status) {
+  const root = args["ios-build-capture-root"];
+  const head = args["source-sha"];
+  if (args.platform !== "ios" || phase !== "execute_flutter_test" || status !== 1 ||
+      typeof root !== "string" || !path.isAbsolute(root) || !/^[0-9a-f]{40}$/.test(head ?? "")) return {};
+  try {
+    const directory = path.join(root, "ios-paddle-full101-arm64-v1");
+    if (realpathSync(directory) !== directory ||
+        !lstatSync(path.join(root, "first-ios-acceptance-runner.app")).isDirectory()) return {};
+    const owner = lstatSync(directory);
+    if (!owner.isDirectory() || (owner.mode & 0o777) !== 0o700 || owner.uid !== process.getuid()) return {};
+    const git = spawnSync("git", ["--no-replace-objects", "-C", repoRoot, "rev-parse", "--show-toplevel", "HEAD"], {
+      env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 4096, timeout: 5000,
+    });
+    if (git.status !== 0 || git.stdout !== `${repoRoot}\n${head}\n`) return {};
+    // These are subprocess observations. A missing marker is not proof
+    // that Xcode never entered the corresponding verifier.
+    return { iosTestBuildVerifierPhases: {
+      schemaVersion: 1,
+      pods: readTestBuildVerifierPhase(directory, head, "pods"),
+      runner: readTestBuildVerifierPhase(directory, head, "runner"),
+    } };
+  } catch {
+    return {};
+  }
+}
+
 export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {
   // Snapshot before any best-effort recovery; recovery does not establish cause.
   const collectionRejection = firstCollectionRejection(collectionError);
@@ -293,6 +349,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
       preflightFailurePhase,
       ...preparationObservation(args, preflightFailurePhase, testExitStatus),
       ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
+      ...iosTestBuildVerifierObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
       stdoutBytes: boundedSize(args.log),
       stderrBytes: boundedSize(args["stderr-log"]),
     },
@@ -1811,6 +1868,7 @@ function collectEvidence(args, repoRoot, observe) {
       preflightFailurePhase,
       ...preparationObservation(args, preflightFailurePhase, testExitStatus),
       ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
+      ...iosTestBuildVerifierObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
       environment: sanitizeEnvironment(args),
     },
     acceptance,

@@ -369,6 +369,89 @@ project.save
                 with self.assertRaises(ValueError):
                     m.verify_runner_build(root, target)
 
+    def test_test_build_verifier_records_last_completed_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            top = Path(directory).resolve()
+            root, target, sdk = top / m.ROOT_NAME, top / "source", top / "flutter"
+            root.mkdir(mode=0o700)
+            head = "a" * 40
+            retired = top / "first-ios-acceptance-runner.app"
+            report = root / "test-build-verify-runner.phase"
+            settings = dict(
+                IOS_ACCEPTANCE_MODE="ios_full101", EXPECTED_HEAD=head, TARGET_NAME="Runner",
+                CONFIGURATION="Debug", PLATFORM_NAME="iphonesimulator",
+            )
+            (root / "setup.json").write_text(json.dumps({
+                "runnerEffectiveInputs": {"Runner": m.runner_input_settings(settings)},
+                "nativePluginRefresh": {"nativeRegistrant": {"fixed": "reviewed"}},
+                "flutterSdk": str(sdk),
+            }))
+            with patch.dict(os.environ, settings, clear=True), patch.object(
+                m, "verify_build_pods", side_effect=ValueError("PRIVATE_STUB_INPUT"),
+            ) as verify_pods, patch.object(
+                m, "generated_registrant_hashes", return_value={"fixed": "reviewed"},
+            ) as registrant, patch.object(m, "verify_flutter_build_target") as validate_target:
+                with self.assertRaises(ValueError):
+                    m.verify_runner_build(root, target)
+                self.assertFalse(report.exists())
+
+                retired.mkdir()
+                with self.assertRaises(ValueError):
+                    m.verify_runner_build(root, target)
+                self.assertEqual(report.read_bytes(), f"{head}\nentered\n".encode())
+                self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+
+                verify_pods.side_effect = None
+                os.environ["TARGET_NAME"] = "SomethingElse"
+                with self.assertRaises(ValueError):
+                    m.verify_runner_build(root, target)
+                self.assertEqual(report.read_bytes(), f"{head}\npods_verified\n".encode())
+                os.environ["TARGET_NAME"] = "Runner"
+
+                registrant.return_value = {"fixed": "other"}
+                with self.assertRaises(ValueError):
+                    m.verify_runner_build(root, target)
+                self.assertEqual(report.read_bytes(), f"{head}\nbuild_settings_verified\n".encode())
+                registrant.return_value = {"fixed": "reviewed"}
+
+                validate_target.side_effect = ValueError("PRIVATE_STUB_INPUT")
+                with self.assertRaises(ValueError):
+                    m.verify_runner_build(root, target)
+                self.assertEqual(report.read_bytes(), f"{head}\nregistrant_verified\n".encode())
+
+                validate_target.side_effect = None
+                m.verify_runner_build(root, target)
+                self.assertEqual(report.read_bytes(), f"{head}\nflutter_target_verified\n".encode())
+                self.assertEqual(list(root.glob(".test-build-verifier-*")), [])
+
+    def test_test_build_verifier_keeps_pod_gate_independent_and_optional(self):
+        with tempfile.TemporaryDirectory() as directory:
+            top = Path(directory).resolve()
+            root, target = top / m.ROOT_NAME, top / "source"
+            root.mkdir(mode=0o700)
+            (top / "first-ios-acceptance-runner.app").mkdir()
+            head = "b" * 40
+            report = root / "test-build-verify-pods.phase"
+            with patch.dict(os.environ, {"EXPECTED_HEAD": head, "IOS_ACCEPTANCE_MODE": "ios_full101"}, clear=True), patch.object(
+                m, "context", return_value=(top, root, target, {}),
+            ), patch.object(sys, "argv", ["prepare", "verify-build-pods"]), patch.object(
+                m, "verify_build_pods", side_effect=ValueError("PRIVATE_STUB_INPUT"),
+            ) as verify_pods:
+                with self.assertRaisesRegex(ValueError, "PRIVATE_STUB_INPUT"):
+                    m.main()
+                self.assertEqual(report.read_bytes(), f"{head}\nentered\n".encode())
+                self.assertFalse((root / "test-build-verify-runner.phase").exists())
+                verify_pods.side_effect = None
+                m.main()
+                self.assertEqual(report.read_bytes(), f"{head}\nverified\n".encode())
+                with patch.object(m.tempfile, "NamedTemporaryFile", side_effect=PermissionError):
+                    m.main()
+                self.assertEqual(report.read_bytes(), f"{head}\nverified\n".encode())
+                os.environ["IOS_ACCEPTANCE_MODE"] = "full101"
+                report.unlink()
+                m.main()
+                self.assertFalse(report.exists())
+
     def test_flutter_backend_uses_the_detached_root_and_generated_integration_listener(self):
         with tempfile.TemporaryDirectory() as directory:
             top = Path(directory).resolve()

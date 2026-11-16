@@ -1013,15 +1013,52 @@ def verify_build_pods(root, target):
     print("ios_full101_arm64_build_pods=verified")
 
 
+def observe_test_build_verifier(root, verifier, phase):
+    # The first application build uses the same Xcode scripts. Only record
+    # phases after that bundle has moved out of the test build output path.
+    if os.environ.get("IOS_ACCEPTANCE_MODE") != "ios_full101":
+        return
+    head = os.environ.get("EXPECTED_HEAD", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        return
+    temporary_file = None
+    try:
+        retired = root.parent / "first-ios-acceptance-runner.app"
+        if retired.is_symlink() or not retired.is_dir() or root.resolve(strict=True) != root:
+            return
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=root, prefix=".test-build-verifier-", delete=False,
+        ) as stream:
+            temporary_file = Path(stream.name)
+            # Call sites supply only fixed phase values. Source, exception
+            # messages, build settings and paths are never copied here.
+            stream.write(f"{head}\n{phase}\n".encode("ascii"))
+        temporary_file.replace(root / f"test-build-verify-{verifier}.phase")
+    except (OSError, RuntimeError):
+        # Diagnostic writes have no effect on verification's actual result.
+        pass
+    finally:
+        if temporary_file is not None:
+            try:
+                temporary_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def verify_runner_build(root, target):
+    observe_test_build_verifier(root, "runner", "entered")
     verify_build_pods(root, target)
+    observe_test_build_verifier(root, "runner", "pods_verified")
     proof = json.loads((root / "setup.json").read_bytes())
     require(os.environ.get("TARGET_NAME") == "Runner" and os.environ.get("CONFIGURATION") == "Debug"
             and os.environ.get("PLATFORM_NAME") == "iphonesimulator")
     require(runner_input_settings(os.environ) == proof["runnerEffectiveInputs"]["Runner"])
+    observe_test_build_verifier(root, "runner", "build_settings_verified")
     mobile = target / "apps/mobile"
     require(generated_registrant_hashes(mobile) == proof["nativePluginRefresh"]["nativeRegistrant"])
+    observe_test_build_verifier(root, "runner", "registrant_verified")
     verify_flutter_build_target(root, mobile, Path(proof["flutterSdk"]), os.environ)
+    observe_test_build_verifier(root, "runner", "flutter_target_verified")
 
 
 def verify_flutter_build_target(root, mobile, sdk, settings):
@@ -1154,7 +1191,9 @@ def verify_test_bundle(repo, target, temporary):
 def main():
     if sys.argv[1:] == ["verify-build-pods"]:
         _, root, target, _ = context()
+        observe_test_build_verifier(root, "pods", "entered")
         verify_build_pods(root, target)
+        observe_test_build_verifier(root, "pods", "verified")
         return
     if sys.argv[1:] == ["verify-runner-build"]:
         _, root, target, _ = context()

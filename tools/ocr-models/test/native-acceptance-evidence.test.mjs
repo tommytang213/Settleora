@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1682,6 +1684,60 @@ test("retains every literal runner preflight phase through normal and failure co
       }
     });
   }
+});
+
+test("ordinary iOS test-build failures retain only allowlisted verifier phases", () => {
+  const git = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(git.status, 0);
+  const head = git.stdout.trim();
+  withLog(protocolLog(), (log) => {
+    const root = realpathSync(path.dirname(log));
+    const setup = path.join(root, "ios-paddle-full101-arm64-v1");
+    const retired = path.join(root, "first-ios-acceptance-runner.app");
+    const pods = path.join(setup, "test-build-verify-pods.phase");
+    const runner = path.join(setup, "test-build-verify-runner.phase");
+    const args = {
+      ...evidenceArgs(log, "ios"), "source-sha": head, "base-tooling-sha": head,
+      "test-status": "1", "failure-phase": "execute_flutter_test", "ios-build-capture-root": root,
+    };
+    const read = (overrides = {}) => buildFailureEvidence({ ...args, ...overrides }, repoRoot)
+      .execution.iosTestBuildVerifierPhases;
+    mkdirSync(setup, { mode: 0o700 });
+    assert.equal(read(), undefined);
+    mkdirSync(retired, { mode: 0o700 });
+    assert.deepEqual(read(), { schemaVersion: 1, pods: "not_observed", runner: "not_observed" });
+
+    writeFileSync(pods, head + "\nverified\n", { mode: 0o600 });
+    writeFileSync(runner, head + "\nbuild_settings_verified\n", { mode: 0o600 });
+    const observation = { schemaVersion: 1, pods: "verified", runner: "build_settings_verified" };
+    assert.deepEqual(read(), observation);
+    const ordinary = buildEvidence(args, repoRoot);
+    assert.deepEqual(ordinary.execution.iosTestBuildVerifierPhases, observation);
+    assert.equal(isCompleteEvidence(ordinary), false);
+
+    for (const invalid of [
+      "SECRET_STUB_INPUT", head + "\nverified\n", "0".repeat(40) + "\nbuild_settings_verified\n",
+      head + "\nbuild_settings_verified", "a".repeat(512),
+    ]) {
+      writeFileSync(runner, invalid);
+      assert.deepEqual(read(), { schemaVersion: 1, pods: "verified", runner: "unavailable" });
+      assert.ok(!JSON.stringify(buildFailureEvidence(args, repoRoot)).includes("SECRET_STUB_INPUT"));
+    }
+    rmSync(runner);
+    symlinkSync(pods, runner);
+    assert.deepEqual(read(), { schemaVersion: 1, pods: "verified", runner: "unavailable" });
+    chmodSync(pods, 0o644);
+    assert.deepEqual(read(), { schemaVersion: 1, pods: "unavailable", runner: "unavailable" });
+    chmodSync(setup, 0o755);
+    assert.equal(read(), undefined);
+    chmodSync(setup, 0o700);
+    for (const overrides of [
+      { platform: "android" }, { "failure-phase": "build_simulator_interposer_link" },
+      { "test-status": "0" }, { "test-status": "98" }, { "test-status": "01" },
+      { "source-sha": "0".repeat(40) }, { "ios-build-capture-root": "" },
+      { "ios-build-capture-root": path.relative(repoRoot, root) },
+    ]) assert.equal(read(overrides), undefined);
+  });
 });
 
 test("iOS isolation failure cause survives invalid protocol recovery and stays platform-specific", () => {
