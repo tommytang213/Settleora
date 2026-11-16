@@ -60,6 +60,19 @@ def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
+def sha_file(path, expected_size):
+    digest = hashlib.sha256()
+    remaining = expected_size
+    with path.open("rb") as stream:
+        while remaining:
+            chunk = stream.read(min(remaining, 1024 * 1024))
+            require(chunk)
+            digest.update(chunk)
+            remaining -= len(chunk)
+        require(not stream.read(1))
+    return digest.hexdigest()
+
+
 def module(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
     result = importlib.util.module_from_spec(spec)
@@ -117,8 +130,7 @@ def bounded_tree_files(root, max_bytes=64 * 1024 * 1024):
         else:
             size = metadata.st_size
             require(0 <= size <= max_bytes - total)
-            with path.open("rb") as stream:
-                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            digest = sha_file(path, size)
         total += size
         require(len(result) < 10000 and total <= max_bytes)
         result[rel] = {"sha256": digest, "symlink": stat.S_ISLNK(mode),
@@ -1096,8 +1108,7 @@ def verify_bundled_models(mobile, bundle):
         for path in present:
             require(path.is_file() and not path.is_symlink() and path.resolve(strict=True).is_relative_to(bundle)
                     and path.stat().st_size == size)
-            with path.open("rb") as stream:
-                require(hashlib.file_digest(stream, "sha256").hexdigest() == digest)
+            require(sha_file(path, size) == digest)
 
 
 def verify_test_bundle(repo, target, temporary):

@@ -11,8 +11,9 @@ const flutterTimestamp = /^\[[+ 0-9.]{0,24}(?:ms)?\]/;
 const errorPrefix = /^(?:(?:(?:clang(?:\+\+)?|xcodebuild):[ \t]+)?(?:fatal )?error:|ld:|Error:|(?:(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}(?:Error|Issue)|Unknown) \(Xcode\):)[ \t]*/;
 const warningPrefix = /^(?:(?:(?:ld|clang(?:\+\+)?|xcodebuild):[ \t]*)?(?:warning|note):|(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}Warning \(Xcode\):)/i;
 const interpreterError = /^(?:[A-Za-z]+Error:|cannot load such file -- )/;
-const shellError = /(?:^|:[ \t]*)(?:command not found|No such file or directory|Permission denied)$/;
-const undefinedSymbolsPrefix = /^Undefined symbols for architecture(?: |$)/;
+const shellFailure = /(?:command not found|No such file or directory|Permission denied)$/;
+const shellError = new RegExp("(?:^|:[ \\t]*)" + shellFailure.source);
+const undefinedSymbolsPrefix = /^Undefined symbol(?::|s for architecture(?: |$))/;
 const undefinedSymbolsHeading = /^Undefined symbols for architecture [A-Za-z0-9_]{1,24}:$/;
 const verifierRejection = "ios_arm64_acceptance_setup_rejected";
 
@@ -26,6 +27,7 @@ const redactions = [
   [/^['"][^'"]+['"] file not found$/, "'[redacted]' file not found"],
   [/^library not found(?: for .+)?$/, "library not found"],
   [undefinedSymbolsHeading, "Undefined symbols for architecture [redacted]"],
+  [/^Undefined symbol: \S.*$/, "Undefined symbol: [redacted]"],
   [/^linker command failed(?: with exit code [1-9][0-9]{0,2}(?: \(use -v to see invocation\))?)?$/,
     "linker command failed"],
   [/^Couldn't resolve the package ['"][^'"]+['"] in ['"][^'"]+['"]\.?$/,
@@ -104,6 +106,22 @@ function skipIndent(bytes, start, stop) {
   return start;
 }
 
+function trimTrailingWhitespace(bytes, start, stop) {
+  while (stop > start &&
+         (bytes[stop - 1] === 0x20 || bytes[stop - 1] === 0x09 || bytes[stop - 1] === 0x0d)) {
+    stop -= 1;
+  }
+  return stop;
+}
+
+function hasOversizedShellError(bytes, start, stop) {
+  const tail = bytes.subarray(Math.max(start, stop - 32), stop).toString("utf8");
+  const phrase = shellFailure.exec(tail)?.[0];
+  if (!phrase) return false;
+  const separator = trimTrailingWhitespace(bytes, start, stop - phrase.length);
+  return separator === start || bytes[separator - 1] === 0x3a;
+}
+
 function firstError(bytes) {
   for (let start = 0; start < bytes.length; ) {
     const end = bytes.indexOf(10, start);
@@ -114,16 +132,9 @@ function firstError(bytes) {
     let content = skipIndent(bytes, start, stop);
     const timestamp = flutterTimestamp.exec(bytes.subarray(content, Math.min(stop, content + 32)).toString("ascii"));
     if (timestamp) content = skipIndent(bytes, content + timestamp[0].length, stop);
-    let contentEnd = stop;
-    while (contentEnd > content &&
-           (bytes[contentEnd - 1] === 0x20 || bytes[contentEnd - 1] === 0x09 || bytes[contentEnd - 1] === 0x0d)) {
-      contentEnd -= 1;
-    }
+    const contentEnd = trimTrailingWhitespace(bytes, content, stop);
     const prefixEnd = Math.min(contentEnd, content + lineBytes);
     const line = bytes.subarray(content, prefixEnd).toString("utf8").trimEnd();
-    const tail = length > lineBytes
-      ? bytes.subarray(Math.max(content, contentEnd - 128), contentEnd).toString("utf8").trimEnd()
-      : null;
     start = stop + 1;
     const location = errorPrefix.test(line) ? null : locationPrefix.exec(line);
     const detail = line.slice(location?.[0].length ?? 0)
@@ -133,7 +144,7 @@ function firstError(bytes) {
     const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
     if (!prefixed && detail !== verifierRejection && !interpreterError.test(detail) &&
         !undefinedSymbolsPrefix.test(detail) &&
-        !shellError.test(tail ?? detail)) continue;
+        !(length > lineBytes ? hasOversizedShellError(bytes, content, contentEnd) : shellError.test(detail))) continue;
     // These summaries do not identify the underlying error.
     if (end !== -1 && prefixEnd === contentEnd &&
         (message === "Command PhaseScriptExecution failed with a nonzero exit code" ||

@@ -1575,6 +1575,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   const clangObservation = {
     status: 'observed', stream: 'stderr', message: 'linker command failed', sourceLocation: null,
   };
+  exercise('Undefined symbol: _SECRET_FIXTURE_TOKEN\n' + clangFailure, '',
+    { status: 'observed', stream: 'stdout', message: 'Undefined symbol: [redacted]', sourceLocation: null });
   exercise('Undefined symbols for architecture arm64', clangFailure,
     { status: 'partial_line', stream: 'stdout' });
   exercise(' '.repeat(4096) + 'Error (Xcode): Command PhaseScriptExecution failed with a nonzero exit code' +
@@ -1617,6 +1619,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'line_limit_exceeded', stream: 'stdout' });
   exercise('/private/PrivateBuilder/Script.sh: line 7: SECRET_FIXTURE_TOKEN: command not found' +
     ' '.repeat(4096) + '\n' + safe, '', { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise('ruby:' + ' '.repeat(4096) + 'command not found\n' + safe, '',
+    { status: 'line_limit_exceeded', stream: 'stdout' });
   exercise("lib/main.dart:12:7: Error: Method not found: 'SECRET_FIXTURE_TOKEN'.\n" + safe, '',
     { status: 'observed', stream: 'stdout', message: "Method not found: '[redacted]'", sourceLocation: null });
   exercise(safe.trimEnd(), '', { status: 'partial_line', stream: 'stdout' });

@@ -803,7 +803,12 @@ print JSON.generate(checksums)
                     verification = root / "verification.json"
                     prepared = json.loads(verification.read_bytes())
                     self.assertEqual(prepared["graphVerifiedAt"], "prepared")
-                    m.verify_build_pods(root, target)
+                    # Xcode resolves python3 from its own environment. Exercise
+                    # the registered command with only the older hashlib APIs.
+                    with patch.object(m, "hashlib", SimpleNamespace(sha1=hashlib.sha1, sha256=hashlib.sha256)), \
+                         patch.object(m, "context", return_value=(target, root, target, None)), \
+                         patch.object(sys, "argv", [str(MODULE), "verify-build-pods"]):
+                        m.run_cli()
                     normal_lock = lock.read_bytes()
                     malformed = dict(projected, PODS=[{}])
                     lock.write_text(json.dumps(malformed))
@@ -950,7 +955,8 @@ print JSON.generate(checksums)
             with self.assertRaises(ValueError):
                 m.verify_test_bundle(repo, target, target)
             shutil.copytree(saved, bundle)
-            m.verify_test_bundle(repo, target, target)
+            with patch.object(m, "hashlib", SimpleNamespace(sha256=hashlib.sha256)):
+                m.verify_test_bundle(repo, target, target)
             xml = b'<?xml version="1.0"?><plist version="1.0">'
             bad_plists = {
                 "array root": plistlib.dumps(["unexpected metadata"]),
