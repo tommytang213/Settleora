@@ -7,11 +7,12 @@ const lineBytes = 4096;
 const sourceBytes = 1024 * 1024;
 const sourcePath = /^(?:apps\/mobile\/(?:ios|lib)|tools\/ocr-models)\/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:dart|swift|m|mm|h|hpp|c|cc|cpp|py|rb|sh)$/;
 const locationPrefix = /^([^:\x00-\x1f]{1,1024}):[ \t]*(?:line )?([1-9][0-9]{0,5})(?::([1-9][0-9]{0,5}))?:[ \t]*/;
-const flutterPrefix = /^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*/;
+const flutterTimestamp = /^\[[+ 0-9.]{0,24}(?:ms)?\]/;
 const errorPrefix = /^(?:(?:(?:clang(?:\+\+)?|xcodebuild):[ \t]+)?(?:fatal )?error:|ld:|Error:|(?:(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}(?:Error|Issue)|Unknown) \(Xcode\):)[ \t]*/;
 const warningPrefix = /^(?:(?:(?:ld|clang(?:\+\+)?|xcodebuild):[ \t]*)?(?:warning|note):|(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}Warning \(Xcode\):)/i;
 const interpreterError = /^(?:[A-Za-z]+Error:|cannot load such file -- )/;
 const shellError = /(?:^|:[ \t]*)(?:command not found|No such file or directory|Permission denied)$/;
+const undefinedSymbolsHeading = /^Undefined symbols for architecture [A-Za-z0-9_]{1,24}:$/;
 const verifierRejection = "ios_arm64_acceptance_setup_rejected";
 
 // Copy only reviewed words from a recognized diagnostic form. Arguments,
@@ -23,6 +24,7 @@ const redactions = [
   [/^[Uu]se of undeclared identifier ['"][^'"]+['"]$/, "use of undeclared identifier '[redacted]'"],
   [/^['"][^'"]+['"] file not found$/, "'[redacted]' file not found"],
   [/^library not found(?: for .+)?$/, "library not found"],
+  [undefinedSymbolsHeading, "Undefined symbols for architecture [redacted]"],
   [/^linker command failed(?: with exit code [1-9][0-9]{0,2}(?: \(use -v to see invocation\))?)?$/,
     "linker command failed"],
   [/^Couldn't resolve the package ['"][^'"]+['"] in ['"][^'"]+['"]\.?$/,
@@ -96,13 +98,22 @@ function verifiedLocation(location, repo, captureRoot, head) {
   }
 }
 
+function skipIndent(bytes, start, stop) {
+  while (start < stop && (bytes[start] === 0x20 || bytes[start] === 0x09)) start += 1;
+  return start;
+}
+
 function firstError(bytes) {
   for (let start = 0; start < bytes.length; ) {
     const end = bytes.indexOf(10, start);
     const stop = end === -1 ? bytes.length : end;
     const length = stop - start;
-    const line = bytes.subarray(start, Math.min(stop, start + lineBytes))
-      .toString("utf8").replace(flutterPrefix, "").trimEnd();
+    // Skip indentation in place before taking the bounded diagnostic prefix.
+    // The limit still counts all bytes of the original line.
+    let content = skipIndent(bytes, start, stop);
+    const timestamp = flutterTimestamp.exec(bytes.subarray(content, Math.min(stop, content + 32)).toString("ascii"));
+    if (timestamp) content = skipIndent(bytes, content + timestamp[0].length, stop);
+    const line = bytes.subarray(content, Math.min(stop, content + lineBytes)).toString("utf8").trimEnd();
     const tail = length > lineBytes
       ? bytes.subarray(stop - 128, stop).toString("utf8").trimEnd()
       : null;
@@ -114,6 +125,7 @@ function firstError(bytes) {
     const prefixed = errorPrefix.test(detail);
     const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
     if (!prefixed && detail !== verifierRejection && !interpreterError.test(detail) &&
+        !undefinedSymbolsHeading.test(detail) &&
         !shellError.test(tail ?? detail)) continue;
     if (length > lineBytes) return { status: "line_limit_exceeded" };
     if (end === -1) return { status: "partial_line" };

@@ -1000,7 +1000,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   );
   assert.ok(iosRunner.includes('phase=cleanup_network_isolation'));
   assert.ok(iosRunner.includes('exit "$status"'));
-  assert.ok(iosRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
+  assert.ok(iosRunner.includes(String.raw`printf 'status=%s\nfailure_phase=%s\n' "$status" "$phase" >> "$GITHUB_OUTPUT"`));
   assert.match(iosNetworkDeny, /settleora_connect/);
   assert.match(iosNetworkDeny, /settleora_sendto/);
   assert.match(iosNetworkDeny, /settleora_sendmsg/);
@@ -1503,11 +1503,17 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   function exercise(stdout, stderr, expected, options = {}) {
     writeFileSync(output, '');
-    const captureStatus = options.buildOverflow ? 97 : options.interruptedBuild ? 98 : 37;
+    const captureUnavailable = options.interruptedBuild || options.startupFailure;
+    const captureStatus = options.buildOverflow ? 97 : captureUnavailable ? 98 : 37;
     const status = options.cleanupFailure ? 98 : captureStatus;
     const mode = options.mode ?? 'ios_full101';
     const failurePhase = options.cleanupFailure ? 'cleanup_network_isolation' : 'build_simulator_interposer_link';
     const cleanupFailure = options.cleanupFailure ? 'network_link_configured=true\ncp() { return 1; }\n' : '';
+    const traceFile = path.join(temporary, 'settleora-ios-build-link-trace.log');
+    if (options.startupFailure) {
+      rmSync(traceFile, { force: true });
+      mkdirSync(traceFile);
+    }
     const build = spawnSync('bash', ['-c', trap + cleanupFailure + 'network_deny=/test/lib.dylib\n' + capture], {
       cwd: repoRoot,
       env: {
@@ -1520,17 +1526,18 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
       encoding: 'utf8', timeout: 20000,
     });
     assert.equal(build.status, status, build.stderr);
+    if (options.startupFailure) assert.match(build.stderr, /^ios_simulator_build_capture_failed$/m);
     const captureOutput = mode === 'ios_full101' ? 'build_capture_status=' + captureStatus + '\n' : '';
     assert.equal(readFileSync(output, 'utf8'),
       captureOutput + 'status=' + status + '\nfailure_phase=' + failurePhase + '\n');
     const stepOutputs = Object.fromEntries(readFileSync(output, 'utf8').trimEnd().split('\n').map((row) => row.split('=')));
     if (options.buildOverflow) {
-      const retained = readFileSync(path.join(temporary, 'settleora-ios-build-link-trace.log'));
+      const retained = readFileSync(traceFile);
       assert.equal(retained.length, 32 * 1024 * 1024);
       assert.equal(retained.at(-1), 10);
     }
     if (options.oversizeCapture) {
-      truncateSync(path.join(temporary, 'settleora-ios-build-link-trace.log'), 32 * 1024 * 1024 + 1);
+      truncateSync(traceFile, 32 * 1024 * 1024 + 1);
     }
     const collect = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', evidenceCommand], {
       cwd: repoRoot,
@@ -1551,6 +1558,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     assert.ok(Buffer.byteLength(JSON.stringify(record.execution.iosFirstBuildError ?? {})) <= 512);
     assert.doesNotMatch(bytes + build.stdout + build.stderr + collect.stdout + collect.stderr,
       /PrivateBuilder|SECRET_FIXTURE_TOKEN|unrelated_customer_text|ios-first-build-error-/);
+    if (options.startupFailure) rmSync(traceFile, { recursive: true });
   }
   const safe = '[  +12 ms] ' + tracked + ":2:1: error: no such module 'SECRET_FIXTURE_TOKEN'\n";
   const swiftObservation = {
@@ -1561,6 +1569,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     'error: unrelated_customer_text\n', swiftObservation);
   exercise('ld: library not found for -lSECRET_FIXTURE_TOKEN\n' + safe, '',
     { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
+  exercise('Undefined symbols for architecture arm64:\nclang: error: linker command failed\n', '',
+    { status: 'observed', stream: 'stdout', message: 'Undefined symbols for architecture [redacted]', sourceLocation: null });
   exercise('warning: private build settings: Permission denied\nld: warning: ignoring duplicate libraries\n' +
     'ld: library not found for -lSECRET_FIXTURE_TOKEN\n', '',
     { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
@@ -1591,6 +1601,10 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise("error: no such module '" + 'A'.repeat(4096) + "'\n", '',
     { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise(' '.repeat(4096) + "error: 'SECRET_FIXTURE_TOKEN' file not found\n" + safe, '',
+    { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise('[ +3 ms]' + '\t'.repeat(4096) + "error: 'SECRET_FIXTURE_TOKEN' file not found\n" + safe, '',
+    { status: 'line_limit_exceeded', stream: 'stdout' });
   exercise('/private/PrivateBuilder/Script.sh: line 7: ' + 'A'.repeat(4096) + ': command not found\n' + safe, '',
     { status: 'line_limit_exceeded', stream: 'stdout' });
   exercise("lib/main.dart:12:7: Error: Method not found: 'SECRET_FIXTURE_TOKEN'.\n" + safe, '',
@@ -1600,6 +1614,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   exercise('', '', { status: 'capture_limit_exceeded', stream: 'stdout' }, { oversizeCapture: true });
   exercise('', '', { status: 'capture_may_be_truncated' }, { buildOverflow: true });
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { interruptedBuild: true });
+  exercise(safe, '', { status: 'capture_may_be_incomplete' }, { startupFailure: true });
   exercise(safe, '', swiftObservation, { cleanupFailure: true });
   exercise('', '', { status: 'capture_may_be_truncated' }, { cleanupFailure: true, buildOverflow: true });
   exercise(safe, '', undefined, { env: { IOS_BUILD_CAPTURE_ROOT: '' } });
@@ -1633,6 +1648,14 @@ test('the iOS exit trap preserves a Flutter failure through later verification',
     assert.equal(readFileSync(output, 'utf8'), 'status=' + expectedStatus + '\nfailure_phase=' + expectedPhase + '\n');
     assert.equal(result.stderr.includes('ios_native_acceptance_secondary_failure_phase='), capture !== 0);
   }
+  const unavailableOutput = path.join(temporary, 'missing-directory', 'output');
+  const unavailable = spawnSync('bash', ['-c',
+    trap + 'phase=build_simulator_interposer_link\nexit 37\n'], {
+    cwd: repoRoot, env: { ...process.env, GITHUB_OUTPUT: unavailableOutput }, encoding: 'utf8',
+  });
+  assert.equal(unavailable.status, 37);
+  assert.match(unavailable.stderr, /^ios_native_acceptance_failure_phase=build_simulator_interposer_link$/m);
+  assert.equal(unavailable.stderr.includes(unavailableOutput), false);
 });
 
 test('Android native callback policy rejects masked exits and extra commands', async (t) => {

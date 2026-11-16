@@ -115,8 +115,7 @@ report_failure_phase() {
     observe_ios_phase failure_report_enter
     printf 'ios_native_acceptance_failure_phase=%s\n' "$phase" >&2
     if test -n "${GITHUB_OUTPUT:-}"; then
-      echo "status=$status" >> "$GITHUB_OUTPUT"
-      echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"
+      ( printf 'status=%s\nfailure_phase=%s\n' "$status" "$phase" >> "$GITHUB_OUTPUT" ) 2>/dev/null || :
     fi
   fi
   observe_ios_phase final_exit
@@ -322,21 +321,27 @@ build_status=0
 node --input-type=module - "$build_trace" "$build_errors" "$GITHUB_WORKSPACE" <<'NODE' || build_status=$?
 import { pathToFileURL } from 'node:url';
 const [stdoutPath, stderrPath, workspace] = process.argv.slice(2);
-const { runBoundedProcess } = await import(pathToFileURL(`${workspace}/tools/ocr-models/bounded-process-capture.mjs`));
-const status = await runBoundedProcess({
-  stdoutPath, stderrPath, maxBytes: 32 * 1024 * 1024,
-  executable: 'flutter',
-  args: ['build', 'ios', '--simulator', '--debug', '--no-codesign', '--no-pub', '--verbose'],
-});
-process.exitCode = status;
+try {
+  const { runBoundedProcess } = await import(pathToFileURL(`${workspace}/tools/ocr-models/bounded-process-capture.mjs`));
+  process.exitCode = await runBoundedProcess({
+    stdoutPath, stderrPath, maxBytes: 32 * 1024 * 1024,
+    executable: 'flutter',
+    args: ['build', 'ios', '--simulator', '--debug', '--no-codesign', '--no-pub', '--verbose'],
+  });
+} catch {
+  process.stderr.write('ios_simulator_build_capture_failed\n');
+  process.exitCode = 98;
+}
 NODE
 if test "$build_status" -ne 0; then
   if test "${IOS_ACCEPTANCE_MODE:-}" = ios_full101 && test -n "${GITHUB_OUTPUT:-}"; then
     ( printf 'build_capture_status=%s\n' "$build_status" >> "$GITHUB_OUTPUT" ) 2>/dev/null || :
   fi
-  { cat "$build_trace"; printf '\n'; cat "$build_errors"; } | \
-    python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
-      "$network_deny" "$build_status" || :
+  if test "$build_status" -ne 98; then
+    { cat "$build_trace"; printf '\n'; cat "$build_errors"; } 2>/dev/null | \
+      python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
+        "$network_deny" "$build_status" || :
+  fi
   exit "$build_status"
 fi
 phase=verify_simulator_interposer_link_invocation
