@@ -1482,7 +1482,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     'printf %s "$BUILD_STDOUT"',
     'printf %s "$BUILD_STDERR" >&2',
     'if test "$BUILD_INTERRUPTED" = 1; then kill -TERM "$$"; fi',
-    'exit 37',
+    'exit "$BUILD_EXIT_STATUS"',
     '',
   ].join('\n'), { mode: 0o700 });
   const output = path.join(temporary, 'github-output');
@@ -1504,7 +1504,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   function exercise(stdout, stderr, expected, options = {}) {
     writeFileSync(output, '');
     const captureUnavailable = options.interruptedBuild || options.startupFailure;
-    const captureStatus = options.buildOverflow ? 97 : captureUnavailable ? 98 : 37;
+    const childStatus = options.childStatus ?? 37;
+    const captureStatus = options.buildOverflow ? 97 : captureUnavailable ? 98 : childStatus;
     const status = options.cleanupFailure ? 98 : captureStatus;
     const mode = options.mode ?? 'ios_full101';
     const failurePhase = options.cleanupFailure ? 'cleanup_network_isolation' : 'build_simulator_interposer_link';
@@ -1521,12 +1522,21 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
         RUN_REGISTERED_VERIFIER: options.registeredVerifier ? '1' : '0',
         BUILD_OVERFLOW: options.buildOverflow ? '1' : '0',
         BUILD_INTERRUPTED: options.interruptedBuild ? '1' : '0',
+        BUILD_EXIT_STATUS: String(childStatus),
+        GITHUB_ACTIONS: options.expectCheckNotice ? 'true' : 'false',
+        GITHUB_JOB: 'ios-native-acceptance',
         IOS_ACCEPTANCE_MODE: mode,
       },
       encoding: 'utf8', timeout: 20000,
     });
     assert.equal(build.status, status, build.stderr);
     if (options.startupFailure) assert.match(build.stderr, /^ios_simulator_build_capture_failed$/m);
+    if (options.expectCheckNotice) {
+      const notices = build.stdout.match(/^::notice title=Settleora iOS simulator build classification::.*$/gm);
+      assert.equal(notices?.length, 1);
+      assert.match(notices[0], /\bclasses=linker_command_failed\b/);
+      assert.match(notices[0], /\blinker_error=true\b/);
+    }
     const captureOutput = mode === 'ios_full101' ? 'build_capture_status=' + captureStatus + '\n' : '';
     assert.equal(readFileSync(output, 'utf8'),
       captureOutput + 'status=' + status + '\nfailure_phase=' + failurePhase + '\n');
@@ -1577,6 +1587,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   exercise('Undefined symbol: _SECRET_FIXTURE_TOKEN\n' + clangFailure, '',
     { status: 'observed', stream: 'stdout', message: 'Undefined symbol: [redacted]', sourceLocation: null });
+  exercise('xcrun: error: unable to find utility SECRET_FIXTURE_TOKEN\n' + clangFailure, '',
+    { status: 'redaction_rejected', stream: 'stdout' });
   exercise('Undefined symbols for architecture arm64', clangFailure,
     { status: 'partial_line', stream: 'stdout' });
   exercise(' '.repeat(4096) + 'Error (Xcode): Command PhaseScriptExecution failed with a nonzero exit code' +
@@ -1629,6 +1641,11 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   exercise('', '', { status: 'capture_may_be_truncated' }, { buildOverflow: true });
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { interruptedBuild: true });
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { startupFailure: true });
+  for (const mode of ['full101', '']) {
+    exercise(clangFailure, '', undefined, {
+      mode, childStatus: 98, expectCheckNotice: true, env: { IOS_BUILD_CAPTURE_ROOT: '' },
+    });
+  }
   exercise(safe, '', swiftObservation, { cleanupFailure: true });
   exercise('', '', { status: 'capture_may_be_truncated' }, { cleanupFailure: true, buildOverflow: true });
   exercise(safe, '', undefined, { env: { IOS_BUILD_CAPTURE_ROOT: '' } });

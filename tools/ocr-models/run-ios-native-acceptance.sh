@@ -337,11 +337,11 @@ if test "$build_status" -ne 0; then
   if test "${IOS_ACCEPTANCE_MODE:-}" = ios_full101 && test -n "${GITHUB_OUTPUT:-}"; then
     ( printf 'build_capture_status=%s\n' "$build_status" >> "$GITHUB_OUTPUT" ) 2>/dev/null || :
   fi
-  if test "$build_status" -ne 98; then
-    { cat "$build_trace"; printf '\n'; cat "$build_errors"; } 2>/dev/null | \
-      python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
-        "$network_deny" "$build_status" || :
-  fi
+  # A normal Flutter exit can use the same code as a capture interruption.
+  # Keep the existing best-effort Check classification for either outcome.
+  { cat "$build_trace"; printf '\n'; cat "$build_errors"; } 2>/dev/null | \
+    python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
+      "$network_deny" "$build_status" || :
   exit "$build_status"
 fi
 phase=verify_simulator_interposer_link_invocation
