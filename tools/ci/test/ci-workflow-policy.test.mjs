@@ -1571,6 +1571,14 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
   exercise('Undefined symbols for architecture arm64:\nclang: error: linker command failed\n', '',
     { status: 'observed', stream: 'stdout', message: 'Undefined symbols for architecture [redacted]', sourceLocation: null });
+  const clangFailure = 'clang: error: linker command failed\n';
+  const clangObservation = {
+    status: 'observed', stream: 'stderr', message: 'linker command failed', sourceLocation: null,
+  };
+  exercise('Undefined symbols for architecture arm64', clangFailure,
+    { status: 'partial_line', stream: 'stdout' });
+  exercise(' '.repeat(4096) + 'Error (Xcode): Command PhaseScriptExecution failed with a nonzero exit code' +
+    '\t'.repeat(4096) + '\r\n', clangFailure, clangObservation);
   exercise('warning: private build settings: Permission denied\nld: warning: ignoring duplicate libraries\n' +
     'ld: library not found for -lSECRET_FIXTURE_TOKEN\n', '',
     { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
@@ -1607,6 +1615,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'line_limit_exceeded', stream: 'stdout' });
   exercise('/private/PrivateBuilder/Script.sh: line 7: ' + 'A'.repeat(4096) + ': command not found\n' + safe, '',
     { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise('/private/PrivateBuilder/Script.sh: line 7: SECRET_FIXTURE_TOKEN: command not found' +
+    ' '.repeat(4096) + '\n' + safe, '', { status: 'line_limit_exceeded', stream: 'stdout' });
   exercise("lib/main.dart:12:7: Error: Method not found: 'SECRET_FIXTURE_TOKEN'.\n" + safe, '',
     { status: 'observed', stream: 'stdout', message: "Method not found: '[redacted]'", sourceLocation: null });
   exercise(safe.trimEnd(), '', { status: 'partial_line', stream: 'stdout' });

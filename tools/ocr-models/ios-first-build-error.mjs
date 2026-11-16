@@ -12,6 +12,7 @@ const errorPrefix = /^(?:(?:(?:clang(?:\+\+)?|xcodebuild):[ \t]+)?(?:fatal )?err
 const warningPrefix = /^(?:(?:(?:ld|clang(?:\+\+)?|xcodebuild):[ \t]*)?(?:warning|note):|(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}Warning \(Xcode\):)/i;
 const interpreterError = /^(?:[A-Za-z]+Error:|cannot load such file -- )/;
 const shellError = /(?:^|:[ \t]*)(?:command not found|No such file or directory|Permission denied)$/;
+const undefinedSymbolsPrefix = /^Undefined symbols for architecture(?: |$)/;
 const undefinedSymbolsHeading = /^Undefined symbols for architecture [A-Za-z0-9_]{1,24}:$/;
 const verifierRejection = "ios_arm64_acceptance_setup_rejected";
 
@@ -113,9 +114,15 @@ function firstError(bytes) {
     let content = skipIndent(bytes, start, stop);
     const timestamp = flutterTimestamp.exec(bytes.subarray(content, Math.min(stop, content + 32)).toString("ascii"));
     if (timestamp) content = skipIndent(bytes, content + timestamp[0].length, stop);
-    const line = bytes.subarray(content, Math.min(stop, content + lineBytes)).toString("utf8").trimEnd();
+    let contentEnd = stop;
+    while (contentEnd > content &&
+           (bytes[contentEnd - 1] === 0x20 || bytes[contentEnd - 1] === 0x09 || bytes[contentEnd - 1] === 0x0d)) {
+      contentEnd -= 1;
+    }
+    const prefixEnd = Math.min(contentEnd, content + lineBytes);
+    const line = bytes.subarray(content, prefixEnd).toString("utf8").trimEnd();
     const tail = length > lineBytes
-      ? bytes.subarray(stop - 128, stop).toString("utf8").trimEnd()
+      ? bytes.subarray(Math.max(content, contentEnd - 128), contentEnd).toString("utf8").trimEnd()
       : null;
     start = stop + 1;
     const location = errorPrefix.test(line) ? null : locationPrefix.exec(line);
@@ -125,13 +132,14 @@ function firstError(bytes) {
     const prefixed = errorPrefix.test(detail);
     const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
     if (!prefixed && detail !== verifierRejection && !interpreterError.test(detail) &&
-        !undefinedSymbolsHeading.test(detail) &&
+        !undefinedSymbolsPrefix.test(detail) &&
         !shellError.test(tail ?? detail)) continue;
+    // These summaries do not identify the underlying error.
+    if (end !== -1 && prefixEnd === contentEnd &&
+        (message === "Command PhaseScriptExecution failed with a nonzero exit code" ||
+         message === "Failed to build iOS app")) continue;
     if (length > lineBytes) return { status: "line_limit_exceeded" };
     if (end === -1) return { status: "partial_line" };
-    // These summaries do not identify the underlying error.
-    if (message === "Command PhaseScriptExecution failed with a nonzero exit code" ||
-        message === "Failed to build iOS app") continue;
     // The registered verifier reports this literal after catching its error.
     // Its CLI suppresses the traceback, so no location can be inferred.
     const safe = message === verifierRejection || message === "ValueError: " + verifierRejection
