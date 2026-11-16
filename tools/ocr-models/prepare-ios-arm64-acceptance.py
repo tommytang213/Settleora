@@ -1181,9 +1181,9 @@ def main():
 def run_cli():
     try:
         main()
-    # Some Python versions raise RuntimeError for a symlink cycle in Path.resolve.
-    except (ValueError, KeyError, OSError, RuntimeError, TypeError, ElementTree.ParseError, plistlib.InvalidFileException,
-            subprocess.SubprocessError):
+    # Path.resolve and plistlib use different exceptions for malformed inputs.
+    except (AttributeError, ExpatError, IndexError, KeyError, OSError, RuntimeError, TypeError, ValueError,
+            ElementTree.ParseError, plistlib.InvalidFileException, subprocess.SubprocessError):
         sys.stderr.write("ios_arm64_acceptance_setup_rejected\n")
         sys.exit(98)
 

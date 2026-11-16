@@ -717,6 +717,32 @@ print JSON.generate(checksums)
         self.assertEqual(rejected.exception.code, 98)
         self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
 
+    def test_verify_rejects_malformed_xcframework_plist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            target = root / "target"
+            (root / "setup.json").write_text(json.dumps({
+                "sourceHead": "fixture-head",
+                "target": str(target),
+                "architecture": "arm64",
+                "referenceManifestSha256": m.REFERENCE_SHA256,
+            }))
+            info = root / "opencv-build/opencv2.xcframework/Info.plist"
+            info.parent.mkdir(parents=True)
+            xml = b'<?xml version="1.0"?><plist version="1.0">'
+            for body in (b"<dict>", b"<date>invalid</date></plist>", b"<key>x</key></plist>"):
+                with self.subTest(body=body):
+                    info.write_bytes(xml + body)
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with patch.object(m, "context", return_value=(MODULE.parents[2], root, target, None)), \
+                         patch.object(sys, "argv", [str(MODULE), "verify"]), \
+                         patch.dict(os.environ, EXPECTED_HEAD="fixture-head"), contextlib.redirect_stdout(stdout), \
+                         contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as rejection:
+                        m.run_cli()
+                    self.assertEqual(rejection.exception.code, 98)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
+
     def test_verify_rejects_changed_retained_registrations(self):
         # Real verification, synthetic transport/files: no native execution.
         with tempfile.TemporaryDirectory() as directory:

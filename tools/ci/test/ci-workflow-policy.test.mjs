@@ -1618,6 +1618,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     assert.match(invalidCommand.stderr, /^(?:\/bin\/)?(?:ba)?sh: -c: line 1: syntax error/m);
     exercise(invalidCommand.stderr + clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
   }
+  exercise("/bin/sh: -c: line 0: syntax error near unexpected token 'SECRET_FIXTURE_TOKEN'\n" +
+    clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
   exercise('Undefined symbols for architecture arm64', clangFailure,
     { status: 'partial_line', stream: 'stdout' });
   exercise(' '.repeat(4096) + 'Error (Xcode): Command PhaseScriptExecution failed with a nonzero exit code' +
