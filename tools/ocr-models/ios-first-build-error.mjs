@@ -8,7 +8,7 @@ const sourceBytes = 1024 * 1024;
 const sourcePath = /^(?:apps\/mobile\/(?:ios|lib)|tools\/ocr-models)\/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:dart|swift|m|mm|h|hpp|c|cc|cpp|py|rb|sh)$/;
 const locationPrefix = /^(\/[^:\x00-\x1f]{1,1024}):\s*(?:line )?([1-9][0-9]{0,5})(?::([1-9][0-9]{0,5}))?:[ \t]*/;
 const flutterPrefix = /^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*/;
-const errorPrefix = /^(?:(?:fatal )?error:|Error(?: \(Xcode\))?:)[ \t]*/;
+const errorPrefix = /^(?:(?:clang(?:\+\+)?:[ \t]+)?(?:fatal )?error:|ld:|Error(?: \(Xcode\))?:)[ \t]*/;
 const scriptError = /^(?:[A-Za-z]+Error:|(?:.+:[ \t]*)?(?:command not found|No such file or directory|Permission denied)$|cannot load such file -- )/;
 const verifierRejection = "ios_arm64_acceptance_setup_rejected";
 
@@ -19,6 +19,9 @@ const redactions = [
   [/^cannot find ['"][^'"]+['"] in scope$/, "cannot find '[redacted]' in scope"],
   [/^use of undeclared identifier ['"][^'"]+['"]$/, "use of undeclared identifier '[redacted]'"],
   [/^['"][^'"]+['"] file not found$/, "'[redacted]' file not found"],
+  [/^library not found(?: for .+)?$/, "library not found"],
+  [/^linker command failed(?: with exit code [1-9][0-9]{0,2}(?: \(use -v to see invocation\))?)?$/,
+    "linker command failed"],
   [/^Couldn't resolve the package ['"][^'"]+['"] in ['"][^'"]+['"]\.?$/,
     "Couldn't resolve the package '[redacted]' in '[redacted]'"],
   [/^(?:LoadError: )?cannot load such file -- xcodeproj(?: \(LoadError\))?$/,
@@ -103,9 +106,9 @@ function firstError(bytes) {
       .replace(/^in [\x60'][^\x60'\x00-\x1f]{1,96}['\x60]:[ \t]+/, "");
     const prefixed = errorPrefix.test(detail);
     const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
-    if (end === -1) return { status: "partial_line" };
     if (!prefixed && detail !== verifierRejection && !scriptError.test(detail)) continue;
     if (length > lineBytes) return { status: "line_limit_exceeded" };
+    if (end === -1) return { status: "partial_line" };
     // These summaries do not identify the underlying error.
     if (message === "Command PhaseScriptExecution failed with a nonzero exit code" ||
         message === "Failed to build iOS app") continue;

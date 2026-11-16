@@ -214,6 +214,9 @@ function iosBuildErrorObservation(args, repoRoot, phase, status) {
   const captureRoot = args["ios-build-capture-root"];
   if (args.platform !== "ios" || phase !== "build_simulator_interposer_link" ||
       !Number.isSafeInteger(status) || status < 1 || status > 255 || !captureRoot) return {};
+  // The capture wrapper returns 97 on overflow. A child may also exit 97,
+  // so do not assume either stream of that capture is complete.
+  if (status === 97) return { iosFirstBuildError: { status: "capture_may_be_truncated" } };
   return { iosFirstBuildError: readIosFirstBuildError(captureRoot, repoRoot, args["source-sha"]) };
 }
 

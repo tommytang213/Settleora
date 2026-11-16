@@ -1462,6 +1462,9 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     '  python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-build-pods',
     '  test "$?" = 98 || exit 90',
     'fi',
+    'if test "$BUILD_OVERFLOW" = 1; then',
+    '  node -e \'process.stdout.write(("x".repeat(1023)+"\\n").repeat(32768)+"!")\'',
+    'fi',
     'printf %s "$BUILD_STDOUT"',
     'printf %s "$BUILD_STDERR" >&2',
     'exit 37',
@@ -1485,26 +1488,36 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   function exercise(stdout, stderr, expected, options = {}) {
     writeFileSync(output, '');
+    const status = options.buildOverflow ? 97 : 37;
     const build = spawnSync('bash', ['-c', trap + 'network_deny=/test/lib.dylib\n' + capture], {
       cwd: repoRoot,
-      env: { ...env, BUILD_STDOUT: stdout, BUILD_STDERR: stderr, RUN_REGISTERED_VERIFIER: options.registeredVerifier ? '1' : '0' },
+      env: {
+        ...env, BUILD_STDOUT: stdout, BUILD_STDERR: stderr,
+        RUN_REGISTERED_VERIFIER: options.registeredVerifier ? '1' : '0',
+        BUILD_OVERFLOW: options.buildOverflow ? '1' : '0',
+      },
       encoding: 'utf8', timeout: 20000,
     });
-    assert.equal(build.status, 37, build.stderr);
-    assert.equal(readFileSync(output, 'utf8'), 'status=37\nfailure_phase=build_simulator_interposer_link\n');
+    assert.equal(build.status, status, build.stderr);
+    assert.equal(readFileSync(output, 'utf8'), 'status=' + status + '\nfailure_phase=build_simulator_interposer_link\n');
+    if (options.buildOverflow) {
+      const retained = readFileSync(path.join(temporary, 'settleora-ios-build-link-trace.log'));
+      assert.equal(retained.length, 32 * 1024 * 1024);
+      assert.equal(retained.at(-1), 10);
+    }
     if (options.oversizeCapture) {
       truncateSync(path.join(temporary, 'settleora-ios-build-link-trace.log'), 32 * 1024 * 1024 + 1);
     }
     const collect = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', evidenceCommand], {
       cwd: repoRoot,
-      env: { ...env, ACCEPTANCE_STATUS: '37', ACCEPTANCE_PHASE: 'build_simulator_interposer_link', ...options.env },
+      env: { ...env, ACCEPTANCE_STATUS: String(status), ACCEPTANCE_PHASE: 'build_simulator_interposer_link', ...options.env },
       encoding: 'utf8', timeout: 20000,
     });
     assert.equal(collect.status, 1);
     assert.equal(collect.stderr, 'bounded_native_ocr_evidence_failed\n');
     const bytes = readFileSync(artifact, 'utf8');
     const record = JSON.parse(bytes);
-    assert.equal(record.execution.testExitStatus, 37);
+    assert.equal(record.execution.testExitStatus, status);
     assert.equal(record.acceptance.completed, false);
     assert.deepEqual(record.execution.iosFirstBuildError, expected);
     assert.ok(Buffer.byteLength(JSON.stringify(record.execution.iosFirstBuildError ?? {})) <= 512);
@@ -1518,6 +1531,12 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   exercise(safe + 'unrelated_customer_text\n' + tracked + ":3:1: error: 'later' file not found\n",
     'error: unrelated_customer_text\n', swiftObservation);
+  exercise('ld: library not found for -lSECRET_FIXTURE_TOKEN\n' + safe, '',
+    { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
+  exercise('clang: error: related to unrelated_customer_text\n' + safe, '',
+    { status: 'redaction_rejected', stream: 'stdout' });
+  exercise('ordinary progress without newline', "error: 'SECRET_FIXTURE_TOKEN.h' file not found\n",
+    { status: 'observed', stream: 'stderr', message: "'[redacted]' file not found", sourceLocation: null });
   exercise('Failed to build iOS app\nCommand PhaseScriptExecution failed with a nonzero exit code\n',
     '/private/PrivateBuilder/Script.sh: line 7: ruby: command not found\n',
     { status: 'observed', stream: 'stderr', message: 'command not found', sourceLocation: null });
@@ -1537,6 +1556,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   exercise(safe.trimEnd(), '', { status: 'partial_line', stream: 'stdout' });
   exercise('unrelated_customer_text\n', '', { status: 'no_error' });
   exercise('', '', { status: 'capture_limit_exceeded', stream: 'stdout' }, { oversizeCapture: true });
+  exercise('', '', { status: 'capture_may_be_truncated' }, { buildOverflow: true });
   exercise(safe, '', undefined, { env: { IOS_BUILD_CAPTURE_ROOT: '' } });
   exercise(safe, '', { status: 'source_unverified' }, { env: { EXPECTED_HEAD: 'a'.repeat(40) } });
   writeFileSync(tracked, Buffer.concat([original, Buffer.from('\n// changed source\n')]));
