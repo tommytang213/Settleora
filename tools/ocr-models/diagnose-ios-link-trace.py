@@ -14,8 +14,9 @@ LINK_STEP = re.compile(
 NEXT_STEP = re.compile(r"\(in target ['\"][^'\"]+['\"] from project ['\"][^'\"]+['\"]\)")
 CLANG_COMMAND = re.compile(r"/(?:clang|clang\+\+)\s")
 FLUTTER_LINE_PREFIX = r"^(?:\[[+ 0-9.]{0,24}(?:ms)?\])?[ \t]*"
-FAILED_SCRIPT_ROW = re.compile(
-    r"PhaseScriptExecution[ \t]+(?P<phase>.+?)[ \t]+\"?/[^\"]*/"
+SCRIPT_PATH_START = re.compile(r"[ \t](?=\"?/)")
+FAILED_SCRIPT_PATH = re.compile(
+    r"\"?/[^\"]*/"
     r"Script-(?P<script_id>[0-9A-Fa-f]{24}(?:[0-9A-Fa-f]{8})?)\.sh\"?"
     r"[ \t]+\(in target '(?P<target>[^']+)' from project '(?P<project>[^']+)'\)"
 )
@@ -107,9 +108,14 @@ def failed_xcode_script(lines):
         elif len(rows) == 64 or len(line) > 4096:
             rows = None
         elif line.startswith(("PhaseScriptExecution ", "PhaseScriptExecution\t")):
-            step = FAILED_SCRIPT_ROW.fullmatch(line)
+            payload = line.removeprefix("PhaseScriptExecution").lstrip(" \t")
+            # Find the separator before the absolute script path without
+            # making the phase and path patterns compete for whitespace.
+            separator = SCRIPT_PATH_START.search(payload)
+            step = FAILED_SCRIPT_PATH.fullmatch(payload[separator.end():]) if separator else None
             if step:
-                phase = step["phase"].replace(r"\ ", " ").replace(r"\[", "[").replace(r"\]", "]")
+                phase = payload[:separator.start()].rstrip(" \t")
+                phase = phase.replace(r"\ ", " ").replace(r"\[", "[").replace(r"\]", "]")
                 identity = (step["project"], step["target"], step["script_id"].upper())
                 label = SCRIPT_LABELS.get((step["project"], step["target"], phase), "unrecognized")
                 rows.append((identity, label))

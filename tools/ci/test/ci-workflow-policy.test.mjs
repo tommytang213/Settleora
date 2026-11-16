@@ -1554,6 +1554,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise('xcodebuild: error: unrelated_customer_text\n' + safe, '',
     { status: 'redaction_rejected', stream: 'stdout' });
+  exercise("Swift Compiler Error (Xcode): cannot find 'SECRET_FIXTURE_TOKEN' in scope\n" + safe, '',
+    { status: 'observed', stream: 'stdout', message: "cannot find '[redacted]' in scope", sourceLocation: null });
   exercise('ordinary progress without newline', "error: 'SECRET_FIXTURE_TOKEN.h' file not found\n",
     { status: 'observed', stream: 'stderr', message: "'[redacted]' file not found", sourceLocation: null });
   exercise('Failed to build iOS app\nCommand PhaseScriptExecution failed with a nonzero exit code\n',
@@ -1776,6 +1778,8 @@ test('iOS build diagnostic names only catalogued scripts in complete Xcode failu
     [footer([unknown]), 'unrecognized'],
     [footer([unknown]) + '\n' + footer([unknown]), 'unrecognized'],
     [footer([unknown, anotherUnknown]), 'multiple'],
+    [footer(['PhaseScriptExecution ' + ' '.repeat(4000) + 'x']), 'unrecognized'],
+    [footer(['PhaseScriptExecution Run\\ Script /synthetic/' + ' '.repeat(3960) + 'x']), 'unrecognized'],
     [footer([runner], 2), 'unavailable'],
     [footer([runner]).split('\n').slice(0, -1).join('\n'), 'unavailable'],
     [runner + '\n' + footer(['Check dependencies']), 'unavailable'],
@@ -1783,7 +1787,8 @@ test('iOS build diagnostic names only catalogued scripts in complete Xcode failu
   ];
   for (const [trace, script] of cases) {
     const result = spawnSync('python3', ['-I', '-B', tool, '/synthetic/libSettleora.dylib', '1'],
-      { env, input: trace, encoding: 'utf8' });
+      { env, input: trace, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.error, undefined);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.split(' xcode_failed_script=')[1], script + '\n');
     assert.doesNotMatch(result.stdout + result.stderr,
