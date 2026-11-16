@@ -3,6 +3,7 @@ import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeFlutterRunner } from "./flutter-runner-diagnostics.mjs";
+import { readIosFirstBuildError } from "./ios-first-build-error.mjs";
 
 const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
@@ -209,6 +210,13 @@ function protectedSourceObservation(args, phase, status) {
   return observation ? { protectedSourceFailure: observation } : {};
 }
 
+function iosBuildErrorObservation(args, repoRoot, phase, status) {
+  const captureRoot = args["ios-build-capture-root"];
+  if (args.platform !== "ios" || phase !== "build_simulator_interposer_link" ||
+      !Number.isSafeInteger(status) || status < 1 || status > 255 || !captureRoot) return {};
+  return { iosFirstBuildError: readIosFirstBuildError(captureRoot, repoRoot, args["source-sha"]) };
+}
+
 export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {
   // Snapshot before any best-effort recovery; recovery does not establish cause.
   const collectionRejection = firstCollectionRejection(collectionError);
@@ -263,6 +271,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
       testExitStatus,
       preflightFailurePhase,
       ...protectedSourceObservation(args, preflightFailurePhase, testExitStatus),
+      ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
       stdoutBytes: boundedSize(args.log),
       stderrBytes: boundedSize(args["stderr-log"]),
     },
@@ -1780,6 +1789,7 @@ function collectEvidence(args, repoRoot, observe) {
       protocolSucceeded: protocol.protocolSucceeded,
       preflightFailurePhase,
       ...protectedSourceObservation(args, preflightFailurePhase, testExitStatus),
+      ...iosBuildErrorObservation(args, repoRoot, preflightFailurePhase, testExitStatus),
       environment: sanitizeEnvironment(args),
     },
     acceptance,

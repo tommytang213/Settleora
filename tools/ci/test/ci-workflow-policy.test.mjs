@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1433,6 +1433,114 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
     { cwd: repoRoot, env: { ...env, PREPARE_EXIT: '0' }, encoding: 'utf8' });
   assert.equal(success.status, 0);
   assert.equal(readFileSync(output, 'utf8'), '');
+});
+
+test('ordinary iOS acceptance carries a bounded first build error into the real evidence file', (t) => {
+  const evidenceStep = stepsFor(workflow('mobile-ocr-native-acceptance.yml').jobs['ios-native-acceptance'])
+    .find((step) => step.name === 'Build bounded iOS evidence');
+  assert.equal(evidenceStep.env.IOS_BUILD_CAPTURE_ROOT, '${{ inputs.mode == \'ios_full101\' && runner.temp || \'\' }}');
+  const evidenceCommand = evidenceStep.run.replace(/\$\{\{[^}]+\}\}/g, '');
+  const runner = read('tools/ocr-models/run-ios-native-acceptance.sh');
+  const trap = runner.split('trap report_failure_phase EXIT', 1)[0] + 'trap report_failure_phase EXIT\n';
+  const phase = 'phase=build_simulator_interposer_link\n';
+  const capture = phase + runner.split(phase, 2)[1].split('\nphase=verify_simulator_interposer_link_invocation', 1)[0];
+  const temporary = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'ios-first-build-error-')));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+  const detached = path.join(temporary, 'ios-acceptance-source');
+  execFileSync('git', ['clone', '--shared', '--quiet', '--no-checkout', repoRoot, detached]);
+  const relative = 'apps/mobile/ios/Runner/AppDelegate.swift';
+  const tracked = path.join(detached, relative);
+  const original = execFileSync('git', ['show', head + ':' + relative], { cwd: repoRoot });
+  mkdirSync(path.dirname(tracked), { recursive: true });
+  writeFileSync(tracked, original);
+  const flutter = path.join(temporary, 'flutter');
+  writeFileSync(flutter, [
+    '#!/bin/bash',
+    'test "$*" = "build ios --simulator --debug --no-codesign --no-pub --verbose" || exit 90',
+    'if test "$RUN_REGISTERED_VERIFIER" = 1; then',
+    '  python3 -I -B "$GITHUB_WORKSPACE/tools/ocr-models/prepare-ios-arm64-acceptance.py" verify-build-pods',
+    '  test "$?" = 98 || exit 90',
+    'fi',
+    'printf %s "$BUILD_STDOUT"',
+    'printf %s "$BUILD_STDERR" >&2',
+    'exit 37',
+    '',
+  ].join('\n'), { mode: 0o700 });
+  const output = path.join(temporary, 'github-output');
+  const artifact = path.join(temporary, 'ios-ocr-acceptance.json');
+  const env = {
+    ...process.env,
+    PATH: temporary + path.delimiter + process.env.PATH,
+    GITHUB_WORKSPACE: repoRoot,
+    GITHUB_OUTPUT: output,
+    GITHUB_ACTIONS: 'false',
+    RUNNER_TEMP: temporary,
+    IOS_BUILD_CAPTURE_ROOT: temporary,
+    EXPECTED_HEAD: head,
+    PREPARATION_OUTCOME: 'success',
+    PREPARATION_STATUS: '',
+    PREPARATION_PHASE: '',
+    PROTECTED_SOURCE_FAILURE: '',
+  };
+  function exercise(stdout, stderr, expected, options = {}) {
+    writeFileSync(output, '');
+    const build = spawnSync('bash', ['-c', trap + 'network_deny=/test/lib.dylib\n' + capture], {
+      cwd: repoRoot,
+      env: { ...env, BUILD_STDOUT: stdout, BUILD_STDERR: stderr, RUN_REGISTERED_VERIFIER: options.registeredVerifier ? '1' : '0' },
+      encoding: 'utf8', timeout: 20000,
+    });
+    assert.equal(build.status, 37, build.stderr);
+    assert.equal(readFileSync(output, 'utf8'), 'status=37\nfailure_phase=build_simulator_interposer_link\n');
+    if (options.oversizeCapture) {
+      truncateSync(path.join(temporary, 'settleora-ios-build-link-trace.log'), 32 * 1024 * 1024 + 1);
+    }
+    const collect = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', evidenceCommand], {
+      cwd: repoRoot,
+      env: { ...env, ACCEPTANCE_STATUS: '37', ACCEPTANCE_PHASE: 'build_simulator_interposer_link', ...options.env },
+      encoding: 'utf8', timeout: 20000,
+    });
+    assert.equal(collect.status, 1);
+    assert.equal(collect.stderr, 'bounded_native_ocr_evidence_failed\n');
+    const bytes = readFileSync(artifact, 'utf8');
+    const record = JSON.parse(bytes);
+    assert.equal(record.execution.testExitStatus, 37);
+    assert.equal(record.acceptance.completed, false);
+    assert.deepEqual(record.execution.iosFirstBuildError, expected);
+    assert.ok(Buffer.byteLength(JSON.stringify(record.execution.iosFirstBuildError ?? {})) <= 512);
+    assert.doesNotMatch(bytes + build.stdout + build.stderr + collect.stdout + collect.stderr,
+      /PrivateBuilder|SECRET_FIXTURE_TOKEN|unrelated_customer_text|ios-first-build-error-/);
+  }
+  const safe = '[  +12 ms] ' + tracked + ":2:1: error: no such module 'SECRET_FIXTURE_TOKEN'\n";
+  const swiftObservation = {
+    status: 'observed', stream: 'stdout', message: "no such module '[redacted]'",
+    sourceLocation: { path: relative, line: 2, column: 1 },
+  };
+  exercise(safe + 'unrelated_customer_text\n' + tracked + ":3:1: error: 'later' file not found\n",
+    'error: unrelated_customer_text\n', swiftObservation);
+  exercise('Failed to build iOS app\nCommand PhaseScriptExecution failed with a nonzero exit code\n',
+    '/private/PrivateBuilder/Script.sh: line 7: ruby: command not found\n',
+    { status: 'observed', stream: 'stderr', message: 'command not found', sourceLocation: null });
+  exercise("/private/PrivateBuilder/ruby.rb:3:in 'require': cannot load such file -- xcodeproj (LoadError)\n",
+    '', { status: 'observed', stream: 'stdout', message: 'cannot load such file -- xcodeproj', sourceLocation: null });
+  exercise("LoadError: cannot load such file -- xcodeproj\n", '',
+    { status: 'observed', stream: 'stdout', message: 'cannot load such file -- xcodeproj', sourceLocation: null });
+  exercise('', '', {
+    status: 'observed', stream: 'stderr', message: 'ios_arm64_acceptance_setup_rejected', sourceLocation: null,
+  }, { registeredVerifier: true });
+  exercise("error: '/private/PrivateBuilder/SECRET_FIXTURE_TOKEN.h' file not found\n", '',
+    { status: 'observed', stream: 'stdout', message: "'[redacted]' file not found", sourceLocation: null });
+  exercise('error: unrelated_customer_text SECRET_FIXTURE_TOKEN\n' + safe, '',
+    { status: 'redaction_rejected', stream: 'stdout' });
+  exercise("error: no such module '" + 'A'.repeat(4096) + "'\n", '',
+    { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise(safe.trimEnd(), '', { status: 'partial_line', stream: 'stdout' });
+  exercise('unrelated_customer_text\n', '', { status: 'no_error' });
+  exercise('', '', { status: 'capture_limit_exceeded', stream: 'stdout' }, { oversizeCapture: true });
+  exercise(safe, '', undefined, { env: { IOS_BUILD_CAPTURE_ROOT: '' } });
+  exercise(safe, '', { status: 'source_unverified' }, { env: { EXPECTED_HEAD: 'a'.repeat(40) } });
+  writeFileSync(tracked, Buffer.concat([original, Buffer.from('\n// changed source\n')]));
+  exercise(safe, '', { ...swiftObservation, sourceLocation: null });
 });
 
 test('the iOS exit trap preserves a Flutter failure through later verification', (t) => {
