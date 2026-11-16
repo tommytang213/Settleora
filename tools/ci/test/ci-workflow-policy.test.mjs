@@ -1436,9 +1436,11 @@ test('iOS evidence keeps the failed phase before any simulator fixture runs', (t
 });
 
 test('ordinary iOS acceptance carries a bounded first build error into the real evidence file', (t) => {
-  const evidenceStep = stepsFor(workflow('mobile-ocr-native-acceptance.yml').jobs['ios-native-acceptance'])
-    .find((step) => step.name === 'Build bounded iOS evidence');
+  const steps = stepsFor(workflow('mobile-ocr-native-acceptance.yml').jobs['ios-native-acceptance']);
+  const evidenceStep = steps.find((step) => step.name === 'Build bounded iOS evidence');
+  assert.equal(steps.find((step) => step.id === 'acceptance').env.IOS_ACCEPTANCE_MODE, '${{ inputs.mode }}');
   assert.equal(evidenceStep.env.IOS_BUILD_CAPTURE_ROOT, '${{ inputs.mode == \'ios_full101\' && runner.temp || \'\' }}');
+  assert.equal(evidenceStep.env.IOS_BUILD_CAPTURE_STATUS, '${{ steps.acceptance.outputs.build_capture_status }}');
   const evidenceCommand = evidenceStep.run.replace(/\$\{\{[^}]+\}\}/g, '');
   const runner = read('tools/ocr-models/run-ios-native-acceptance.sh');
   const trap = runner.split('trap report_failure_phase EXIT', 1)[0] + 'trap report_failure_phase EXIT\n';
@@ -1488,18 +1490,26 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   function exercise(stdout, stderr, expected, options = {}) {
     writeFileSync(output, '');
-    const status = options.buildOverflow ? 97 : 37;
-    const build = spawnSync('bash', ['-c', trap + 'network_deny=/test/lib.dylib\n' + capture], {
+    const captureStatus = options.buildOverflow ? 97 : 37;
+    const status = options.cleanupFailure ? 98 : captureStatus;
+    const mode = options.mode ?? 'ios_full101';
+    const failurePhase = options.cleanupFailure ? 'cleanup_network_isolation' : 'build_simulator_interposer_link';
+    const cleanupFailure = options.cleanupFailure ? 'network_link_configured=true\ncp() { return 1; }\n' : '';
+    const build = spawnSync('bash', ['-c', trap + cleanupFailure + 'network_deny=/test/lib.dylib\n' + capture], {
       cwd: repoRoot,
       env: {
         ...env, BUILD_STDOUT: stdout, BUILD_STDERR: stderr,
         RUN_REGISTERED_VERIFIER: options.registeredVerifier ? '1' : '0',
         BUILD_OVERFLOW: options.buildOverflow ? '1' : '0',
+        IOS_ACCEPTANCE_MODE: mode,
       },
       encoding: 'utf8', timeout: 20000,
     });
     assert.equal(build.status, status, build.stderr);
-    assert.equal(readFileSync(output, 'utf8'), 'status=' + status + '\nfailure_phase=build_simulator_interposer_link\n');
+    const captureOutput = mode === 'ios_full101' ? 'build_capture_status=' + captureStatus + '\n' : '';
+    assert.equal(readFileSync(output, 'utf8'),
+      captureOutput + 'status=' + status + '\nfailure_phase=' + failurePhase + '\n');
+    const stepOutputs = Object.fromEntries(readFileSync(output, 'utf8').trimEnd().split('\n').map((row) => row.split('=')));
     if (options.buildOverflow) {
       const retained = readFileSync(path.join(temporary, 'settleora-ios-build-link-trace.log'));
       assert.equal(retained.length, 32 * 1024 * 1024);
@@ -1510,7 +1520,10 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     }
     const collect = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', evidenceCommand], {
       cwd: repoRoot,
-      env: { ...env, ACCEPTANCE_STATUS: String(status), ACCEPTANCE_PHASE: 'build_simulator_interposer_link', ...options.env },
+      env: {
+        ...env, ACCEPTANCE_STATUS: stepOutputs.status, ACCEPTANCE_PHASE: stepOutputs.failure_phase,
+        IOS_BUILD_CAPTURE_STATUS: stepOutputs.build_capture_status ?? '', ...options.env,
+      },
       encoding: 'utf8', timeout: 20000,
     });
     assert.equal(collect.status, 1);
@@ -1518,8 +1531,9 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     const bytes = readFileSync(artifact, 'utf8');
     const record = JSON.parse(bytes);
     assert.equal(record.execution.testExitStatus, status);
+    assert.equal(record.execution.preflightFailurePhase, failurePhase);
     assert.equal(record.acceptance.completed, false);
-    assert.deepEqual(record.execution.iosFirstBuildError, expected);
+    assert.deepEqual(record.execution.iosFirstBuildError, expected && { ...expected, captureExitStatus: captureStatus });
     assert.ok(Buffer.byteLength(JSON.stringify(record.execution.iosFirstBuildError ?? {})) <= 512);
     assert.doesNotMatch(bytes + build.stdout + build.stderr + collect.stdout + collect.stderr,
       /PrivateBuilder|SECRET_FIXTURE_TOKEN|unrelated_customer_text|ios-first-build-error-/);
@@ -1537,6 +1551,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     'ld: library not found for -lSECRET_FIXTURE_TOKEN\n', '',
     { status: 'observed', stream: 'stdout', message: 'library not found', sourceLocation: null });
   exercise('clang: error: related to unrelated_customer_text\n' + safe, '',
+    { status: 'redaction_rejected', stream: 'stdout' });
+  exercise('xcodebuild: error: unrelated_customer_text\n' + safe, '',
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise('ordinary progress without newline', "error: 'SECRET_FIXTURE_TOKEN.h' file not found\n",
     { status: 'observed', stream: 'stderr', message: "'[redacted]' file not found", sourceLocation: null });
@@ -1564,7 +1580,13 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   exercise('unrelated_customer_text\n', '', { status: 'no_error' });
   exercise('', '', { status: 'capture_limit_exceeded', stream: 'stdout' }, { oversizeCapture: true });
   exercise('', '', { status: 'capture_may_be_truncated' }, { buildOverflow: true });
+  exercise(safe, '', swiftObservation, { cleanupFailure: true });
+  exercise('', '', { status: 'capture_may_be_truncated' }, { cleanupFailure: true, buildOverflow: true });
   exercise(safe, '', undefined, { env: { IOS_BUILD_CAPTURE_ROOT: '' } });
+  exercise(safe, '', undefined, { mode: 'full101', env: { IOS_BUILD_CAPTURE_ROOT: '' } });
+  for (const malformed of ['', '2', '037', '37\n', '256']) {
+    exercise(safe, '', undefined, { env: { IOS_BUILD_CAPTURE_STATUS: malformed } });
+  }
   exercise(safe, '', { status: 'source_unverified' }, { env: { EXPECTED_HEAD: 'a'.repeat(40) } });
   writeFileSync(tracked, Buffer.concat([original, Buffer.from('\n// changed source\n')]));
   exercise(safe, '', { ...swiftObservation, sourceLocation: null });
@@ -1674,6 +1696,12 @@ test('iOS build failure exposes bounded classifications and retains the original
     'pod_install_failed=false xcode_build_failed=false xcode_script_failed=false ' +
     'build_guard_rejected=false build_pods_verified=false xcode_failed_script=unavailable\n');
   assert.doesNotMatch(diagnostic.stdout + diagnostic.stderr, /SyntheticPrivateTraceValue/);
+  const longWhitespace = spawnSync('python3', ['-I', '-B', tool, dylib, '37'], {
+    env, input: '[ +1 ms]' + ' '.repeat(256 * 1024) + 'x\n', encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(longWhitespace.error, undefined);
+  assert.equal(longWhitespace.status, 0, longWhitespace.stderr);
+  assert.match(longWhitespace.stdout, /classes=unclassified .*xcode_failed_script=unavailable\n$/);
   const gateTrace = [
     '[  +23 ms]     ios_full101_arm64_build_pods=verified',
     '[        ]     ios_arm64_acceptance_setup_rejected',

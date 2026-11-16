@@ -212,12 +212,20 @@ function protectedSourceObservation(args, phase, status) {
 
 function iosBuildErrorObservation(args, repoRoot, phase, status) {
   const captureRoot = args["ios-build-capture-root"];
-  if (args.platform !== "ios" || phase !== "build_simulator_interposer_link" ||
-      !Number.isSafeInteger(status) || status < 1 || status > 255 || !captureRoot) return {};
+  const token = args["ios-build-capture-status"];
+  const captureExitStatus = Number(token);
+  const relevantFailure = phase === "build_simulator_interposer_link"
+    ? status === captureExitStatus
+    : phase === "cleanup_network_isolation" && status === 98;
+  if (args.platform !== "ios" || !captureRoot || !relevantFailure ||
+      !Number.isInteger(captureExitStatus) || captureExitStatus < 1 || captureExitStatus > 255 ||
+      String(captureExitStatus) !== token) return {};
   // The capture wrapper returns 97 on overflow. A child may also exit 97,
   // so do not assume either stream of that capture is complete.
-  if (status === 97) return { iosFirstBuildError: { status: "capture_may_be_truncated" } };
-  return { iosFirstBuildError: readIosFirstBuildError(captureRoot, repoRoot, args["source-sha"]) };
+  const observation = captureExitStatus === 97
+    ? { status: "capture_may_be_truncated" }
+    : readIosFirstBuildError(captureRoot, repoRoot, args["source-sha"]);
+  return { iosFirstBuildError: { ...observation, captureExitStatus } };
 }
 
 export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {

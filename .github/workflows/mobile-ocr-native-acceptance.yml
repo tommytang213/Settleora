@@ -596,6 +596,7 @@ jobs:
         timeout-minutes: 180
         working-directory: ${{ runner.temp }}/ios-acceptance-source/apps/mobile
         env:
+          IOS_ACCEPTANCE_MODE: ${{ inputs.mode }}
           SETTLEORA_IOS_ACCEPTANCE_ROOT: ${{ runner.temp }}/ios-acceptance-source
         shell: bash
         run: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-ios-native-acceptance.sh" "${{ steps.simulator.outputs.udid }}"
@@ -667,6 +668,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           IOS_BUILD_CAPTURE_ROOT: ${{ inputs.mode == 'ios_full101' && runner.temp || '' }}
+          IOS_BUILD_CAPTURE_STATUS: ${{ steps.acceptance.outputs.build_capture_status }}
           PREPARATION_OUTCOME: ${{ steps.arm64_dependencies.outcome }}
           PREPARATION_STATUS: ${{ steps.arm64_dependencies.outputs.status }}
           PREPARATION_PHASE: ${{ steps.arm64_dependencies.outputs.failure_phase }}
@@ -693,6 +695,7 @@ jobs:
             --test-status="$test_status" \
             --failure-phase="$failure_phase" \
             --ios-build-capture-root="$IOS_BUILD_CAPTURE_ROOT" \
+            --ios-build-capture-status="$IOS_BUILD_CAPTURE_STATUS" \
             --protected-source-failure="$PROTECTED_SOURCE_FAILURE" \
             --runner-image="${{ steps.simulator.outputs.runner_image }}" \
             --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \

@@ -331,6 +331,9 @@ const status = await runBoundedProcess({
 process.exitCode = status;
 NODE
 if test "$build_status" -ne 0; then
+  if test "${IOS_ACCEPTANCE_MODE:-}" = ios_full101 && test -n "${GITHUB_OUTPUT:-}"; then
+    ( printf 'build_capture_status=%s\n' "$build_status" >> "$GITHUB_OUTPUT" ) 2>/dev/null || :
+  fi
   { cat "$build_trace"; printf '\n'; cat "$build_errors"; } | \
     python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
       "$network_deny" "$build_status" || :

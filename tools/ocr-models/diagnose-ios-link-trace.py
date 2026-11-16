@@ -13,7 +13,7 @@ LINK_STEP = re.compile(
 )
 NEXT_STEP = re.compile(r"\(in target ['\"][^'\"]+['\"] from project ['\"][^'\"]+['\"]\)")
 CLANG_COMMAND = re.compile(r"/(?:clang|clang\+\+)\s")
-FLUTTER_LINE_PREFIX = r"^(?:\[[+ 0-9.]{0,24}(?:ms)?\][ \t]*)?[ \t]*"
+FLUTTER_LINE_PREFIX = r"^(?:\[[+ 0-9.]{0,24}(?:ms)?\])?[ \t]*"
 FAILED_SCRIPT_ROW = re.compile(
     r"PhaseScriptExecution[ \t]+(?P<phase>.+?)[ \t]+\"?/[^\"]*/"
     r"Script-(?P<script_id>[0-9A-Fa-f]{24}(?:[0-9A-Fa-f]{8})?)\.sh\"?"
