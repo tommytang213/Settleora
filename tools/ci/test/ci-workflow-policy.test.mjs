@@ -1503,7 +1503,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   function exercise(stdout, stderr, expected, options = {}) {
     writeFileSync(output, '');
-    const captureStartupFailure = options.startupFailure || options.rejectedCaptureSymlink;
+    const rejectedCaptureFile = options.rejectedCaptureSymlink || options.rejectedCaptureFifo;
+    const captureStartupFailure = options.startupFailure || rejectedCaptureFile;
     const captureUnavailable = options.interruptedBuild || captureStartupFailure;
     const childStatus = options.childStatus ?? 37;
     const captureStatus = options.buildOverflow ? 97 : captureUnavailable ? 98 : childStatus;
@@ -1518,6 +1519,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
         const target = path.join(temporary, 'synthetic-rejected-capture');
         writeFileSync(target, 'ld: library not found for -lSECRET_FIXTURE_TOKEN\n');
         symlinkSync(target, traceFile);
+      } else if (options.rejectedCaptureFifo) {
+        execFileSync('mkfifo', ['-m', '600', traceFile]);
       } else {
         mkdirSync(traceFile);
       }
@@ -1530,7 +1533,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
         BUILD_OVERFLOW: options.buildOverflow ? '1' : '0',
         BUILD_INTERRUPTED: options.interruptedBuild ? '1' : '0',
         BUILD_EXIT_STATUS: String(childStatus),
-        GITHUB_ACTIONS: options.expectCheckNotice || options.rejectedCaptureSymlink ? 'true' : 'false',
+        GITHUB_ACTIONS: options.expectCheckNotice || rejectedCaptureFile ? 'true' : 'false',
         GITHUB_JOB: 'ios-native-acceptance',
         IOS_ACCEPTANCE_MODE: mode,
       },
@@ -1538,7 +1541,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     });
     assert.equal(build.status, status, build.stderr);
     if (captureStartupFailure) assert.match(build.stderr, /^ios_simulator_build_capture_failed$/m);
-    if (options.rejectedCaptureSymlink) {
+    if (rejectedCaptureFile) {
       assert.match(build.stderr, /^ios_link_trace_diagnostic=unavailable$/m);
       assert.doesNotMatch(build.stdout, /::notice/);
     }
@@ -1602,6 +1605,14 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise("/private/PrivateBuilder/Script.sh: line 7: syntax error near unexpected token 'SECRET_FIXTURE_TOKEN'\n" +
     clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
+  for (const shell of ['bash', '/bin/bash']) {
+    const invalidCommand = spawnSync(shell, ['-c', 'if; then :; fi'], {
+      encoding: 'utf8', env: { ...env, LC_ALL: 'C' },
+    });
+    assert.equal(invalidCommand.status, 2);
+    assert.match(invalidCommand.stderr, /^(?:\/bin\/)?bash: -c: line 1: syntax error/m);
+    exercise(invalidCommand.stderr + clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
+  }
   exercise('Undefined symbols for architecture arm64', clangFailure,
     { status: 'partial_line', stream: 'stdout' });
   exercise(' '.repeat(4096) + 'Error (Xcode): Command PhaseScriptExecution failed with a nonzero exit code' +
@@ -1655,6 +1666,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { interruptedBuild: true });
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { startupFailure: true });
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { rejectedCaptureSymlink: true });
+  exercise(safe, '', { status: 'capture_may_be_incomplete' }, { rejectedCaptureFifo: true });
   for (const mode of ['full101', '']) {
     exercise(clangFailure, '', undefined, {
       mode, childStatus: 98, expectCheckNotice: true, env: { IOS_BUILD_CAPTURE_ROOT: '' },
@@ -1830,6 +1842,15 @@ test('iOS build failure exposes bounded classifications and retains the original
   assert.equal(nonregular.status, 98, nonregular.stderr);
   assert.equal(nonregular.stderr, 'ios_link_trace_diagnostic=unavailable\n');
   assert.equal(nonregular.stdout, '');
+  rmSync(buildErrors);
+  writeFileSync(buildErrors, '');
+  truncateSync(buildTrace, 32 * 1024 * 1024);
+  truncateSync(buildErrors, 32 * 1024 * 1024);
+  const bothAtLimit = spawnSync('python3', ['-I', '-B', tool, dylib, '37', '--capture-root=' + temporary],
+    { env, encoding: 'utf8', timeout: 15000 });
+  assert.equal(bothAtLimit.error, undefined);
+  assert.equal(bothAtLimit.status, 0, bothAtLimit.stderr);
+  assert.equal(bothAtLimit.stdout, diagnostic.stdout);
   const runner = read('tools/ocr-models/run-ios-native-acceptance.sh');
   const guard = 'if test "$build_status" -ne 0; then';
   const failureBranch = guard + runner.split(guard, 2)[1].split('\nphase=verify_simulator_interposer_link_invocation', 1)[0];

@@ -52,10 +52,10 @@ def capture_file(root, name):
 
 
 def trace_bytes(capture_root):
-    if capture_root is None:
-        trace = sys.stdin.buffer.read(2 * CAPTURE_LIMIT + 1)
-    else:
-        trace = b"\n".join(capture_file(capture_root, name) for name in CAPTURE_NAMES)
+    if capture_root is not None:
+        # The separator is generated here, outside the bounds of the two files.
+        return b"\n".join(capture_file(capture_root, name) for name in CAPTURE_NAMES)
+    trace = sys.stdin.buffer.read(2 * CAPTURE_LIMIT + 1)
     if len(trace) > 2 * CAPTURE_LIMIT:
         raise ValueError("build trace exceeds the bounded capture")
     return trace

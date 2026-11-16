@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { closeSync, constants, createWriteStream, fchmodSync, openSync, writeSync } from "node:fs";
+import { closeSync, constants, createWriteStream, fchmodSync, fstatSync, ftruncateSync, openSync, writeSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,11 +69,18 @@ export function buildFlutterCommand(device, platform) {
 function openCaptureFile(filePath) {
   const descriptor = openSync(
     filePath,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     0o600,
   );
-  fchmodSync(descriptor, 0o600);
-  return descriptor;
+  try {
+    if (!fstatSync(descriptor).isFile()) throw new Error("invalid capture destination");
+    fchmodSync(descriptor, 0o600);
+    ftruncateSync(descriptor, 0);
+    return descriptor;
+  } catch (error) {
+    closeSync(descriptor);
+    throw error;
+  }
 }
 
 function boundedSink(stream, descriptor, maxBytes, onOverflow, diagnostics, channel) {
