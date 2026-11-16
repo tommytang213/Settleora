@@ -1605,12 +1605,17 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'redaction_rejected', stream: 'stdout' });
   exercise("/private/PrivateBuilder/Script.sh: line 7: syntax error near unexpected token 'SECRET_FIXTURE_TOKEN'\n" +
     clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
-  for (const shell of ['bash', '/bin/bash']) {
-    const invalidCommand = spawnSync(shell, ['-c', 'if; then :; fi'], {
+  const invalid = 'if; then :; fi';
+  for (const [shell, args] of [
+    ['bash', ['-c', invalid]],
+    ['/bin/bash', ['-c', invalid]],
+    ['/bin/bash', ['-c', 'exec -a /bin/sh /bin/bash -c "$1"', 'syntax-control', invalid]],
+  ]) {
+    const invalidCommand = spawnSync(shell, args, {
       encoding: 'utf8', env: { ...env, LC_ALL: 'C' },
     });
     assert.equal(invalidCommand.status, 2);
-    assert.match(invalidCommand.stderr, /^(?:\/bin\/)?bash: -c: line 1: syntax error/m);
+    assert.match(invalidCommand.stderr, /^(?:\/bin\/)?(?:ba)?sh: -c: line 1: syntax error/m);
     exercise(invalidCommand.stderr + clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
   }
   exercise('Undefined symbols for architecture arm64', clangFailure,

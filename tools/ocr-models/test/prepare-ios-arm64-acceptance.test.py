@@ -809,6 +809,24 @@ print JSON.generate(checksums)
                          patch.object(m, "context", return_value=(target, root, target, None)), \
                          patch.object(sys, "argv", [str(MODULE), "verify-build-pods"]):
                         m.run_cli()
+                    plugin_file = mobile / ".flutter-plugins-dependencies"
+                    original_plugins = plugin_file.read_bytes()
+                    plugins = json.loads(original_plugins)
+                    cycle = root / "cyclic-plugin"
+                    cycle.symlink_to(cycle.name)
+                    plugins["plugins"]["ios"][0]["path"] = str(cycle)
+                    plugin_file.write_text(json.dumps(plugins))
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    try:
+                        with patch.object(m, "context", return_value=(target, root, target, None)), \
+                             patch.object(sys, "argv", [str(MODULE), "verify"]), contextlib.redirect_stdout(stdout), \
+                             contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as rejection:
+                            m.run_cli()
+                        self.assertEqual(rejection.exception.code, 98)
+                        self.assertEqual(stdout.getvalue(), "")
+                        self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
+                    finally:
+                        plugin_file.write_bytes(original_plugins)
                     normal_lock = lock.read_bytes()
                     malformed = dict(projected, PODS=[{}])
                     lock.write_text(json.dumps(malformed))
