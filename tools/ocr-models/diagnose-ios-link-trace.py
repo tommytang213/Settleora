@@ -4,6 +4,7 @@
 import hashlib
 import os
 import re
+import stat
 import sys
 
 
@@ -21,6 +22,8 @@ FAILED_SCRIPT_PATH = re.compile(
     r"[ \t]+\(in target '(?P<target>[^']+)' from project '(?P<project>[^']+)'\)"
 )
 FAILED_COMMAND_COUNT = re.compile(r"\(([1-9][0-9]?) failures?\)")
+CAPTURE_LIMIT = 32 * 1024 * 1024
+CAPTURE_NAMES = ("settleora-ios-build-link-trace.log", "settleora-ios-build-link-errors.log")
 SCRIPT_LABELS = {
     ("Runner", "Runner", "Verify OCR test Pods"): "runner_verify_pods",
     ("Runner", "Runner", "Run Script"): "runner_flutter_build",
@@ -36,9 +39,24 @@ SCRIPT_LABELS = {
 }
 
 
-def trace_bytes():
-    trace = sys.stdin.buffer.read(64 * 1024 * 1024 + 1)
-    if len(trace) > 64 * 1024 * 1024:
+def capture_file(root, name):
+    descriptor = os.open(os.path.join(root, name), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or not 0 <= metadata.st_size <= CAPTURE_LIMIT:
+            raise ValueError("unavailable build capture")
+        raw = stream.read(metadata.st_size + 1)
+        if len(raw) != metadata.st_size:
+            raise ValueError("build capture changed during read")
+        return raw
+
+
+def trace_bytes(capture_root):
+    if capture_root is None:
+        trace = sys.stdin.buffer.read(2 * CAPTURE_LIMIT + 1)
+    else:
+        trace = b"\n".join(capture_file(capture_root, name) for name in CAPTURE_NAMES)
+    if len(trace) > 2 * CAPTURE_LIMIT:
         raise ValueError("build trace exceeds the bounded capture")
     return trace
 
@@ -283,14 +301,19 @@ def report(trace, dylib, capture_status):
 
 
 def main():
-    if len(sys.argv) != 3 or not re.fullmatch(r"(?:0|[1-9][0-9]{0,2})", sys.argv[2]):
+    if len(sys.argv) not in (3, 4) or not re.fullmatch(r"(?:0|[1-9][0-9]{0,2})", sys.argv[2]):
         raise ValueError("invalid build diagnostic arguments")
-    dylib, capture_status = sys.argv[1:]
+    dylib, capture_status = sys.argv[1:3]
     if int(capture_status) > 255:
         raise ValueError("invalid build status")
     if not dylib.startswith("/") or "\n" in dylib:
         raise ValueError("invalid interposer path")
-    report(trace_bytes(), dylib, capture_status)
+    capture_root = None
+    if len(sys.argv) == 4:
+        flag, _, capture_root = sys.argv[3].partition("=")
+        if flag != "--capture-root" or not os.path.isabs(capture_root) or "\n" in capture_root:
+            raise ValueError("invalid build capture root")
+    report(trace_bytes(capture_root), dylib, capture_status)
 
 
 if __name__ == "__main__":

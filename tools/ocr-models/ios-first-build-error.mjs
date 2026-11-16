@@ -11,6 +11,7 @@ const flutterTimestamp = /^\[[+ 0-9.]{0,24}(?:ms)?\]/;
 const errorPrefix = /^(?:(?:(?:clang(?:\+\+)?|xcodebuild|xcrun):[ \t]+)?(?:fatal )?error:|ld:|Error:|(?:(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}(?:Error|Issue)|Unknown) \(Xcode\):)[ \t]*/;
 const warningPrefix = /^(?:(?:(?:ld|clang(?:\+\+)?|xcodebuild|xcrun):[ \t]*)?(?:warning|note):|(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}Warning \(Xcode\):)/i;
 const interpreterError = /^(?:[A-Za-z]+Error:|cannot load such file -- )/;
+const shellSyntaxError = /^syntax error(?:[: \t]|$)/i;
 const shellFailure = /(?:command not found|No such file or directory|Permission denied)$/;
 const shellError = new RegExp("(?:^|:[ \\t]*)" + shellFailure.source);
 const undefinedSymbolsPrefix = /^Undefined symbol(?::|s for architecture(?: |$))/;
@@ -143,7 +144,7 @@ function firstError(bytes) {
     const prefixed = errorPrefix.test(detail);
     const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
     if (!prefixed && detail !== verifierRejection && !interpreterError.test(detail) &&
-        !undefinedSymbolsPrefix.test(detail) &&
+        !undefinedSymbolsPrefix.test(detail) && !shellSyntaxError.test(detail) &&
         !(length > lineBytes ? hasOversizedShellError(bytes, content, contentEnd) : shellError.test(detail))) continue;
     // These summaries do not identify the underlying error.
     if (end !== -1 && prefixEnd === contentEnd &&

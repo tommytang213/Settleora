@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1503,7 +1503,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   };
   function exercise(stdout, stderr, expected, options = {}) {
     writeFileSync(output, '');
-    const captureUnavailable = options.interruptedBuild || options.startupFailure;
+    const captureStartupFailure = options.startupFailure || options.rejectedCaptureSymlink;
+    const captureUnavailable = options.interruptedBuild || captureStartupFailure;
     const childStatus = options.childStatus ?? 37;
     const captureStatus = options.buildOverflow ? 97 : captureUnavailable ? 98 : childStatus;
     const status = options.cleanupFailure ? 98 : captureStatus;
@@ -1511,9 +1512,15 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     const failurePhase = options.cleanupFailure ? 'cleanup_network_isolation' : 'build_simulator_interposer_link';
     const cleanupFailure = options.cleanupFailure ? 'network_link_configured=true\ncp() { return 1; }\n' : '';
     const traceFile = path.join(temporary, 'settleora-ios-build-link-trace.log');
-    if (options.startupFailure) {
+    if (captureStartupFailure) {
       rmSync(traceFile, { force: true });
-      mkdirSync(traceFile);
+      if (options.rejectedCaptureSymlink) {
+        const target = path.join(temporary, 'synthetic-rejected-capture');
+        writeFileSync(target, 'ld: library not found for -lSECRET_FIXTURE_TOKEN\n');
+        symlinkSync(target, traceFile);
+      } else {
+        mkdirSync(traceFile);
+      }
     }
     const build = spawnSync('bash', ['-c', trap + cleanupFailure + 'network_deny=/test/lib.dylib\n' + capture], {
       cwd: repoRoot,
@@ -1523,14 +1530,18 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
         BUILD_OVERFLOW: options.buildOverflow ? '1' : '0',
         BUILD_INTERRUPTED: options.interruptedBuild ? '1' : '0',
         BUILD_EXIT_STATUS: String(childStatus),
-        GITHUB_ACTIONS: options.expectCheckNotice ? 'true' : 'false',
+        GITHUB_ACTIONS: options.expectCheckNotice || options.rejectedCaptureSymlink ? 'true' : 'false',
         GITHUB_JOB: 'ios-native-acceptance',
         IOS_ACCEPTANCE_MODE: mode,
       },
       encoding: 'utf8', timeout: 20000,
     });
     assert.equal(build.status, status, build.stderr);
-    if (options.startupFailure) assert.match(build.stderr, /^ios_simulator_build_capture_failed$/m);
+    if (captureStartupFailure) assert.match(build.stderr, /^ios_simulator_build_capture_failed$/m);
+    if (options.rejectedCaptureSymlink) {
+      assert.match(build.stderr, /^ios_link_trace_diagnostic=unavailable$/m);
+      assert.doesNotMatch(build.stdout, /::notice/);
+    }
     if (options.expectCheckNotice) {
       const notices = build.stdout.match(/^::notice title=Settleora iOS simulator build classification::.*$/gm);
       assert.equal(notices?.length, 1);
@@ -1568,7 +1579,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     assert.ok(Buffer.byteLength(JSON.stringify(record.execution.iosFirstBuildError ?? {})) <= 512);
     assert.doesNotMatch(bytes + build.stdout + build.stderr + collect.stdout + collect.stderr,
       /PrivateBuilder|SECRET_FIXTURE_TOKEN|unrelated_customer_text|ios-first-build-error-/);
-    if (options.startupFailure) rmSync(traceFile, { recursive: true });
+    if (captureStartupFailure) rmSync(traceFile, { recursive: true });
   }
   const safe = '[  +12 ms] ' + tracked + ":2:1: error: no such module 'SECRET_FIXTURE_TOKEN'\n";
   const swiftObservation = {
@@ -1589,6 +1600,8 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
     { status: 'observed', stream: 'stdout', message: 'Undefined symbol: [redacted]', sourceLocation: null });
   exercise('xcrun: error: unable to find utility SECRET_FIXTURE_TOKEN\n' + clangFailure, '',
     { status: 'redaction_rejected', stream: 'stdout' });
+  exercise("/private/PrivateBuilder/Script.sh: line 7: syntax error near unexpected token 'SECRET_FIXTURE_TOKEN'\n" +
+    clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
   exercise('Undefined symbols for architecture arm64', clangFailure,
     { status: 'partial_line', stream: 'stdout' });
   exercise(' '.repeat(4096) + 'Error (Xcode): Command PhaseScriptExecution failed with a nonzero exit code' +
@@ -1641,6 +1654,7 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   exercise('', '', { status: 'capture_may_be_truncated' }, { buildOverflow: true });
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { interruptedBuild: true });
   exercise(safe, '', { status: 'capture_may_be_incomplete' }, { startupFailure: true });
+  exercise(safe, '', { status: 'capture_may_be_incomplete' }, { rejectedCaptureSymlink: true });
   for (const mode of ['full101', '']) {
     exercise(clangFailure, '', undefined, {
       mode, childStatus: 98, expectCheckNotice: true, env: { IOS_BUILD_CAPTURE_ROOT: '' },
@@ -1806,16 +1820,22 @@ test('iOS build failure exposes bounded classifications and retains the original
 
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'ios-build-classification-'));
   t.after(() => rmSync(temporary, { recursive: true, force: true }));
-  const buildTrace = path.join(temporary, 'trace');
-  const buildErrors = path.join(temporary, 'errors');
+  const buildTrace = path.join(temporary, 'settleora-ios-build-link-trace.log');
+  const buildErrors = path.join(temporary, 'settleora-ios-build-link-errors.log');
   writeFileSync(buildTrace, trace);
-  writeFileSync(buildErrors, '');
+  execFileSync('mkfifo', ['-m', '600', buildErrors]);
+  const nonregular = spawnSync('python3', ['-I', '-B', tool, dylib, '98', '--capture-root=' + temporary],
+    { env, encoding: 'utf8', timeout: 5000 });
+  assert.equal(nonregular.error, undefined);
+  assert.equal(nonregular.status, 98, nonregular.stderr);
+  assert.equal(nonregular.stderr, 'ios_link_trace_diagnostic=unavailable\n');
+  assert.equal(nonregular.stdout, '');
   const runner = read('tools/ocr-models/run-ios-native-acceptance.sh');
   const guard = 'if test "$build_status" -ne 0; then';
   const failureBranch = guard + runner.split(guard, 2)[1].split('\nphase=verify_simulator_interposer_link_invocation', 1)[0];
   const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c',
     'python3() { return 98; }\nbuild_status=37\n' + failureBranch], {
-    env: { ...env, GITHUB_WORKSPACE: repoRoot, build_trace: buildTrace, build_errors: buildErrors, network_deny: dylib },
+    env: { ...env, GITHUB_WORKSPACE: repoRoot, RUNNER_TEMP: temporary, network_deny: dylib },
     encoding: 'utf8',
   });
   assert.equal(result.status, 37, result.stderr);
