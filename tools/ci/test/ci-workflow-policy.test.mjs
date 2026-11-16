@@ -1620,6 +1620,14 @@ test('ordinary iOS acceptance carries a bounded first build error into the real 
   }
   exercise("/bin/sh: -c: line 0: syntax error near unexpected token 'SECRET_FIXTURE_TOKEN'\n" +
     clangFailure, '', { status: 'redaction_rejected', stream: 'stdout' });
+  for (const frame of ["helper.rb:7:in 'configure': ", "helper.rb:7:in \x60configure': "]) {
+    exercise(frame + 'SECRET_FIXTURE_TOKEN (RuntimeError)\n' + clangFailure, '',
+      { status: 'redaction_rejected', stream: 'stdout' });
+  }
+  exercise("helper.rb:7:in 'configure': " + 'A'.repeat(4096) + ' (RuntimeError)\n' + clangFailure, '',
+    { status: 'line_limit_exceeded', stream: 'stdout' });
+  exercise("helper.rb:7:in 'configure': informational text\n" + clangFailure, '',
+    { ...clangObservation, stream: 'stdout' });
   exercise('Undefined symbols for architecture arm64', clangFailure,
     { status: 'partial_line', stream: 'stdout' });
   exercise(' '.repeat(4096) + 'Error (Xcode): Command PhaseScriptExecution failed with a nonzero exit code' +

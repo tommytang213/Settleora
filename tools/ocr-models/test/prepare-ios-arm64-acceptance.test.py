@@ -730,9 +730,16 @@ print JSON.generate(checksums)
             info = root / "opencv-build/opencv2.xcframework/Info.plist"
             info.parent.mkdir(parents=True)
             xml = b'<?xml version="1.0"?><plist version="1.0">'
-            for body in (b"<dict>", b"<date>invalid</date></plist>", b"<key>x</key></plist>"):
-                with self.subTest(body=body):
-                    info.write_bytes(xml + body)
+            inputs = {
+                "truncated": xml + b"<dict>",
+                "invalid date": xml + b"<date>invalid</date></plist>",
+                "misplaced key": xml + b"<key>x</key></plist>",
+                "unknown encoding": b'<?xml version="1.0" encoding="PRIVATE_UNKNOWN_ENCODING"?>'
+                                    b'<plist version="1.0"><dict/></plist>',
+            }
+            for name, raw in inputs.items():
+                with self.subTest(metadata=name):
+                    info.write_bytes(raw)
                     stdout, stderr = io.StringIO(), io.StringIO()
                     with patch.object(m, "context", return_value=(MODULE.parents[2], root, target, None)), \
                          patch.object(sys, "argv", [str(MODULE), "verify"]), \

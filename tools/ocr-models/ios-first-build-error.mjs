@@ -11,6 +11,8 @@ const flutterTimestamp = /^\[[+ 0-9.]{0,24}(?:ms)?\]/;
 const errorPrefix = /^(?:(?:(?:clang(?:\+\+)?|xcodebuild|xcrun):[ \t]+)?(?:fatal )?error:|ld:|Error:|(?:(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}(?:Error|Issue)|Unknown) \(Xcode\):)[ \t]*/;
 const warningPrefix = /^(?:(?:(?:ld|clang(?:\+\+)?|xcodebuild|xcrun):[ \t]*)?(?:warning|note):|(?:[A-Za-z][A-Za-z-]{0,23} ){0,5}Warning \(Xcode\):)/i;
 const interpreterError = /^(?:[A-Za-z]+Error:|cannot load such file -- )/;
+const rubyFramePrefix = /^in [\x60'][^\x60'\x00-\x1f]{1,96}['\x60]:[ \t]+/;
+const rubyExceptionSuffix = /(?:^|[ \t])\((?:[A-Z][A-Za-z0-9_]*::)*[A-Z][A-Za-z0-9_]*\)$/;
 const shellSyntaxError = /^(?:(?:\/bin\/)?(?:ba)?sh:[ \t]+-c:[ \t]+line [0-9]+:[ \t]+)?syntax error(?:[: \t]|$)/i;
 const shellFailure = /(?:command not found|No such file or directory|Permission denied)$/;
 const shellError = new RegExp("(?:^|:[ \\t]*)" + shellFailure.source);
@@ -138,13 +140,17 @@ function firstError(bytes) {
     const line = bytes.subarray(content, prefixEnd).toString("utf8").trimEnd();
     start = stop + 1;
     const location = errorPrefix.test(line) ? null : locationPrefix.exec(line);
-    const detail = line.slice(location?.[0].length ?? 0)
-      .replace(/^in [\x60'][^\x60'\x00-\x1f]{1,96}['\x60]:[ \t]+/, "");
+    const located = line.slice(location?.[0].length ?? 0);
+    const rubyFrame = rubyFramePrefix.exec(located);
+    const detail = located.slice(rubyFrame?.[0].length ?? 0);
     if (warningPrefix.test(detail)) continue;
     const prefixed = errorPrefix.test(detail);
     const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
+    const rubyException = location && rubyFrame && rubyExceptionSuffix.test(prefixEnd === contentEnd
+      ? detail
+      : bytes.subarray(Math.max(content, contentEnd - lineBytes), contentEnd).toString("utf8"));
     if (!prefixed && detail !== verifierRejection && !interpreterError.test(detail) &&
-        !undefinedSymbolsPrefix.test(detail) && !shellSyntaxError.test(detail) &&
+        !undefinedSymbolsPrefix.test(detail) && !shellSyntaxError.test(detail) && !rubyException &&
         !(length > lineBytes ? hasOversizedShellError(bytes, content, contentEnd) : shellError.test(detail))) continue;
     // These summaries do not identify the underlying error.
     if (end !== -1 && prefixEnd === contentEnd &&

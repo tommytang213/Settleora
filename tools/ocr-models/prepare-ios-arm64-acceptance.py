@@ -1181,9 +1181,9 @@ def main():
 def run_cli():
     try:
         main()
-    # Path.resolve and plistlib use different exceptions for malformed inputs.
-    except (AttributeError, ExpatError, IndexError, KeyError, OSError, RuntimeError, TypeError, ValueError,
-            ElementTree.ParseError, plistlib.InvalidFileException, subprocess.SubprocessError):
+    # This CLI also runs directly in Xcode. Exceptions can contain private
+    # paths or input values, so its error output is a single fixed marker.
+    except Exception:
         sys.stderr.write("ios_arm64_acceptance_setup_rejected\n")
         sys.exit(98)
 
