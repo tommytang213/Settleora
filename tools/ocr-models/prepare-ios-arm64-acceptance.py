@@ -690,7 +690,10 @@ class ProtectedSourceRejection(ValueError):
 
 def git_source_types(base, repo):
     modes = {b"100644": stat.S_IFREG, b"100755": stat.S_IFREG, b"120000": stat.S_IFLNK}
-    output = base.git(repo, "ls-tree", "-rz", os.environ["EXPECTED_HEAD"])
+    output = subprocess.check_output(
+        ["git", "--no-replace-objects", "-C", str(repo), "ls-tree", "-rz", os.environ["EXPECTED_HEAD"]],
+        env=base.git_environment(), stderr=subprocess.DEVNULL, timeout=30,
+    )
     types = {}
     for entry in output.rstrip(b"\0").split(b"\0"):
         metadata, name = entry.split(b"\t", 1)

@@ -143,12 +143,12 @@ function firstError(bytes) {
     const located = line.slice(location?.[0].length ?? 0);
     const rubyFrame = rubyFramePrefix.exec(located);
     const detail = located.slice(rubyFrame?.[0].length ?? 0);
-    if (warningPrefix.test(detail)) continue;
-    const prefixed = errorPrefix.test(detail);
-    const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
     const rubyException = location && rubyFrame && rubyExceptionSuffix.test(prefixEnd === contentEnd
       ? detail
       : bytes.subarray(Math.max(content, contentEnd - lineBytes), contentEnd).toString("utf8"));
+    if (!rubyException && warningPrefix.test(detail)) continue;
+    const prefixed = errorPrefix.test(detail);
+    const message = detail.replace(errorPrefix, "").replace(errorPrefix, "");
     if (!prefixed && detail !== verifierRejection && !interpreterError.test(detail) &&
         !undefinedSymbolsPrefix.test(detail) && !shellSyntaxError.test(detail) && !rubyException &&
         !(length > lineBytes ? hasOversizedShellError(bytes, content, contentEnd) : shellError.test(detail))) continue;

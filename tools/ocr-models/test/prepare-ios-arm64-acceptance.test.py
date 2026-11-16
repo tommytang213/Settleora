@@ -717,6 +717,31 @@ print JSON.generate(checksums)
         self.assertEqual(rejected.exception.code, 98)
         self.assertEqual(stderr.getvalue(), "ios_arm64_acceptance_setup_rejected\n")
 
+    def test_git_source_type_failure_stderr_is_redacted(self):
+        program = """
+import importlib.util
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("arm64_git_probe", path)
+verifier = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(verifier)
+base = verifier.module(path.with_name("ios-paddle-arm64-compatibility.py"), "compatibility_git")
+verifier.main = lambda: verifier.git_source_types(base, path.parents[2])
+verifier.run_cli()
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            git = Path(directory) / "git"
+            git.write_text('#!/bin/sh\nprintf "%s\\n" "PRIVATE_GIT_PATH_TOKEN" >&2\nexit 1\n')
+            git.chmod(0o700)
+            env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"], EXPECTED_HEAD="fixture-head")
+            result = subprocess.run([sys.executable, "-I", "-B", "-c", program, str(MODULE)], env=env,
+                                    capture_output=True, timeout=10, check=False)
+        self.assertEqual(result.returncode, 98)
+        self.assertEqual(result.stdout, b"")
+        self.assertEqual(result.stderr, b"ios_arm64_acceptance_setup_rejected\n")
+
     def test_verify_rejects_malformed_xcframework_plist(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
