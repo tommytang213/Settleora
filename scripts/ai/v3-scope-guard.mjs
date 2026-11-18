@@ -25,15 +25,46 @@ const stateFile = readOption("--state-file", ".ai/state.json");
 const milestoneFile = readOption("--milestone-file", ".ai/current-milestone.md");
 const allowBootstrapWorkflow = args.includes("--allow-bootstrap-workflow");
 
-const changedFiles = execFileSync(
-  "git",
-  ["diff", "--name-only", `${baseRef}...${headRef}`],
-  { encoding: "utf8" },
-)
-  .split(/\r?\n/)
-  .map((line) => line.trim())
-  .filter(Boolean)
-  .sort();
+// Pin both refs once so path classification and blob authority cannot observe
+// different commits if a branch moves during this invocation.
+function resolveCommit(ref) {
+  try {
+    return execFileSync("git", ["--no-replace-objects", "rev-parse", "--verify", `${ref}^{commit}`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    console.error(`Cannot resolve Git commit for ${displayLabel(ref)}`);
+    process.exit(1);
+  }
+}
+function resolveBaseCommit(ref) {
+  const integrationRef = "refs/remotes/origin/ai/integration";
+  if (ref !== "origin/ai/integration" && ref !== integrationRef) return resolveCommit(ref);
+  let objectId;
+  try {
+    objectId = execFileSync("git", ["--no-replace-objects", "show-ref", "--verify", "--hash", integrationRef],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    console.error(`Cannot resolve exact remote-tracking base ${displayLabel(integrationRef)}`);
+    process.exit(1);
+  }
+  return resolveCommit(objectId);
+}
+const baseCommit = resolveBaseCommit(baseRef);
+// The candidate is the supplied --head tree (default HEAD). Hosted checkout
+// may supply a synthetic merge tree; exact-blob drift then fails closed.
+const headCommit = resolveCommit(headRef);
+let changedPathOutput;
+try {
+  changedPathOutput = execFileSync(
+    "git",
+    ["--no-replace-objects", "diff", "--ignore-submodules=none", "--no-relative", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+} catch {
+  console.error("Cannot read changed paths from Git; scope denied.");
+  process.exit(1);
+}
+const changedFiles = changedPathOutput.split("\0").filter(Boolean).sort();
 
 let stateText = "";
 let milestoneText = "";
@@ -357,10 +388,135 @@ function forbiddenReason(file) {
   return match ? match.reason : null;
 }
 
+// Stage 1 proposal: no planner or cleanup scope is granted here.
+// Approval must already exist on the verified comparison base, never only
+// in the candidate branch. A proposed record is deliberately ineffective.
+const regressionDecisionPath = "docs/qa/LOCAL_RETENTION_REGRESSION_SCOPE_DECISION.json";
+const expectedRegressionDecision = {
+  "schema_version": 1,
+  "proposal": "retention-regression-scope-v1",
+  "repository": "tommytang213/Settleora",
+  "decision": "approved",
+  "authority": "Atlas",
+  "mode": "synthetic_regression_test_only",
+  "path": "scripts/ai/test/retention-governance-scope.test.mjs",
+  "blob": "2dd67fbfd765d7afa059966a92d3014d1853ece8",
+  "mutation_authorized": false,
+  "live_adoption_authorized": false
+};
+
+// Base authority uses only one current ID field, never historical prose.
+function parseBaseMarkdownMilestone(text) {
+  const fields = [];
+  let fence = null;
+  let comment = false;
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    if (fence) {
+      const closing = rawLine.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+      if (closing && closing[0].length === rawLine.length &&
+          closing[1][0] === fence.character && closing[1].length >= fence.length) fence = null;
+      continue;
+    }
+    const rawOpening = rawLine.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (!comment && rawOpening) {
+      if (rawOpening[1][0] === "`" && rawLine.slice(rawOpening[0].length).includes("`")) return null;
+      fence = {character: rawOpening[1][0], length: rawOpening[1].length};
+      continue;
+    }
+    const field = comment ? null : rawLine.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*/i);
+    // This authority dialect is not an inline Markdown renderer. Reject
+    // prose code spans/escapes rather than risk carrying literal delimiters
+    // across lines and hiding a competing ID. Exact ID values are validated
+    // below; real comments may still precede their backticked value.
+    if (!comment && !field && /[`\\]/.test(rawLine.split("<!--", 1)[0])) return null;
+    let line = rawLine;
+    let offset = 0;
+    while (offset < line.length) {
+      const start = comment ? offset : line.indexOf("<!--", offset);
+      if (start < 0) break;
+      // Reject shorthand openers before they can hide later ID fields.
+      if (!comment && (line.startsWith("<!-->", start) || line.startsWith("<!--->", start))) return null;
+      if (!comment && /[`\\]/.test(line.slice(0, start))) return null;
+      const contentStart = comment ? start : start + 4;
+      const end = line.indexOf("-->", contentStart);
+      const nested = line.indexOf("<!--", contentStart);
+      if (nested >= 0 && (end < 0 || nested < end)) return null;
+      if (end < 0) { line = line.slice(0, start); comment = true; break; }
+      line = line.slice(0, start) + " ".repeat(end + 3 - start) + line.slice(end + 3);
+      comment = false;
+      offset = end + 3;
+    }
+    if (comment && line.length === 0) continue;
+    if (!field && /[`\\]/.test(line)) return null;
+    if (field) fields.push(line.slice(field[0].length));
+  }
+  if (fence || comment || fields.length !== 1) return null;
+  const value = fields[0].match(/^[ \t]*(?:`(M\d+)`|(M\d+))[ \t]*$/i);
+  return value && value[0].length === fields[0].length ? normalizeMilestoneId(value[1] || value[2]) : null;
+}
+
+function parseBaseStateMilestone(text) {
+  try {
+    const state = JSON.parse(text);
+    return typeof state?.activeMilestoneId === "string"
+      ? normalizeMilestoneId(state.activeMilestoneId) : null;
+  } catch {
+    return null;
+  }
+}
+
+function approvedRetentionRegressionTest() {
+  if (activeMilestone !== "M15") return false;
+  try {
+    const gitRaw = (...args) => execFileSync("git", ["--no-replace-objects", ...args], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 128 * 1024,
+    });
+    const git = (...args) => gitRaw(...args).trimEnd();
+    const readBaseMetadata = (path) => {
+      // Only absent entries are treated as empty; read failures deny.
+      let operation = "ls-tree";
+      try {
+        const entry = git(operation, "--full-tree", baseCommit, "--", path);
+        if (entry === "") return "";
+        operation = "ls-tree entry validation";
+        if (!/^100(?:644|755) blob [0-9a-f]{40}\t/.test(entry) ||
+            !entry.endsWith("\t" + path)) {
+          throw new Error("Base metadata is not a regular blob");
+        }
+        operation = "show";
+        return gitRaw(operation, baseCommit + ":" + path);
+      } catch {
+        // Do not include Git output or metadata contents in diagnostics.
+        console.error(`Retention test exception denied: git ${operation} failed for base ${path}`);
+        throw new Error("Base metadata read failed");
+      }
+    };
+    // Validate both present entries before applying parser precedence.
+    const baseStateText = readBaseMetadata(".ai/state.json");
+    const baseMarkdownText = readBaseMetadata(".ai/current-milestone.md");
+    const baseMilestone = parseBaseStateMilestone(baseStateText) ||
+      parseBaseMarkdownMilestone(baseMarkdownText) || "unknown";
+    if (baseMilestone !== "M15") return false;
+    const entry = git("ls-tree", "--full-tree", baseCommit, "--", regressionDecisionPath);
+    if (!/^100644 blob [0-9a-f]{40}\t/.test(entry)) return false;
+    // Canonical content modulo trailing JSON whitespace; duplicate/extra fields
+    // and any wider or mismatched authority claim remain rejected.
+    if (gitRaw("show", baseCommit + ":" + regressionDecisionPath).replace(/[ \t\r\n]+$/, "") !==
+        JSON.stringify(expectedRegressionDecision, null, 2)) return false;
+    const {path, blob} = expectedRegressionDecision;
+    return git("ls-tree", "--full-tree", headCommit, "--", path) === "100644 blob " + blob + "\t" + path;
+  } catch {
+    return false;
+  }
+}
+const retentionRegressionApproved = changedFiles.includes(expectedRegressionDecision.path) &&
+  approvedRetentionRegressionTest();
+
 const classifications = changedFiles.map((file) => {
   const forbidden = forbiddenReason(file);
   const bootstrapAllowed = allowBootstrapWorkflow && bootstrapAllowedPaths.has(file);
-  const allowed = isAllowedForMilestone(file, activeMilestone) || bootstrapAllowed;
+  const regressionAllowed = retentionRegressionApproved && file === expectedRegressionDecision.path;
+  const allowed = isAllowedForMilestone(file, activeMilestone) || bootstrapAllowed || regressionAllowed;
 
   if (forbidden) {
     return { file, classification: "forbidden", reason: forbidden };
@@ -375,21 +531,29 @@ const classifications = changedFiles.map((file) => {
   }
 
   if (allowed) {
-    const reason = bootstrapAllowed ? "explicit bootstrap allowance" : `${activeMilestone} allowed path`;
+    const reason = regressionAllowed ? "base-approved exact-blob regression test"
+      : bootstrapAllowed ? "explicit bootstrap allowance" : `${activeMilestone} allowed path`;
     return { file, classification: "allowed", reason };
   }
 
   return { file, classification: "review", reason: "not in milestone allowed paths" };
 });
 
+// Quoted display escapes runner-command punctuation and non-ASCII text.
+// Classification continues to use the original decoded strings.
+function displayLabel(value) {
+  return JSON.stringify(value).replace(/[\u0023\u003a\u005b\u007f-\uffff]/g,
+    (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
 console.log(`AI V3 scope guard`);
-console.log(`base: ${baseRef}`);
-console.log(`head: ${headRef}`);
+console.log(`base: ${displayLabel(baseRef)} (${baseCommit})`);
+console.log(`head: ${displayLabel(headRef)} (${headCommit})`);
 console.log(`milestone: ${activeMilestone}`);
 console.log(`changed files: ${changedFiles.length}`);
 
 for (const item of classifications) {
-  console.log(`${item.classification.padEnd(9)} ${item.file} (${item.reason})`);
+  console.log(`${item.classification.padEnd(9)} ${displayLabel(item.file)} (${item.reason})`);
 }
 
 const forbidden = classifications.filter((item) => item.classification === "forbidden");
@@ -399,18 +563,16 @@ if (forbidden.length > 0) {
   console.error("");
   console.error("Forbidden changes detected:");
   for (const item of forbidden) {
-    console.error(`- ${item.file}: ${item.reason}`);
+    console.error(`- ${displayLabel(item.file)}: ${item.reason}`);
   }
-  process.exit(1);
-}
-
-if (review.length > 0) {
+  process.exitCode = 1;
+} else if (review.length > 0) {
   console.error("");
   console.error("Changes outside the active milestone allowed paths require human review:");
   for (const item of review) {
-    console.error(`- ${item.file}: ${item.reason}`);
+    console.error(`- ${displayLabel(item.file)}: ${item.reason}`);
   }
-  process.exit(1);
+  process.exitCode = 1;
+} else {
+  console.log("Scope guard passed.");
 }
-
-console.log("Scope guard passed.");
