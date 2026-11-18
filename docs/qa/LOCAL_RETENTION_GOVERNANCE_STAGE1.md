@@ -175,7 +175,9 @@ sequences through comment transport. The retrieved decoded bytes were verified
 against the approved blob; do not hash the base64 text itself.
 
 The base Markdown fallback recognizes exactly one current line-start `ID:`
-field (optionally a list item), not previous-milestone prose. Missing or
+field, either unmarked or prefixed specifically with a dash (`-`) list marker.
+Asterisk (`*`), plus and other list markers are not recognized. Previous-milestone
+prose is not a current field. Missing or
 ambiguous current fields deny the exception when state has no usable milestone.
 Legacy worktree milestone classification is unchanged.
 
