@@ -1,12 +1,14 @@
 # Retention governance stage 1: regression-test scope proposal
 
-Status: Atlas root renewed technical approval for the exact regression-test
-blob below after independent inspection of the trusted-base milestone fix and
-the added synthetic cases, including fail-closed base read errors. Activation still requires independent exact-head
-reviews, all required checks and normal reviewed landing. Scope remains only
-one future synthetic regression test, not planner or live cleanup authority.
-This is a governance-only change on verified main base
-`f0f54b081b37e48b1099a0379c3d444b08b0ea94`, not the combined planner branch.
+Status: original stage-1 governance landed through PR #1368 at
+`001091d73f0b39b1415fa736bcb3da93e7832a94`, from its verified starting base
+`f0f54b081b37e48b1099a0379c3d444b08b0ea94`. The current governance-only pin
+amendment compares against the landed `001091d73f0b39b1415fa736bcb3da93e7832a94`
+base. Atlas root renewed technical approval for the exact corrected 112-test
+blob below after independent inspection of its fixture isolation and diagnostic
+checks. Activation of that amended pin still requires independent exact-head
+reviews, all required checks and a separately authorized normal merge. Scope
+remains one synthetic regression test, not planner or live cleanup authority.
 
 ## Exact scope
 
@@ -30,7 +32,8 @@ the immutable comparison base, not the candidate branch or worktree. Its
 canonical contents (modulo trailing JSON whitespace), exact scope and approved
 decision must match. The revised candidate record records actual Atlas root technical approval
 for this exact expanded regression-test blob. It cannot approve its own diff or activate from this
-candidate: the comparison base still lacks the record. Extra/duplicate fields, different mode/blob/path/authority,
+candidate: the comparison base contains the preceding 107-test approval, not
+this exact amended approval. Extra/duplicate fields, different mode/blob/path/authority,
 symlink records, changed test bytes or executable/symlink tests fail closed.
 Unrelated test files, tools and forbidden runtime paths remain disallowed.
 M15 and existing forbidden-path precedence remain unchanged.
@@ -51,7 +54,7 @@ authorization. No candidate may approve itself.
    Require equality with the decision record blob before execution. The hosting is editable; the
    content hash establishes immutable identity, not the URL. If missing or
    mismatched, stop and obtain the pinned bytes rather than changing the pin.
-   Require both original main guard and proposed guard to pass this
+   Require both the guard from the verified comparison base and the proposed guard to pass this
    exact three-file diff, plus normal required repository checks.
 2. Atlas has renewed approval of this exact test blob. Rerun
    both guards/tests and obtain fresh independent exact-head reviews and all
@@ -80,8 +83,12 @@ authorization. No candidate may approve itself.
    verified post-governance base commit, so its checkout contains the landed
    guard and decision. Do not validate a branch forked before governance using
    only a newer comparison base. The resulting PR diff must contain only the
-   exact reviewed regression test. A test file
-   edited since approval needs a new reviewed blob decision.
+   exact reviewed regression test. For an already-open test-only PR, incorporate
+   the verified landed amendment with a normal merge (no history rewrite)
+   before replacing the test and validating. Require that verified comparison
+   base to be an ancestor of the candidate, its checkout to contain the landed
+   guard/decision, and its final PR diff to contain only the approved test.
+   A test file edited since approval needs a new reviewed blob decision.
    Before committing, run `git ls-files --stage -- scripts/ai/test/retention-governance-scope.test.mjs`
    and require exactly the approved blob, mode `100644` and index stage `0`.
    Attributes can normalize bytes during staging, so the raw no-filters hash
