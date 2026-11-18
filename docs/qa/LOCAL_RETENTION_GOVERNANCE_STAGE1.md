@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `897edf9a07a5a4cc9247b80dfb618ff77548ea53`
+- Blob: `39b7f5f55b48147e9cefeafcaf364eaf6320c9f7`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -92,7 +92,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-64 cases; no real repository ref is moved by its synthetic race fixture.
+77 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -197,3 +197,14 @@ not an expansion of this test-only decision.
 
 Atlas root renewed exact-blob technical approval after independently inspecting
 the raw-info correction and three added synthetic cases.
+
+Base metadata content is passed untrimmed to its parsers. Fence info is literal
+once an opener is recognized outside comments; HTML-looking info cannot alter
+comment state. Closing fences use a fixed expression with exact consumed-length,
+character-family and minimum-run checks. ID prefixes are counted before their
+remaining values are validated, including malformed Unicode or lone-CR values;
+only full-line allowed values qualify. This preserves fail-closed EOF behavior
+instead of normalizing invalid trailing characters into valid metadata.
+
+Atlas root renewed exact-blob approval after independently inspecting the raw
+metadata, fixed fence matching and thirteen additional boundary regressions.

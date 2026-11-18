@@ -387,7 +387,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "897edf9a07a5a4cc9247b80dfb618ff77548ea53",
+  "blob": "39b7f5f55b48147e9cefeafcaf364eaf6320c9f7",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -399,11 +399,17 @@ function parseBaseMarkdownMilestone(text) {
   let comment = false;
   for (const rawLine of String(text || "").split(/\r?\n/)) {
     if (fence) {
-      if (new RegExp("^ {0,3}" + fence.character + "{" + fence.length + ",}[ \t]*$").test(rawLine)) fence = null;
+      const closing = rawLine.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+      if (closing && closing[0].length === rawLine.length &&
+          closing[1][0] === fence.character && closing[1].length >= fence.length) fence = null;
       continue;
     }
     const rawOpening = rawLine.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (!comment && rawOpening && rawOpening[1][0] === "`" && rawLine.slice(rawOpening[0].length).includes("`")) return null;
+    if (!comment && rawOpening) {
+      if (rawOpening[1][0] === "`" && rawLine.slice(rawOpening[0].length).includes("`")) return null;
+      fence = {character: rawOpening[1][0], length: rawOpening[1].length};
+      continue;
+    }
     let line = rawLine;
     let offset = 0;
     while (offset < line.length) {
@@ -425,12 +431,12 @@ function parseBaseMarkdownMilestone(text) {
       fence = {character: opening[1][0], length: opening[1].length};
       continue;
     }
-    const field = line.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*(.*)$/i);
-    if (field) fields.push(field[1]);
+    const field = line.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*/i);
+    if (field) fields.push(line.slice(field[0].length));
   }
   if (fence || comment || fields.length !== 1) return null;
   const value = fields[0].match(/^(?:`(M\d+)`|(M\d+))[ \t]*$/i);
-  return value ? normalizeMilestoneId(value[1] || value[2]) : null;
+  return value && value[0].length === fields[0].length ? normalizeMilestoneId(value[1] || value[2]) : null;
 }
 
 function approvedRetentionRegressionTest() {
@@ -452,7 +458,7 @@ function approvedRetentionRegressionTest() {
           throw new Error("Base metadata is not a regular blob");
         }
         operation = "show";
-        return git(operation, baseCommit + ":" + path);
+        return gitRaw(operation, baseCommit + ":" + path);
       } catch {
         // Do not include Git output or metadata contents in diagnostics.
         console.error(`Retention test exception denied: git ${operation} failed for base ${path}`);
