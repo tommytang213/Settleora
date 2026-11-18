@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `60a86d90da2603115d92425b2fd8f0db896684d5`
+- Blob: `987306a5ab9791ec199df84fe9bd648bf2193a88`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -46,7 +46,7 @@ authorization. No candidate may approve itself.
    tests. Obtain the exact source from the dedicated evidence comment above,
    save only its fenced base64 text and decode it to
    `retention-governance-scope.test.mjs` (for example, `base64 --decode`). Then
-   run `git hash-object retention-governance-scope.test.mjs`. Require equality with
+   run `git hash-object --no-filters -- retention-governance-scope.test.mjs`. Require equality with
    the decision record blob before execution. The hosting is editable; the
    content hash establishes immutable identity, not the URL. If missing or
    mismatched, stop and obtain the pinned bytes rather than changing the pin.
@@ -92,7 +92,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-52 cases; no real repository ref is moved by its synthetic race fixture.
+56 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -159,3 +159,16 @@ without unnecessary metadata lookups.
 The evidence source is base64-encoded solely to preserve literal escape
 sequences through comment transport. The retrieved decoded bytes were verified
 against the approved blob; do not hash the base64 text itself.
+
+The base Markdown fallback recognizes exactly one current line-start `ID:`
+field (optionally a list item), not previous-milestone prose. Missing or
+ambiguous current fields deny the exception when state has no usable milestone.
+Legacy worktree milestone classification is unchanged.
+
+Withdrawal is not authorized by this exact-blob add/update exception: deletion
+has no matching head blob. It requires a separate reviewed governance decision
+that explicitly covers removal, not merely another approved content blob. After
+M15 closes, follow the then-active milestone and established technical approval
+process to propose that decision; this record never supplies a future test-path
+allowance or permits a milestone switch to evade the gate. Atlas renewed approval for the expanded exact test blob after inspecting the
+four current-field regressions.

@@ -387,10 +387,18 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "60a86d90da2603115d92425b2fd8f0db896684d5",
+  "blob": "987306a5ab9791ec199df84fe9bd648bf2193a88",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
+
+// Base authority uses only one current ID field, never historical prose.
+function parseBaseMarkdownMilestone(text) {
+  const fields = [...String(text || "").matchAll(
+    /^[ \t]*(?:-[ \t]+)?ID:[ \t]*(?:`(M\d+)`|(M\d+))[ \t]*$/gim,
+  )];
+  return fields.length === 1 ? normalizeMilestoneId(fields[0][1] || fields[0][2]) : null;
+}
 
 function approvedRetentionRegressionTest() {
   if (activeMilestone !== "M15") return false;
@@ -422,7 +430,7 @@ function approvedRetentionRegressionTest() {
     const baseStateText = readBaseMetadata(".ai/state.json");
     const baseMarkdownText = readBaseMetadata(".ai/current-milestone.md");
     const baseMilestone = parseStateMilestone(baseStateText) ||
-      parseMarkdownMilestone(baseMarkdownText) || "unknown";
+      parseBaseMarkdownMilestone(baseMarkdownText) || "unknown";
     if (baseMilestone !== "M15") return false;
     const entry = git("ls-tree", "--full-tree", baseCommit, "--", regressionDecisionPath);
     if (!/^100644 blob [0-9a-f]{40}\t/.test(entry)) return false;
