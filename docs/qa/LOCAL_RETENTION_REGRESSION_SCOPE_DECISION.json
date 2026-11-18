@@ -6,7 +6,7 @@
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "aa8cb697fc3f539f1f11e8004e07bd4e00735ba8",
+  "blob": "cb858b6d91b898a6c61c69d2172b0b5b723a5e58",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 }

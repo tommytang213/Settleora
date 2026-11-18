@@ -25,13 +25,20 @@ const stateFile = readOption("--state-file", ".ai/state.json");
 const milestoneFile = readOption("--milestone-file", ".ai/current-milestone.md");
 const allowBootstrapWorkflow = args.includes("--allow-bootstrap-workflow");
 
+// Pin both refs once so path classification and blob authority cannot observe
+// different commits if a branch moves during this invocation.
+function resolveCommit(ref) {
+  return execFileSync("git", ["--no-replace-objects", "rev-parse", "--verify", `${ref}^{commit}`],
+    { encoding: "utf8" }).trim();
+}
+const baseCommit = resolveCommit(baseRef);
+const headCommit = resolveCommit(headRef);
 const changedFiles = execFileSync(
   "git",
-  ["diff", "--name-only", `${baseRef}...${headRef}`],
+  ["--no-replace-objects", "diff", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
   { encoding: "utf8" },
 )
-  .split(/\r?\n/)
-  .map((line) => line.trim())
+  .split("\0")
   .filter(Boolean)
   .sort();
 
@@ -369,7 +376,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "aa8cb697fc3f539f1f11e8004e07bd4e00735ba8",
+  "blob": "cb858b6d91b898a6c61c69d2172b0b5b723a5e58",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -380,16 +387,14 @@ function approvedRetentionRegressionTest() {
     const git = (...args) => execFileSync("git", ["--no-replace-objects", ...args], {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 128 * 1024,
     }).trimEnd();
-    const base = git("rev-parse", "--verify", baseRef + "^{commit}");
-    const head = git("rev-parse", "--verify", headRef + "^{commit}");
-    const entry = git("ls-tree", base, "--", regressionDecisionPath);
+    const entry = git("ls-tree", baseCommit, "--", regressionDecisionPath);
     if (!/^100644 blob [0-9a-f]{40}\t/.test(entry)) return false;
     // Canonical content modulo trailing whitespace; duplicate/extra fields
     // and any wider or mismatched authority claim remain rejected.
-    if (git("show", base + ":" + regressionDecisionPath) !==
+    if (git("show", baseCommit + ":" + regressionDecisionPath) !==
         JSON.stringify(expectedRegressionDecision, null, 2)) return false;
     const {path, blob} = expectedRegressionDecision;
-    return git("ls-tree", head, "--", path) === "100644 blob " + blob + "\t" + path;
+    return git("ls-tree", headCommit, "--", path) === "100644 blob " + blob + "\t" + path;
   } catch {
     return false;
   }
@@ -424,8 +429,8 @@ const classifications = changedFiles.map((file) => {
 });
 
 console.log(`AI V3 scope guard`);
-console.log(`base: ${baseRef}`);
-console.log(`head: ${headRef}`);
+console.log(`base: ${baseRef} (${baseCommit})`);
+console.log(`head: ${headRef} (${headCommit})`);
 console.log(`milestone: ${activeMilestone}`);
 console.log(`changed files: ${changedFiles.length}`);
 
