@@ -118,8 +118,8 @@ cases: leading/trailing whitespace pathname aliasing, rename-source omission,
 and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
-used by both the diff and approval/blob checks. The expanded external test has
-93 cases; no real repository ref is moved by its synthetic race fixture.
+used by both the diff and approval/blob checks. The current expanded external test has
+107 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -273,7 +273,8 @@ on a separate line rather than after that value.
 
 Atlas root renewed exact-blob approval after independently inspecting the seven
 new inline-code/escape regressions and the narrow fail-closed guard changes.
-The frozen external suite now contains 100 synthetic tests.
+That review covered the then-current 100-test suite; the later shorthand
+review below approves the current 107-test suite.
 
 Only explicit full HTML comment delimiters (`<!-- ... -->`, including
 `<!---->`) are supported by the narrow fallback. Shorthand `<!-->` and
