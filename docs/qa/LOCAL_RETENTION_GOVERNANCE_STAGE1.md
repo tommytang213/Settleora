@@ -44,8 +44,9 @@ authorization. No candidate may approve itself.
 
 1. Independently review this guard-and-docs-only proposal and external synthetic
    tests. Obtain the exact source from the dedicated evidence comment above,
-   copy only its fenced contents with the final newline, and run
-   `git hash-object retention-governance-scope.test.mjs`. Require equality with
+   save only its fenced base64 text and decode it to
+   `retention-governance-scope.test.mjs` (for example, `base64 --decode`). Then
+   run `git hash-object retention-governance-scope.test.mjs`. Require equality with
    the decision record blob before execution. The hosting is editable; the
    content hash establishes immutable identity, not the URL. If missing or
    mismatched, stop and obtain the pinned bytes rather than changing the pin.
@@ -154,3 +155,7 @@ with a static diagnostic rather than exposing captured path output.
 Approval metadata is consulted only when the changed-path set includes the
 exact regression-test path; unrelated changes keep their existing classification
 without unnecessary metadata lookups.
+
+The evidence source is base64-encoded solely to preserve literal escape
+sequences through comment transport. The retrieved decoded bytes were verified
+against the approved blob; do not hash the base64 text itself.
