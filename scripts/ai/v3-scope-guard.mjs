@@ -400,7 +400,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "6f44da97079c7a29fd5ce090bf20d60e5acb51dd",
+  "blob": "2dd67fbfd765d7afa059966a92d3014d1853ece8",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -434,6 +434,8 @@ function parseBaseMarkdownMilestone(text) {
     while (offset < line.length) {
       const start = comment ? offset : line.indexOf("<!--", offset);
       if (start < 0) break;
+      // Reject shorthand openers before they can hide later ID fields.
+      if (!comment && (line.startsWith("<!-->", start) || line.startsWith("<!--->", start))) return null;
       if (!comment && /[`\\]/.test(line.slice(0, start))) return null;
       const contentStart = comment ? start : start + 4;
       const end = line.indexOf("-->", contentStart);

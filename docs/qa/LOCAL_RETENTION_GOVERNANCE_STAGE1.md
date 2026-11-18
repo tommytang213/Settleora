@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `6f44da97079c7a29fd5ce090bf20d60e5acb51dd`
+- Blob: `2dd67fbfd765d7afa059966a92d3014d1853ece8`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -61,7 +61,7 @@ authorization. No candidate may approve itself.
    from Step 1 against this checkout's proposed guard, verifying its hash first:
 
    ```sh
-   test "$(git hash-object --no-filters -- "${TEST_FILE:?Set TEST_FILE to the decoded Step 1 file}")" = "6f44da97079c7a29fd5ce090bf20d60e5acb51dd" &&
+   test "$(git hash-object --no-filters -- "${TEST_FILE:?Set TEST_FILE to the decoded Step 1 file}")" = "2dd67fbfd765d7afa059966a92d3014d1853ece8" &&
    RETENTION_SCOPE_GUARD="$PWD/scripts/ai/v3-scope-guard.mjs" \
      node --test "$TEST_FILE"
    ```
@@ -76,8 +76,11 @@ authorization. No candidate may approve itself.
    narrow Markdown fallback is not promised to accept the repository's entire
    prose document when state is unusable (for example, its backticked `Name`
    field). Any required state repair is a separate reviewed task.
-   With that preflight passed, a separate PR may add only the exact reviewed
-   regression test. A test file
+   With that preflight passed, create the test-only task branch from that
+   verified post-governance base commit, so its checkout contains the landed
+   guard and decision. Do not validate a branch forked before governance using
+   only a newer comparison base. The resulting PR diff must contain only the
+   exact reviewed regression test. A test file
    edited since approval needs a new reviewed blob decision.
    Before committing, run `git ls-files --stage -- scripts/ai/test/retention-governance-scope.test.mjs`
    and require exactly the approved blob, mode `100644` and index stage `0`.
@@ -271,3 +274,11 @@ on a separate line rather than after that value.
 Atlas root renewed exact-blob approval after independently inspecting the seven
 new inline-code/escape regressions and the narrow fail-closed guard changes.
 The frozen external suite now contains 100 synthetic tests.
+
+Only explicit full HTML comment delimiters (`<!-- ... -->`, including
+`<!---->`) are supported by the narrow fallback. Shorthand `<!-->` and
+`<!--->` openers fail closed immediately, so a later closer cannot turn them
+into a multiline mask over another ID. This is not CommonMark shorthand support.
+
+Atlas root renewed approval of this exact 107-test blob after independently
+inspecting the two-line shorthand rejection and seven added regressions.
