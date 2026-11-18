@@ -387,7 +387,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "e3bd62bac7382dd999c14529d392cdc893fb5931",
+  "blob": "fcf9e754e1af97191a7b70e3a1f1e2f5836f46d5",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -429,8 +429,18 @@ function parseBaseMarkdownMilestone(text) {
     if (field) fields.push(line.slice(field[0].length));
   }
   if (fence || comment || fields.length !== 1) return null;
-  const value = fields[0].match(/^(?:`(M\d+)`|(M\d+))[ \t]*$/i);
+  const value = fields[0].match(/^[ \t]*(?:`(M\d+)`|(M\d+))[ \t]*$/i);
   return value && value[0].length === fields[0].length ? normalizeMilestoneId(value[1] || value[2]) : null;
+}
+
+function parseBaseStateMilestone(text) {
+  try {
+    const state = JSON.parse(text);
+    return typeof state?.activeMilestoneId === "string"
+      ? normalizeMilestoneId(state.activeMilestoneId) : null;
+  } catch {
+    return null;
+  }
 }
 
 function approvedRetentionRegressionTest() {
@@ -462,7 +472,7 @@ function approvedRetentionRegressionTest() {
     // Validate both present entries before applying parser precedence.
     const baseStateText = readBaseMetadata(".ai/state.json");
     const baseMarkdownText = readBaseMetadata(".ai/current-milestone.md");
-    const baseMilestone = parseStateMilestone(baseStateText) ||
+    const baseMilestone = parseBaseStateMilestone(baseStateText) ||
       parseBaseMarkdownMilestone(baseMarkdownText) || "unknown";
     if (baseMilestone !== "M15") return false;
     const entry = git("ls-tree", "--full-tree", baseCommit, "--", regressionDecisionPath);
@@ -533,16 +543,14 @@ if (forbidden.length > 0) {
   for (const item of forbidden) {
     console.error(`- ${displayLabel(item.file)}: ${item.reason}`);
   }
-  process.exit(1);
-}
-
-if (review.length > 0) {
+  process.exitCode = 1;
+} else if (review.length > 0) {
   console.error("");
   console.error("Changes outside the active milestone allowed paths require human review:");
   for (const item of review) {
     console.error(`- ${displayLabel(item.file)}: ${item.reason}`);
   }
-  process.exit(1);
+  process.exitCode = 1;
+} else {
+  console.log("Scope guard passed.");
 }
-
-console.log("Scope guard passed.");

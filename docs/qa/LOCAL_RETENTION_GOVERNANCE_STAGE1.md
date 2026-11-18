@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `e3bd62bac7382dd999c14529d392cdc893fb5931`
+- Blob: `fcf9e754e1af97191a7b70e3a1f1e2f5836f46d5`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -59,6 +59,10 @@ authorization. No candidate may approve itself.
 3. After approved governance is normally landed on the verified target base,
    a separate PR may add only the exact reviewed regression test. A test file
    edited since approval needs a new reviewed blob decision.
+   Before committing, run `git ls-files --stage -- scripts/ai/test/retention-governance-scope.test.mjs`
+   and require exactly the approved blob, mode `100644` and index stage `0`.
+   Attributes can normalize bytes during staging, so the raw no-filters hash
+   alone does not prove the staged blob. Stop before committing any mismatch.
 4. The five-file planning artifact and its separate exact-blob mechanism remain
    outside scope. They require their own reviewed governance decisions and
    passing gates. This stage does not implicitly admit either.
@@ -92,7 +96,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-81 cases; no real repository ref is moved by its synthetic race fixture.
+87 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -215,3 +219,13 @@ cannot manufacture a new field or fence at a comment-closing boundary.
 
 Atlas root renewed approval after independently inspecting the raw-prefix
 simplification and exact four additional synthetic cases.
+
+Base state accepts only a string milestone ID; non-string values defer to the
+existing base Markdown fallback rather than being coerced to an ID. Legacy
+worktree state classification is unchanged. An already matched ID field permits
+horizontal spacing left by comment masking. Denial reporting sets exit status 1
+without forced termination, allowing diagnostic pipes to drain; the success
+message is in an exclusive branch and cannot run after denial.
+
+Atlas root renewed exact-blob approval after independently inspecting the
+base-only state typing, comment spacing, diagnostic drain and six new tests.
