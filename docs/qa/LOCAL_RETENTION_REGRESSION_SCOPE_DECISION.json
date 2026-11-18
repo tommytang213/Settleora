@@ -2,7 +2,7 @@
   "schema_version": 1,
   "proposal": "retention-regression-scope-v1",
   "repository": "tommytang213/Settleora",
-  "decision": "proposed",
+  "decision": "approved",
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",

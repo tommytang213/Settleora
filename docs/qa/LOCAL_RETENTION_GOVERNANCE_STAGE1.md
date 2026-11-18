@@ -1,7 +1,9 @@
 # Retention governance stage 1: regression-test scope proposal
 
-Status: proposed, inactive, awaiting independent review and Atlas technical
-decision. This is a governance-only change on verified main base
+Status: Atlas technical scope approval recorded on 2026-11-18; activation remains
+pending independent exact-head review, required checks and normal reviewed landing.
+The root technical lead explicitly approved only the bounded regression-test
+scope below. This is a governance-only change on verified main base
 `f0f54b081b37e48b1099a0379c3d444b08b0ea94`, not the combined planner branch.
 
 ## Exact scope
@@ -24,8 +26,9 @@ the governance mechanism.
 The guard reads `docs/qa/LOCAL_RETENTION_REGRESSION_SCOPE_DECISION.json` from
 the immutable comparison base, not the candidate branch or worktree. Its
 canonical contents (modulo trailing whitespace), exact scope and approved
-decision must match. The record in this proposal says **proposed** and cannot
-activate anything. Extra/duplicate fields, different mode/blob/path/authority,
+decision must match. The candidate record now says **approved**, reflecting the actual Atlas root
+technical decision. It cannot approve its own diff or activate from this
+candidate: the comparison base still lacks the record. Extra/duplicate fields, different mode/blob/path/authority,
 symlink records, changed test bytes or executable/symlink tests fail closed.
 Unrelated test files, tools and forbidden runtime paths remain disallowed.
 M15 and existing forbidden-path precedence remain unchanged.
@@ -40,10 +43,11 @@ authorization. No candidate may approve itself.
 1. Independently review this guard-and-docs-only proposal and external synthetic
    tests. Require both original main guard and proposed guard to pass this
    exact three-file diff, plus normal required repository checks.
-2. Atlas makes the specific technical decision. If approved, change only the
-   decision field from proposed to approved in a separately reviewed revision,
-   rerun both guards/tests, and obtain exact-head reviews/checks before any
-   authorized publication or merge. No approval is claimed in this revision.
+2. Atlas has made the specific technical decision. This revision records it
+   by changing only the decision value and this factual documentation. Rerun
+   both guards/tests and obtain fresh independent exact-head reviews and all
+   required hosted checks before any separately authorized merge. Technical
+   scope approval is not a bypass of CI, reviewer, or publication requirements.
 3. After approved governance is normally landed on the verified target base,
    a separate PR may add only the exact reviewed regression test. A test file
    edited since approval needs a new reviewed blob decision.
