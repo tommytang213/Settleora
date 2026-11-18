@@ -376,7 +376,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "cb858b6d91b898a6c61c69d2172b0b5b723a5e58",
+  "blob": "e01e576f9ba51d35ab45543a20acfa43d10036fc",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -387,6 +387,12 @@ function approvedRetentionRegressionTest() {
     const git = (...args) => execFileSync("git", ["--no-replace-objects", ...args], {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 128 * 1024,
     }).trimEnd();
+    const readBaseMetadata = (path) => {
+      try { return git("show", baseCommit + ":" + path); } catch { return ""; }
+    };
+    const baseMilestone = parseStateMilestone(readBaseMetadata(".ai/state.json")) ||
+      parseMarkdownMilestone(readBaseMetadata(".ai/current-milestone.md")) || "unknown";
+    if (baseMilestone !== "M15") return false;
     const entry = git("ls-tree", baseCommit, "--", regressionDecisionPath);
     if (!/^100644 blob [0-9a-f]{40}\t/.test(entry)) return false;
     // Canonical content modulo trailing whitespace; duplicate/extra fields

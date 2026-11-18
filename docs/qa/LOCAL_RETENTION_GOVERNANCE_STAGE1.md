@@ -1,8 +1,8 @@
 # Retention governance stage 1: regression-test scope proposal
 
-Status: renewed Atlas root technical approval recorded on 2026-11-18 for the
-exact expanded regression-test blob below, after inspection of its source/hash
-and defensive guard changes. Activation still requires independent exact-head
+Status: Atlas root renewed technical approval for the exact regression-test
+blob below after independent inspection of the trusted-base milestone fix and
+all four added synthetic cases. Activation still requires independent exact-head
 reviews, all required checks and normal reviewed landing. Scope remains only
 one future synthetic regression test, not planner or live cleanup authority.
 This is a governance-only change on verified main base
@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `cb858b6d91b898a6c61c69d2172b0b5b723a5e58`
+- Blob: `e01e576f9ba51d35ab45543a20acfa43d10036fc`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is kept as external validation evidence until a legitimate later test
@@ -28,8 +28,8 @@ the governance mechanism.
 The guard reads `docs/qa/LOCAL_RETENTION_REGRESSION_SCOPE_DECISION.json` from
 the immutable comparison base, not the candidate branch or worktree. Its
 canonical contents (modulo trailing whitespace), exact scope and approved
-decision must match. The revised candidate record says **approved**, recording the renewed Atlas
-root decision for this exact expanded regression-test blob. It cannot approve its own diff or activate from this
+decision must match. The revised candidate record records actual Atlas root technical approval
+for this exact expanded regression-test blob. It cannot approve its own diff or activate from this
 candidate: the comparison base still lacks the record. Extra/duplicate fields, different mode/blob/path/authority,
 symlink records, changed test bytes or executable/symlink tests fail closed.
 Unrelated test files, tools and forbidden runtime paths remain disallowed.
@@ -45,7 +45,7 @@ authorization. No candidate may approve itself.
 1. Independently review this guard-and-docs-only proposal and external synthetic
    tests. Require both original main guard and proposed guard to pass this
    exact three-file diff, plus normal required repository checks.
-2. Renewed Atlas approval of this exact test blob is recorded. Rerun
+2. Atlas has renewed approval of this exact test blob. Rerun
    both guards/tests and obtain fresh independent exact-head reviews and all
    required hosted checks before any separately authorized merge. Technical
    scope approval is not a bypass of CI, reviewer, or publication requirements.
@@ -85,4 +85,10 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-27 cases; no real repository ref is moved by its synthetic race fixture.
+31 cases; no real repository ref is moved by its synthetic race fixture.
+
+A later hosted-review finding showed that candidate/worktree milestone metadata
+could select the exception on a non-M15 or unknown base. Three added cases
+reproduced that issue. The exception now additionally resolves milestone from
+the immutable base state/Markdown using existing fallback semantics; only base
+M15 qualifies. Legacy classification outside this exception is unchanged.
