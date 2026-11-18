@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `21515979c032dfa4433a4d0e6a2b1eb888a4e570`
+- Blob: `60a86d90da2603115d92425b2fd8f0db896684d5`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is kept as external validation evidence until a legitimate later test
@@ -85,7 +85,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-49 cases; no real repository ref is moved by its synthetic race fixture.
+52 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -101,7 +101,8 @@ The exact-blob decision applies to the supplied `--head` tree, default `HEAD`,
 not an inferred GitHub PR head. Existing hosted checkout may supply a synthetic
 merge tree; differing merged test bytes correctly fail closed. A caller seeking
 a PR-head-only verdict must use a clean checkout of that verified commit,
-with matching milestone files, and explicitly supply it as `--head`. Run from
+with matching milestone files, explicitly supply it as `--head`, and supply
+the independently verified target commit as `--base`. Run from
 the repository root, or pass explicit `--state-file` and `--milestone-file`
 paths when running elsewhere. The flag
 selects the diff/blob tree but does not select legacy worktree milestone files. Workflow
@@ -132,3 +133,8 @@ adding a separate byte-path parser in this bounded governance change.
 Path/ref diagnostics use ASCII-only quoted labels: non-ASCII code units,
 including bidirectional and invisible controls, appear as Unicode escapes.
 Original decoded strings still drive classification, not display labels.
+
+Changed-path collection explicitly includes gitlink updates despite submodule
+ignore configuration. Display labels escape `#`, `:` and `[` as well as
+non-ASCII units so neither legacy nor modern runner command prefixes can occur
+in path/ref labels. Classification uses the original strings. Atlas renewed exact-blob approval after inspecting these regressions.

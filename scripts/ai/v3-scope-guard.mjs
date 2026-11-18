@@ -37,7 +37,7 @@ const baseCommit = resolveCommit(baseRef);
 const headCommit = resolveCommit(headRef);
 const changedFiles = execFileSync(
   "git",
-  ["--no-replace-objects", "diff", "--no-relative", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
+  ["--no-replace-objects", "diff", "--ignore-submodules=none", "--no-relative", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
   { encoding: "utf8" },
 )
   .split("\0")
@@ -378,7 +378,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "21515979c032dfa4433a4d0e6a2b1eb888a4e570",
+  "blob": "60a86d90da2603115d92425b2fd8f0db896684d5",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -456,10 +456,10 @@ const classifications = changedFiles.map((file) => {
   return { file, classification: "review", reason: "not in milestone allowed paths" };
 });
 
-// ASCII-only quoted display prevents invisible/bidirectional text from spoofing logs.
+// Quoted display escapes runner-command punctuation and non-ASCII text.
 // Classification continues to use the original decoded strings.
 function displayLabel(value) {
-  return JSON.stringify(value).replace(/[\u007f-\uffff]/g,
+  return JSON.stringify(value).replace(/[\u0023\u003a\u005b\u007f-\uffff]/g,
     (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
 }
 
