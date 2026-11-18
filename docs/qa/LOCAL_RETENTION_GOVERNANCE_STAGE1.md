@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `24c93ddc88d920eafad0c66bf2da792da8e9c562`
+- Blob: `6f44da97079c7a29fd5ce090bf20d60e5acb51dd`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -61,7 +61,7 @@ authorization. No candidate may approve itself.
    from Step 1 against this checkout's proposed guard, verifying its hash first:
 
    ```sh
-   test "$(git hash-object --no-filters -- "${TEST_FILE:?Set TEST_FILE to the decoded Step 1 file}")" = "24c93ddc88d920eafad0c66bf2da792da8e9c562" &&
+   test "$(git hash-object --no-filters -- "${TEST_FILE:?Set TEST_FILE to the decoded Step 1 file}")" = "6f44da97079c7a29fd5ce090bf20d60e5acb51dd" &&
    RETENTION_SCOPE_GUARD="$PWD/scripts/ai/v3-scope-guard.mjs" \
      node --test "$TEST_FILE"
    ```
@@ -249,3 +249,15 @@ falling back to same-named tags. Explicit reviewed commit IDs remain supported.
 
 Atlas root renewed exact-blob approval after inspecting the exact namespace
 lookup and six new default/explicit ref shadow regressions.
+
+The base-only authority dialect fails closed on inline code or backslash escapes
+in prose outside fences and real HTML comments. It also rejects those characters
+before a new comment opener in an ID value. This intentionally does not parse
+CommonMark inline spans, including multiline spans: literal comment examples
+cannot suppress a competing ID field. Exact backticked ID values and real HTML
+comments remain supported; place a real comment before a backticked ID value or
+on a separate line rather than after that value.
+
+Atlas root renewed exact-blob approval after independently inspecting the seven
+new inline-code/escape regressions and the narrow fail-closed guard changes.
+The frozen external suite now contains 100 synthetic tests.

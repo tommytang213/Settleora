@@ -400,7 +400,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "24c93ddc88d920eafad0c66bf2da792da8e9c562",
+  "blob": "6f44da97079c7a29fd5ce090bf20d60e5acb51dd",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -424,11 +424,17 @@ function parseBaseMarkdownMilestone(text) {
       continue;
     }
     const field = comment ? null : rawLine.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*/i);
+    // This authority dialect is not an inline Markdown renderer. Reject
+    // prose code spans/escapes rather than risk carrying literal delimiters
+    // across lines and hiding a competing ID. Exact ID values are validated
+    // below; real comments may still precede their backticked value.
+    if (!comment && !field && /[`\\]/.test(rawLine.split("<!--", 1)[0])) return null;
     let line = rawLine;
     let offset = 0;
     while (offset < line.length) {
       const start = comment ? offset : line.indexOf("<!--", offset);
       if (start < 0) break;
+      if (!comment && /[`\\]/.test(line.slice(0, start))) return null;
       const contentStart = comment ? start : start + 4;
       const end = line.indexOf("-->", contentStart);
       const nested = line.indexOf("<!--", contentStart);
@@ -439,6 +445,7 @@ function parseBaseMarkdownMilestone(text) {
       offset = end + 3;
     }
     if (comment && line.length === 0) continue;
+    if (!field && /[`\\]/.test(line)) return null;
     if (field) fields.push(line.slice(field[0].length));
   }
   if (fence || comment || fields.length !== 1) return null;
