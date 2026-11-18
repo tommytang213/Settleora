@@ -141,3 +141,6 @@ in path/ref labels. Classification uses the original strings. Atlas renewed exac
 
 Invalid ref resolution fails with a sanitized quoted ref label, without emitting
 raw Git stderr or exception arguments.
+
+Changed-path Git failures, including output-limit failures, also fail closed
+with a static diagnostic rather than exposing captured path output.

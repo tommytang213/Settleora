@@ -40,14 +40,18 @@ const baseCommit = resolveCommit(baseRef);
 // The candidate is the supplied --head tree (default HEAD). Hosted checkout
 // may supply a synthetic merge tree; exact-blob drift then fails closed.
 const headCommit = resolveCommit(headRef);
-const changedFiles = execFileSync(
-  "git",
-  ["--no-replace-objects", "diff", "--ignore-submodules=none", "--no-relative", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
-  { encoding: "utf8" },
-)
-  .split("\0")
-  .filter(Boolean)
-  .sort();
+let changedPathOutput;
+try {
+  changedPathOutput = execFileSync(
+    "git",
+    ["--no-replace-objects", "diff", "--ignore-submodules=none", "--no-relative", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+} catch {
+  console.error("Cannot read changed paths from Git; scope denied.");
+  process.exit(1);
+}
+const changedFiles = changedPathOutput.split("\0").filter(Boolean).sort();
 
 let stateText = "";
 let milestoneText = "";
