@@ -378,7 +378,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "f2b5081db4c798a59029be1a917c6ef91291cb5b",
+  "blob": "21515979c032dfa4433a4d0e6a2b1eb888a4e570",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -386,9 +386,10 @@ const expectedRegressionDecision = {
 function approvedRetentionRegressionTest() {
   if (activeMilestone !== "M15") return false;
   try {
-    const git = (...args) => execFileSync("git", ["--no-replace-objects", ...args], {
+    const gitRaw = (...args) => execFileSync("git", ["--no-replace-objects", ...args], {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 128 * 1024,
-    }).trimEnd();
+    });
+    const git = (...args) => gitRaw(...args).trimEnd();
     const readBaseMetadata = (path) => {
       // Only absent entries are treated as empty; read failures deny.
       let operation = "ls-tree";
@@ -416,9 +417,9 @@ function approvedRetentionRegressionTest() {
     if (baseMilestone !== "M15") return false;
     const entry = git("ls-tree", "--full-tree", baseCommit, "--", regressionDecisionPath);
     if (!/^100644 blob [0-9a-f]{40}\t/.test(entry)) return false;
-    // Canonical content modulo trailing whitespace; duplicate/extra fields
+    // Canonical content modulo trailing JSON whitespace; duplicate/extra fields
     // and any wider or mismatched authority claim remain rejected.
-    if (git("show", baseCommit + ":" + regressionDecisionPath) !==
+    if (gitRaw("show", baseCommit + ":" + regressionDecisionPath).replace(/[ \t\r\n]+$/, "") !==
         JSON.stringify(expectedRegressionDecision, null, 2)) return false;
     const {path, blob} = expectedRegressionDecision;
     return git("ls-tree", "--full-tree", headCommit, "--", path) === "100644 blob " + blob + "\t" + path;

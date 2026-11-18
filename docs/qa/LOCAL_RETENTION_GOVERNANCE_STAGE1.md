@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `f2b5081db4c798a59029be1a917c6ef91291cb5b`
+- Blob: `21515979c032dfa4433a4d0e6a2b1eb888a4e570`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is kept as external validation evidence until a legitimate later test
@@ -27,7 +27,7 @@ the governance mechanism.
 
 The guard reads `docs/qa/LOCAL_RETENTION_REGRESSION_SCOPE_DECISION.json` from
 the immutable comparison base, not the candidate branch or worktree. Its
-canonical contents (modulo trailing whitespace), exact scope and approved
+canonical contents (modulo trailing JSON whitespace), exact scope and approved
 decision must match. The revised candidate record records actual Atlas root technical approval
 for this exact expanded regression-test blob. It cannot approve its own diff or activate from this
 candidate: the comparison base still lacks the record. Extra/duplicate fields, different mode/blob/path/authority,
@@ -85,7 +85,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-44 cases; no real repository ref is moved by its synthetic race fixture.
+49 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -116,3 +116,7 @@ paths and diff output ignores relative-path configuration. Raw path bytes remain
 unchanged for classification but diagnostics JSON-escape paths and ref labels.
 Atlas renewed technical approval of this exact blob after inspecting the seven
 new regressions and the combined corrections.
+
+Canonical approval comparison ignores only JSON whitespace (space, tab, CR, LF).
+Non-JSON trailing Unicode whitespace remains invalid. Metadata parsing behavior
+is unchanged. Atlas renewed exact-blob approval after reviewing the five new whitespace cases.
