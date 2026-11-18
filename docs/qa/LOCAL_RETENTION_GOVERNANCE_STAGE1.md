@@ -178,3 +178,7 @@ value, so malformed duplicate fields cannot be ignored. Fenced code and HTML
 comments are not current metadata; unclosed fences/comments deny fallback.
 Atlas renewed approval for the exact expanded test blob after inspecting the
 five ambiguity/example regressions.
+
+The narrow metadata dialect rejects nested HTML comments and backtick-fence
+openers whose info text contains a backtick; malformed examples cannot hide
+competing current ID fields. This is not a general Markdown renderer.

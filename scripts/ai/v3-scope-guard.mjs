@@ -407,7 +407,10 @@ function parseBaseMarkdownMilestone(text) {
     while (offset < line.length) {
       const start = comment ? offset : line.indexOf("<!--", offset);
       if (start < 0) break;
-      const end = line.indexOf("-->", comment ? start : start + 4);
+      const contentStart = comment ? start : start + 4;
+      const end = line.indexOf("-->", contentStart);
+      const nested = line.indexOf("<!--", contentStart);
+      if (nested >= 0 && (end < 0 || nested < end)) return null;
       if (end < 0) { line = line.slice(0, start); comment = true; break; }
       line = line.slice(0, start) + " ".repeat(end + 3 - start) + line.slice(end + 3);
       comment = false;
@@ -415,7 +418,11 @@ function parseBaseMarkdownMilestone(text) {
     }
     if (comment && line.length === 0) continue;
     const opening = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (opening) { fence = {character: opening[1][0], length: opening[1].length}; continue; }
+    if (opening) {
+      if (opening[1][0] === "`" && line.slice(opening[0].length).includes("`")) return null;
+      fence = {character: opening[1][0], length: opening[1].length};
+      continue;
+    }
     const field = line.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*(.*)$/i);
     if (field) fields.push(field[1]);
   }
