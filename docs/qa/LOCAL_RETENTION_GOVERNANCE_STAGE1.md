@@ -46,8 +46,9 @@ authorization. No candidate may approve itself.
    tests. Obtain the exact source from the dedicated evidence comment above,
    save only its fenced base64 text and decode it to
    `retention-governance-scope.test.mjs` (for example, `base64 --decode`). Then
-   run `git hash-object --no-filters -- retention-governance-scope.test.mjs`. Require equality with
-   the decision record blob before execution. The hosting is editable; the
+   keep that decoded file outside the checkout and set `TEST_FILE` in the same
+   shell to its absolute path. Run `git hash-object --no-filters -- "$TEST_FILE"`.
+   Require equality with the decision record blob before execution. The hosting is editable; the
    content hash establishes immutable identity, not the URL. If missing or
    mismatched, stop and obtain the pinned bytes rather than changing the pin.
    Require both original main guard and proposed guard to pass this
@@ -56,6 +57,15 @@ authorization. No candidate may approve itself.
    both guards/tests and obtain fresh independent exact-head reviews and all
    required hosted checks before any separately authorized merge. Technical
    scope approval is not a bypass of CI, reviewer, or publication requirements.
+   From the root of the clean reviewed checkout, run the already decoded file
+   from Step 1 against this checkout's proposed guard, verifying its hash first:
+
+   ```sh
+   test "$(git hash-object --no-filters -- "${TEST_FILE:?Set TEST_FILE to the decoded Step 1 file}")" = "24c93ddc88d920eafad0c66bf2da792da8e9c562" &&
+   RETENTION_SCOPE_GUARD="$PWD/scripts/ai/v3-scope-guard.mjs" \
+     node --test "$TEST_FILE"
+   ```
+
 3. After approved governance is normally landed on the verified target base,
    a separate PR may add only the exact reviewed regression test. A test file
    edited since approval needs a new reviewed blob decision.
