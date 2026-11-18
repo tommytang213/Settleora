@@ -357,10 +357,50 @@ function forbiddenReason(file) {
   return match ? match.reason : null;
 }
 
+// Stage 1 proposal: no planner or cleanup scope is granted here.
+// Approval must already exist on the verified comparison base, never only
+// in the candidate branch. A proposed record is deliberately ineffective.
+const regressionDecisionPath = "docs/qa/LOCAL_RETENTION_REGRESSION_SCOPE_DECISION.json";
+const expectedRegressionDecision = {
+  "schema_version": 1,
+  "proposal": "retention-regression-scope-v1",
+  "repository": "tommytang213/Settleora",
+  "decision": "approved",
+  "authority": "Atlas",
+  "mode": "synthetic_regression_test_only",
+  "path": "scripts/ai/test/retention-governance-scope.test.mjs",
+  "blob": "aa8cb697fc3f539f1f11e8004e07bd4e00735ba8",
+  "mutation_authorized": false,
+  "live_adoption_authorized": false
+};
+
+function approvedRetentionRegressionTest() {
+  if (activeMilestone !== "M15") return false;
+  try {
+    const git = (...args) => execFileSync("git", ["--no-replace-objects", ...args], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 128 * 1024,
+    }).trimEnd();
+    const base = git("rev-parse", "--verify", baseRef + "^{commit}");
+    const head = git("rev-parse", "--verify", headRef + "^{commit}");
+    const entry = git("ls-tree", base, "--", regressionDecisionPath);
+    if (!/^100644 blob [0-9a-f]{40}\t/.test(entry)) return false;
+    // Canonical content modulo trailing whitespace; duplicate/extra fields
+    // and any wider or mismatched authority claim remain rejected.
+    if (git("show", base + ":" + regressionDecisionPath) !==
+        JSON.stringify(expectedRegressionDecision, null, 2)) return false;
+    const {path, blob} = expectedRegressionDecision;
+    return git("ls-tree", head, "--", path) === "100644 blob " + blob + "\t" + path;
+  } catch {
+    return false;
+  }
+}
+const retentionRegressionApproved = approvedRetentionRegressionTest();
+
 const classifications = changedFiles.map((file) => {
   const forbidden = forbiddenReason(file);
   const bootstrapAllowed = allowBootstrapWorkflow && bootstrapAllowedPaths.has(file);
-  const allowed = isAllowedForMilestone(file, activeMilestone) || bootstrapAllowed;
+  const regressionAllowed = retentionRegressionApproved && file === expectedRegressionDecision.path;
+  const allowed = isAllowedForMilestone(file, activeMilestone) || bootstrapAllowed || regressionAllowed;
 
   if (forbidden) {
     return { file, classification: "forbidden", reason: forbidden };
@@ -375,7 +415,8 @@ const classifications = changedFiles.map((file) => {
   }
 
   if (allowed) {
-    const reason = bootstrapAllowed ? "explicit bootstrap allowance" : `${activeMilestone} allowed path`;
+    const reason = regressionAllowed ? "base-approved exact-blob regression test"
+      : bootstrapAllowed ? "explicit bootstrap allowance" : `${activeMilestone} allowed path`;
     return { file, classification: "allowed", reason };
   }
 

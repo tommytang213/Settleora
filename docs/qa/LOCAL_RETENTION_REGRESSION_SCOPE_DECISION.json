@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "proposal": "retention-regression-scope-v1",
+  "repository": "tommytang213/Settleora",
+  "decision": "proposed",
+  "authority": "Atlas",
+  "mode": "synthetic_regression_test_only",
+  "path": "scripts/ai/test/retention-governance-scope.test.mjs",
+  "blob": "aa8cb697fc3f539f1f11e8004e07bd4e00735ba8",
+  "mutation_authorized": false,
+  "live_adoption_authorized": false
+}
