@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `fcf9e754e1af97191a7b70e3a1f1e2f5836f46d5`
+- Blob: `24c93ddc88d920eafad0c66bf2da792da8e9c562`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -96,7 +96,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-87 cases; no real repository ref is moved by its synthetic race fixture.
+93 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -229,3 +229,11 @@ message is in an exclusive branch and cannot run after denial.
 
 Atlas root renewed exact-blob approval after independently inspecting the
 base-only state typing, comment spacing, diagnostic drain and six new tests.
+
+The built-in `origin/ai/integration` base (short or fully qualified spelling)
+is read from the exact remote-tracking namespace with `git show-ref --verify`,
+then pinned by returned object ID. Missing remote refs fail closed rather than
+falling back to same-named tags. Explicit reviewed commit IDs remain supported.
+
+Atlas root renewed exact-blob approval after inspecting the exact namespace
+lookup and six new default/explicit ref shadow regressions.

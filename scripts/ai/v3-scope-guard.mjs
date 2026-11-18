@@ -36,7 +36,20 @@ function resolveCommit(ref) {
     process.exit(1);
   }
 }
-const baseCommit = resolveCommit(baseRef);
+function resolveBaseCommit(ref) {
+  const integrationRef = "refs/remotes/origin/ai/integration";
+  if (ref !== "origin/ai/integration" && ref !== integrationRef) return resolveCommit(ref);
+  let objectId;
+  try {
+    objectId = execFileSync("git", ["--no-replace-objects", "show-ref", "--verify", "--hash", integrationRef],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    console.error(`Cannot resolve exact remote-tracking base ${displayLabel(integrationRef)}`);
+    process.exit(1);
+  }
+  return resolveCommit(objectId);
+}
+const baseCommit = resolveBaseCommit(baseRef);
 // The candidate is the supplied --head tree (default HEAD). Hosted checkout
 // may supply a synthetic merge tree; exact-blob drift then fails closed.
 const headCommit = resolveCommit(headRef);
@@ -387,7 +400,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "fcf9e754e1af97191a7b70e3a1f1e2f5836f46d5",
+  "blob": "24c93ddc88d920eafad0c66bf2da792da8e9c562",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
