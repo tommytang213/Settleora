@@ -387,7 +387,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "17cf71112705790513318bf5e8b7ed59dd2a4ca9",
+  "blob": "897edf9a07a5a4cc9247b80dfb618ff77548ea53",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -402,6 +402,8 @@ function parseBaseMarkdownMilestone(text) {
       if (new RegExp("^ {0,3}" + fence.character + "{" + fence.length + ",}[ \t]*$").test(rawLine)) fence = null;
       continue;
     }
+    const rawOpening = rawLine.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (!comment && rawOpening && rawOpening[1][0] === "`" && rawLine.slice(rawOpening[0].length).includes("`")) return null;
     let line = rawLine;
     let offset = 0;
     while (offset < line.length) {

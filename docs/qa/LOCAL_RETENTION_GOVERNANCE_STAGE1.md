@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `17cf71112705790513318bf5e8b7ed59dd2a4ca9`
+- Blob: `897edf9a07a5a4cc9247b80dfb618ff77548ea53`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -92,7 +92,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-61 cases; no real repository ref is moved by its synthetic race fixture.
+64 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -182,3 +182,18 @@ five ambiguity/example regressions.
 The narrow metadata dialect rejects nested HTML comments and backtick-fence
 openers whose info text contains a backtick; malformed examples cannot hide
 competing current ID fields. This is not a general Markdown renderer.
+
+Raw backtick-fence info is validated before HTML comment masking, so a backtick
+inside that original info cannot be hidden by a comment. Lines inside an
+already open HTML comment remain comment content.
+
+Follow-up boundary: legacy milestone selection and the executable guard still
+come from the candidate checkout. That pre-existing trust model is not made a
+security boundary by this narrow exception. Independently verified target/head,
+matching milestone files and reviewed scope transitions remain required;
+retargeting a candidate milestone is not authorized. Moving all classification
+or guard execution to trusted-base governance needs a separate reviewed change,
+not an expansion of this test-only decision.
+
+Atlas root renewed exact-blob technical approval after independently inspecting
+the raw-info correction and three added synthetic cases.
