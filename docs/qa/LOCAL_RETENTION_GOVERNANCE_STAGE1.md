@@ -128,3 +128,7 @@ characters, so distinct undecodable names can display alike. They cannot match
 the ASCII-only approved test path; this does not widen the exact-path exception.
 Byte-reversible display for such unsupported names is deferred rather than
 adding a separate byte-path parser in this bounded governance change.
+
+Path/ref diagnostics use ASCII-only quoted labels: non-ASCII code units,
+including bidirectional and invisible controls, appear as Unicode escapes.
+Original decoded strings still drive classification, not display labels.

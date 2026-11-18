@@ -456,14 +456,21 @@ const classifications = changedFiles.map((file) => {
   return { file, classification: "review", reason: "not in milestone allowed paths" };
 });
 
+// ASCII-only quoted display prevents invisible/bidirectional text from spoofing logs.
+// Classification continues to use the original decoded strings.
+function displayLabel(value) {
+  return JSON.stringify(value).replace(/[\u007f-\uffff]/g,
+    (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
 console.log(`AI V3 scope guard`);
-console.log(`base: ${JSON.stringify(baseRef)} (${baseCommit})`);
-console.log(`head: ${JSON.stringify(headRef)} (${headCommit})`);
+console.log(`base: ${displayLabel(baseRef)} (${baseCommit})`);
+console.log(`head: ${displayLabel(headRef)} (${headCommit})`);
 console.log(`milestone: ${activeMilestone}`);
 console.log(`changed files: ${changedFiles.length}`);
 
 for (const item of classifications) {
-  console.log(`${item.classification.padEnd(9)} ${JSON.stringify(item.file)} (${item.reason})`);
+  console.log(`${item.classification.padEnd(9)} ${displayLabel(item.file)} (${item.reason})`);
 }
 
 const forbidden = classifications.filter((item) => item.classification === "forbidden");
@@ -473,7 +480,7 @@ if (forbidden.length > 0) {
   console.error("");
   console.error("Forbidden changes detected:");
   for (const item of forbidden) {
-    console.error(`- ${JSON.stringify(item.file)}: ${item.reason}`);
+    console.error(`- ${displayLabel(item.file)}: ${item.reason}`);
   }
   process.exit(1);
 }
@@ -482,7 +489,7 @@ if (review.length > 0) {
   console.error("");
   console.error("Changes outside the active milestone allowed paths require human review:");
   for (const item of review) {
-    console.error(`- ${JSON.stringify(item.file)}: ${item.reason}`);
+    console.error(`- ${displayLabel(item.file)}: ${item.reason}`);
   }
   process.exit(1);
 }
