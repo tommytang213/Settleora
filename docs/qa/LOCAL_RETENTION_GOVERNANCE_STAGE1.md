@@ -18,10 +18,10 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `2dd67fbfd765d7afa059966a92d3014d1853ece8`
+- Blob: `5dd03fc29670d602887fe099687b11104bb46770`
 
 The test is self-contained and does not require planner files. Its reviewed
-source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
+source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1369#issuecomment-6980882391) until a legitimate later test
 PR can add it at that path. This avoids needing planner files merely to test
 the governance mechanism.
 
@@ -61,7 +61,7 @@ authorization. No candidate may approve itself.
    from Step 1 against this checkout's proposed guard, verifying its hash first:
 
    ```sh
-   test "$(git hash-object --no-filters -- "${TEST_FILE:?Set TEST_FILE to the decoded Step 1 file}")" = "2dd67fbfd765d7afa059966a92d3014d1853ece8" &&
+   test "$(git hash-object --no-filters -- "${TEST_FILE:?Set TEST_FILE to the decoded Step 1 file}")" = "5dd03fc29670d602887fe099687b11104bb46770" &&
    RETENTION_SCOPE_GUARD="$PWD/scripts/ai/v3-scope-guard.mjs" \
      node --test "$TEST_FILE"
    ```
@@ -119,7 +119,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The current expanded external test has
-107 cases; no real repository ref is moved by its synthetic race fixture.
+112 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -274,12 +274,41 @@ on a separate line rather than after that value.
 Atlas root renewed exact-blob approval after independently inspecting the seven
 new inline-code/escape regressions and the narrow fail-closed guard changes.
 That review covered the then-current 100-test suite; the later shorthand
-review below approves the current 107-test suite.
+review below approved the then-current 107-test suite.
 
 Only explicit full HTML comment delimiters (`<!-- ... -->`, including
 `<!---->`) are supported by the narrow fallback. Shorthand `<!-->` and
 `<!--->` openers fail closed immediately, so a later closer cannot turn them
 into a multiline mask over another ID. This is not CommonMark shorthand support.
 
-Atlas root renewed approval of this exact 107-test blob after independently
+Atlas root renewed approval of the preceding 107-test blob after independently
 inspecting the two-line shorthand rejection and seven added regressions.
+
+## Follow-up exact-test correction for PR #1369
+
+Stage 1 landed through PR #1368 at
+`001091d73f0b39b1415fa736bcb3da93e7832a94`. Hosted review of the separately
+tracked test then identified test isolation and coverage weaknesses. Atlas root
+independently inspected and technically approved the current exact 112-test
+blob above: all inherited Git variables are removed before isolated test
+identity/config is restored; every Git and guard subprocess uses that isolated
+environment; fixture initialization uses an empty template; negative checks
+require the appropriate guard diagnostic rather than exit status alone; and
+the precedence fixture tests a forbidden Dockerfile inside an allowed docs path.
+
+This amendment changes only the pinned test identity in the existing guard and
+decision plus these allowed governance docs. It adds no tracked test, broadens
+no path allowance, and does not activate its own candidate decision. PR #1369
+must retain its prior bytes until this amendment passes independent exact-head
+review, all hosted gates and a separately authorized normal merge. The test PR
+must then incorporate the verified landed amendment, verify its actual base
+state/decision and exact staged test blob, and pass fresh independent reviews
+and all required checks. No force push or direct main edit is authorized.
+
+The preceding 107-test source remains preserved in the
+[original stage-1 evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977).
+The current corrected source is in the dedicated evidence comment linked above.
+Normal and deliberately contaminated-Git-environment 112-test runs passed;
+these are test-fixture checks, not live-retention acceptance. Existing main
+image publication and possible external consumption remain a separate merge
+authorization question; PR #1368's specific approval is not reused here.
