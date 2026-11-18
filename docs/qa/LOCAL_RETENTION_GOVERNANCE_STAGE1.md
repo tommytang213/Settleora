@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `39b7f5f55b48147e9cefeafcaf364eaf6320c9f7`
+- Blob: `e3bd62bac7382dd999c14529d392cdc893fb5931`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -92,7 +92,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-77 cases; no real repository ref is moved by its synthetic race fixture.
+81 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -208,3 +208,10 @@ instead of normalizing invalid trailing characters into valid metadata.
 
 Atlas root renewed exact-blob approval after independently inspecting the raw
 metadata, fixed fence matching and thirteen additional boundary regressions.
+
+Fence and ID prefixes are recognized only on the original line outside an
+already open comment. Masked comment text can validate an existing ID value but
+cannot manufacture a new field or fence at a comment-closing boundary.
+
+Atlas root renewed approval after independently inspecting the raw-prefix
+simplification and exact four additional synthetic cases.

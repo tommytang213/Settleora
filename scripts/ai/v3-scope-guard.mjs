@@ -387,7 +387,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "39b7f5f55b48147e9cefeafcaf364eaf6320c9f7",
+  "blob": "e3bd62bac7382dd999c14529d392cdc893fb5931",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -410,6 +410,7 @@ function parseBaseMarkdownMilestone(text) {
       fence = {character: rawOpening[1][0], length: rawOpening[1].length};
       continue;
     }
+    const field = comment ? null : rawLine.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*/i);
     let line = rawLine;
     let offset = 0;
     while (offset < line.length) {
@@ -425,13 +426,6 @@ function parseBaseMarkdownMilestone(text) {
       offset = end + 3;
     }
     if (comment && line.length === 0) continue;
-    const opening = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (opening) {
-      if (opening[1][0] === "`" && line.slice(opening[0].length).includes("`")) return null;
-      fence = {character: opening[1][0], length: opening[1].length};
-      continue;
-    }
-    const field = line.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*/i);
     if (field) fields.push(line.slice(field[0].length));
   }
   if (fence || comment || fields.length !== 1) return null;
