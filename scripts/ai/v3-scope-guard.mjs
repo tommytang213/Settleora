@@ -37,7 +37,7 @@ const baseCommit = resolveCommit(baseRef);
 const headCommit = resolveCommit(headRef);
 const changedFiles = execFileSync(
   "git",
-  ["--no-replace-objects", "diff", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
+  ["--no-replace-objects", "diff", "--no-relative", "--no-renames", "--name-only", "-z", `${baseCommit}...${headCommit}`],
   { encoding: "utf8" },
 )
   .split("\0")
@@ -378,7 +378,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "4f9a1af5fba333e0acb264fa4b6bcac255d6d6ef",
+  "blob": "f2b5081db4c798a59029be1a917c6ef91291cb5b",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -393,7 +393,7 @@ function approvedRetentionRegressionTest() {
       // Only absent entries are treated as empty; read failures deny.
       let operation = "ls-tree";
       try {
-        const entry = git(operation, baseCommit, "--", path);
+        const entry = git(operation, "--full-tree", baseCommit, "--", path);
         if (entry === "") return "";
         operation = "ls-tree entry validation";
         if (!/^100(?:644|755) blob [0-9a-f]{40}\t/.test(entry) ||
@@ -408,17 +408,20 @@ function approvedRetentionRegressionTest() {
         throw new Error("Base metadata read failed");
       }
     };
-    const baseMilestone = parseStateMilestone(readBaseMetadata(".ai/state.json")) ||
-      parseMarkdownMilestone(readBaseMetadata(".ai/current-milestone.md")) || "unknown";
+    // Validate both present entries before applying parser precedence.
+    const baseStateText = readBaseMetadata(".ai/state.json");
+    const baseMarkdownText = readBaseMetadata(".ai/current-milestone.md");
+    const baseMilestone = parseStateMilestone(baseStateText) ||
+      parseMarkdownMilestone(baseMarkdownText) || "unknown";
     if (baseMilestone !== "M15") return false;
-    const entry = git("ls-tree", baseCommit, "--", regressionDecisionPath);
+    const entry = git("ls-tree", "--full-tree", baseCommit, "--", regressionDecisionPath);
     if (!/^100644 blob [0-9a-f]{40}\t/.test(entry)) return false;
     // Canonical content modulo trailing whitespace; duplicate/extra fields
     // and any wider or mismatched authority claim remain rejected.
     if (git("show", baseCommit + ":" + regressionDecisionPath) !==
         JSON.stringify(expectedRegressionDecision, null, 2)) return false;
     const {path, blob} = expectedRegressionDecision;
-    return git("ls-tree", headCommit, "--", path) === "100644 blob " + blob + "\t" + path;
+    return git("ls-tree", "--full-tree", headCommit, "--", path) === "100644 blob " + blob + "\t" + path;
   } catch {
     return false;
   }
@@ -453,13 +456,13 @@ const classifications = changedFiles.map((file) => {
 });
 
 console.log(`AI V3 scope guard`);
-console.log(`base: ${baseRef} (${baseCommit})`);
-console.log(`head: ${headRef} (${headCommit})`);
+console.log(`base: ${JSON.stringify(baseRef)} (${baseCommit})`);
+console.log(`head: ${JSON.stringify(headRef)} (${headCommit})`);
 console.log(`milestone: ${activeMilestone}`);
 console.log(`changed files: ${changedFiles.length}`);
 
 for (const item of classifications) {
-  console.log(`${item.classification.padEnd(9)} ${item.file} (${item.reason})`);
+  console.log(`${item.classification.padEnd(9)} ${JSON.stringify(item.file)} (${item.reason})`);
 }
 
 const forbidden = classifications.filter((item) => item.classification === "forbidden");
@@ -469,7 +472,7 @@ if (forbidden.length > 0) {
   console.error("");
   console.error("Forbidden changes detected:");
   for (const item of forbidden) {
-    console.error(`- ${item.file}: ${item.reason}`);
+    console.error(`- ${JSON.stringify(item.file)}: ${item.reason}`);
   }
   process.exit(1);
 }
@@ -478,7 +481,7 @@ if (review.length > 0) {
   console.error("");
   console.error("Changes outside the active milestone allowed paths require human review:");
   for (const item of review) {
-    console.error(`- ${item.file}: ${item.reason}`);
+    console.error(`- ${JSON.stringify(item.file)}: ${item.reason}`);
   }
   process.exit(1);
 }

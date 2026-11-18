@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `4f9a1af5fba333e0acb264fa4b6bcac255d6d6ef`
+- Blob: `f2b5081db4c798a59029be1a917c6ef91291cb5b`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is kept as external validation evidence until a legitimate later test
@@ -85,7 +85,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-37 cases; no real repository ref is moved by its synthetic race fixture.
+44 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -100,10 +100,19 @@ still permit Markdown fallback when state has no usable milestone (such as `{}`)
 The exact-blob decision applies to the supplied `--head` tree, default `HEAD`,
 not an inferred GitHub PR head. Existing hosted checkout may supply a synthetic
 merge tree; differing merged test bytes correctly fail closed. A caller seeking
-a PR-head-only verdict must explicitly supply that verified commit. Workflow
+a PR-head-only verdict must use a clean checkout of that verified commit,
+with matching milestone files, and explicitly supply it as `--head`. The flag
+selects the diff/blob tree but does not select legacy worktree milestone files. Workflow
 checkout behavior is unchanged. Atlas renewed exact-blob approval after reviewing the two additional cases.
 
 Present base metadata must be a regular Git blob (mode 100644 or 100755).
 Directories, symlinks and submodules are rejected rather than parsed as text.
 Atlas renewed approval for the expanded exact test blob after source/hash
 inspection of the four new metadata-type cases.
+
+Both present base metadata entries are validated before parser precedence is
+applied, even when state already selects M15. Tree queries use root-relative
+paths and diff output ignores relative-path configuration. Raw path bytes remain
+unchanged for classification but diagnostics JSON-escape paths and ref labels.
+Atlas renewed technical approval of this exact blob after inspecting the seven
+new regressions and the combined corrections.
