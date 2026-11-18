@@ -21,7 +21,7 @@ reviewed regular mode-100644 blob:
 - Blob: `60a86d90da2603115d92425b2fd8f0db896684d5`
 
 The test is self-contained and does not require planner files. Its reviewed
-source is kept as external validation evidence until a legitimate later test
+source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
 PR can add it at that path. This avoids needing planner files merely to test
 the governance mechanism.
 
@@ -43,7 +43,13 @@ authorization. No candidate may approve itself.
 ## Legitimate staged sequence
 
 1. Independently review this guard-and-docs-only proposal and external synthetic
-   tests. Require both original main guard and proposed guard to pass this
+   tests. Obtain the exact source from the dedicated evidence comment above,
+   copy only its fenced contents with the final newline, and run
+   `git hash-object retention-governance-scope.test.mjs`. Require equality with
+   the decision record blob before execution. The hosting is editable; the
+   content hash establishes immutable identity, not the URL. If missing or
+   mismatched, stop and obtain the pinned bytes rather than changing the pin.
+   Require both original main guard and proposed guard to pass this
    exact three-file diff, plus normal required repository checks.
 2. Atlas has renewed approval of this exact test blob. Rerun
    both guards/tests and obtain fresh independent exact-head reviews and all
@@ -144,3 +150,7 @@ raw Git stderr or exception arguments.
 
 Changed-path Git failures, including output-limit failures, also fail closed
 with a static diagnostic rather than exposing captured path output.
+
+Approval metadata is consulted only when the changed-path set includes the
+exact regression-test path; unrelated changes keep their existing classification
+without unnecessary metadata lookups.

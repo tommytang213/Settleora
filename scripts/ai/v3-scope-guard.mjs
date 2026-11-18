@@ -436,7 +436,8 @@ function approvedRetentionRegressionTest() {
     return false;
   }
 }
-const retentionRegressionApproved = approvedRetentionRegressionTest();
+const retentionRegressionApproved = changedFiles.includes(expectedRegressionDecision.path) &&
+  approvedRetentionRegressionTest();
 
 const classifications = changedFiles.map((file) => {
   const forbidden = forbiddenReason(file);
