@@ -93,8 +93,10 @@ reproduced that issue. The exception now additionally resolves milestone from
 the immutable base state/Markdown using existing fallback semantics; only base
 M15 qualifies. Legacy classification outside this exception is unchanged.
 
-Base metadata reads now distinguish absent entries from failed reads. Only absence
-permits fallback; output-limit and other read failures deny the exception.
+Base metadata reads distinguish absent entries from failed reads. At the Git
+read step, only an absent entry is treated as empty; output-limit and other read
+failures deny the exception. After a successful read, existing parser semantics
+still permit Markdown fallback when state has no usable milestone (such as `{}`).
 The exact-blob decision applies to the supplied `--head` tree, default `HEAD`,
 not an inferred GitHub PR head. Existing hosted checkout may supply a synthetic
 merge tree; differing merged test bytes correctly fail closed. A caller seeking

@@ -390,9 +390,17 @@ function approvedRetentionRegressionTest() {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 128 * 1024,
     }).trimEnd();
     const readBaseMetadata = (path) => {
-      // Only absent entries permit fallback; read failures deny via outer catch.
-      if (git("ls-tree", baseCommit, "--", path) === "") return "";
-      return git("show", baseCommit + ":" + path);
+      // Only absent entries are treated as empty; read failures deny.
+      let operation = "ls-tree";
+      try {
+        if (git(operation, baseCommit, "--", path) === "") return "";
+        operation = "show";
+        return git(operation, baseCommit + ":" + path);
+      } catch {
+        // Do not include Git output or metadata contents in diagnostics.
+        console.error(`Retention test exception denied: git ${operation} failed for base ${path}`);
+        throw new Error("Base metadata read failed");
+      }
     };
     const baseMilestone = parseStateMilestone(readBaseMetadata(".ai/state.json")) ||
       parseMarkdownMilestone(readBaseMetadata(".ai/current-milestone.md")) || "unknown";
