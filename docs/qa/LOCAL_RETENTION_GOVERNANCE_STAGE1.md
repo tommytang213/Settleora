@@ -67,7 +67,17 @@ authorization. No candidate may approve itself.
    ```
 
 3. After approved governance is normally landed on the verified target base,
-   a separate PR may add only the exact reviewed regression test. A test file
+   require a preflight before opening the separate test-only PR: read
+   `.ai/state.json` from that exact immutable base commit and require its parsed
+   `activeMilestoneId` to be the string `M15`. Record the base SHA and result in
+   the task report. Missing, unreadable, malformed or non-M15 state stops this
+   staged route; do not edit milestone metadata or select another base to make
+   it pass. The current verified base has this usable state. The deliberately
+   narrow Markdown fallback is not promised to accept the repository's entire
+   prose document when state is unusable (for example, its backticked `Name`
+   field). Any required state repair is a separate reviewed task.
+   With that preflight passed, a separate PR may add only the exact reviewed
+   regression test. A test file
    edited since approval needs a new reviewed blob decision.
    Before committing, run `git ls-files --stage -- scripts/ai/test/retention-governance-scope.test.mjs`
    and require exactly the approved blob, mode `100644` and index stage `0`.
