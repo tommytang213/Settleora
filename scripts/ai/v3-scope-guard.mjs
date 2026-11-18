@@ -378,7 +378,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "499963a4c6f309c192e424bf266bd71d9414df16",
+  "blob": "4f9a1af5fba333e0acb264fa4b6bcac255d6d6ef",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -393,7 +393,13 @@ function approvedRetentionRegressionTest() {
       // Only absent entries are treated as empty; read failures deny.
       let operation = "ls-tree";
       try {
-        if (git(operation, baseCommit, "--", path) === "") return "";
+        const entry = git(operation, baseCommit, "--", path);
+        if (entry === "") return "";
+        operation = "ls-tree entry validation";
+        if (!/^100(?:644|755) blob [0-9a-f]{40}\t/.test(entry) ||
+            !entry.endsWith("\t" + path)) {
+          throw new Error("Base metadata is not a regular blob");
+        }
         operation = "show";
         return git(operation, baseCommit + ":" + path);
       } catch {
