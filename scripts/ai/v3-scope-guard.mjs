@@ -28,8 +28,13 @@ const allowBootstrapWorkflow = args.includes("--allow-bootstrap-workflow");
 // Pin both refs once so path classification and blob authority cannot observe
 // different commits if a branch moves during this invocation.
 function resolveCommit(ref) {
-  return execFileSync("git", ["--no-replace-objects", "rev-parse", "--verify", `${ref}^{commit}`],
-    { encoding: "utf8" }).trim();
+  try {
+    return execFileSync("git", ["--no-replace-objects", "rev-parse", "--verify", `${ref}^{commit}`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    console.error(`Cannot resolve Git commit for ${displayLabel(ref)}`);
+    process.exit(1);
+  }
 }
 const baseCommit = resolveCommit(baseRef);
 // The candidate is the supplied --head tree (default HEAD). Hosted checkout

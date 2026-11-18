@@ -138,3 +138,6 @@ Changed-path collection explicitly includes gitlink updates despite submodule
 ignore configuration. Display labels escape `#`, `:` and `[` as well as
 non-ASCII units so neither legacy nor modern runner command prefixes can occur
 in path/ref labels. Classification uses the original strings. Atlas renewed exact-blob approval after inspecting these regressions.
+
+Invalid ref resolution fails with a sanitized quoted ref label, without emitting
+raw Git stderr or exception arguments.
