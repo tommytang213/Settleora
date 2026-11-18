@@ -32,6 +32,8 @@ function resolveCommit(ref) {
     { encoding: "utf8" }).trim();
 }
 const baseCommit = resolveCommit(baseRef);
+// The candidate is the supplied --head tree (default HEAD). Hosted checkout
+// may supply a synthetic merge tree; exact-blob drift then fails closed.
 const headCommit = resolveCommit(headRef);
 const changedFiles = execFileSync(
   "git",
@@ -376,7 +378,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "e01e576f9ba51d35ab45543a20acfa43d10036fc",
+  "blob": "499963a4c6f309c192e424bf266bd71d9414df16",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
@@ -388,7 +390,9 @@ function approvedRetentionRegressionTest() {
       encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 128 * 1024,
     }).trimEnd();
     const readBaseMetadata = (path) => {
-      try { return git("show", baseCommit + ":" + path); } catch { return ""; }
+      // Only absent entries permit fallback; read failures deny via outer catch.
+      if (git("ls-tree", baseCommit, "--", path) === "") return "";
+      return git("show", baseCommit + ":" + path);
     };
     const baseMilestone = parseStateMilestone(readBaseMetadata(".ai/state.json")) ||
       parseMarkdownMilestone(readBaseMetadata(".ai/current-milestone.md")) || "unknown";

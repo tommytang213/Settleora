@@ -2,7 +2,7 @@
 
 Status: Atlas root renewed technical approval for the exact regression-test
 blob below after independent inspection of the trusted-base milestone fix and
-all four added synthetic cases. Activation still requires independent exact-head
+the added synthetic cases, including fail-closed base read errors. Activation still requires independent exact-head
 reviews, all required checks and normal reviewed landing. Scope remains only
 one future synthetic regression test, not planner or live cleanup authority.
 This is a governance-only change on verified main base
@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `e01e576f9ba51d35ab45543a20acfa43d10036fc`
+- Blob: `499963a4c6f309c192e424bf266bd71d9414df16`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is kept as external validation evidence until a legitimate later test
@@ -85,10 +85,18 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-31 cases; no real repository ref is moved by its synthetic race fixture.
+33 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
 reproduced that issue. The exception now additionally resolves milestone from
 the immutable base state/Markdown using existing fallback semantics; only base
 M15 qualifies. Legacy classification outside this exception is unchanged.
+
+Base metadata reads now distinguish absent entries from failed reads. Only absence
+permits fallback; output-limit and other read failures deny the exception.
+The exact-blob decision applies to the supplied `--head` tree, default `HEAD`,
+not an inferred GitHub PR head. Existing hosted checkout may supply a synthetic
+merge tree; differing merged test bytes correctly fail closed. A caller seeking
+a PR-head-only verdict must explicitly supply that verified commit. Workflow
+checkout behavior is unchanged. Atlas renewed exact-blob approval after reviewing the two additional cases.
