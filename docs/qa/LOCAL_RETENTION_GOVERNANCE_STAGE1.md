@@ -101,7 +101,9 @@ The exact-blob decision applies to the supplied `--head` tree, default `HEAD`,
 not an inferred GitHub PR head. Existing hosted checkout may supply a synthetic
 merge tree; differing merged test bytes correctly fail closed. A caller seeking
 a PR-head-only verdict must use a clean checkout of that verified commit,
-with matching milestone files, and explicitly supply it as `--head`. The flag
+with matching milestone files, and explicitly supply it as `--head`. Run from
+the repository root, or pass explicit `--state-file` and `--milestone-file`
+paths when running elsewhere. The flag
 selects the diff/blob tree but does not select legacy worktree milestone files. Workflow
 checkout behavior is unchanged. Atlas renewed exact-blob approval after reviewing the two additional cases.
 
@@ -112,11 +114,17 @@ inspection of the four new metadata-type cases.
 
 Both present base metadata entries are validated before parser precedence is
 applied, even when state already selects M15. Tree queries use root-relative
-paths and diff output ignores relative-path configuration. Raw path bytes remain
-unchanged for classification but diagnostics JSON-escape paths and ref labels.
+paths and diff output ignores relative-path configuration. NUL-delimited UTF-8 path strings are not trimmed for classification; diagnostics
+JSON-escape paths and ref labels.
 Atlas renewed technical approval of this exact blob after inspecting the seven
 new regressions and the combined corrections.
 
 Canonical approval comparison ignores only JSON whitespace (space, tab, CR, LF).
 Non-JSON trailing Unicode whitespace remains invalid. Metadata parsing behavior
 is unchanged. Atlas renewed exact-blob approval after reviewing the five new whitespace cases.
+
+Known diagnostic limitation: invalid UTF-8 pathname bytes decode to replacement
+characters, so distinct undecodable names can display alike. They cannot match
+the ASCII-only approved test path; this does not widen the exact-path exception.
+Byte-reversible display for such unsupported names is deferred rather than
+adding a separate byte-path parser in this bounded governance change.
