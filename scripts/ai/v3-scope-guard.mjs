@@ -387,17 +387,41 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "987306a5ab9791ec199df84fe9bd648bf2193a88",
+  "blob": "17cf71112705790513318bf5e8b7ed59dd2a4ca9",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
 
 // Base authority uses only one current ID field, never historical prose.
 function parseBaseMarkdownMilestone(text) {
-  const fields = [...String(text || "").matchAll(
-    /^[ \t]*(?:-[ \t]+)?ID:[ \t]*(?:`(M\d+)`|(M\d+))[ \t]*$/gim,
-  )];
-  return fields.length === 1 ? normalizeMilestoneId(fields[0][1] || fields[0][2]) : null;
+  const fields = [];
+  let fence = null;
+  let comment = false;
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    if (fence) {
+      if (new RegExp("^ {0,3}" + fence.character + "{" + fence.length + ",}[ \t]*$").test(rawLine)) fence = null;
+      continue;
+    }
+    let line = rawLine;
+    let offset = 0;
+    while (offset < line.length) {
+      const start = comment ? offset : line.indexOf("<!--", offset);
+      if (start < 0) break;
+      const end = line.indexOf("-->", comment ? start : start + 4);
+      if (end < 0) { line = line.slice(0, start); comment = true; break; }
+      line = line.slice(0, start) + " ".repeat(end + 3 - start) + line.slice(end + 3);
+      comment = false;
+      offset = end + 3;
+    }
+    if (comment && line.length === 0) continue;
+    const opening = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (opening) { fence = {character: opening[1][0], length: opening[1].length}; continue; }
+    const field = line.match(/^ {0,3}(?:-[ \t]+)?ID:[ \t]*(.*)$/i);
+    if (field) fields.push(field[1]);
+  }
+  if (fence || comment || fields.length !== 1) return null;
+  const value = fields[0].match(/^(?:`(M\d+)`|(M\d+))[ \t]*$/i);
+  return value ? normalizeMilestoneId(value[1] || value[2]) : null;
 }
 
 function approvedRetentionRegressionTest() {

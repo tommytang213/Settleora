@@ -18,7 +18,7 @@ The proposal permits one future synthetic regression-test file, and only its
 reviewed regular mode-100644 blob:
 
 - Path: `scripts/ai/test/retention-governance-scope.test.mjs`
-- Blob: `987306a5ab9791ec199df84fe9bd648bf2193a88`
+- Blob: `17cf71112705790513318bf5e8b7ed59dd2a4ca9`
 
 The test is self-contained and does not require planner files. Its reviewed
 source is available in the [dedicated PR review evidence comment](https://github.com/tommytang213/Settleora/pull/1368#issuecomment-6975628977) until a legitimate later test
@@ -92,7 +92,7 @@ and a mutable HEAD changing between diff and blob lookup. Changed paths now
 use NUL delimiters without trimming and disable rename detection so source
 deletions remain classified. Base and head resolve once to immutable commits
 used by both the diff and approval/blob checks. The expanded external test has
-56 cases; no real repository ref is moved by its synthetic race fixture.
+61 cases; no real repository ref is moved by its synthetic race fixture.
 
 A later hosted-review finding showed that candidate/worktree milestone metadata
 could select the exception on a non-M15 or unknown base. Three added cases
@@ -172,3 +172,9 @@ M15 closes, follow the then-active milestone and established technical approval
 process to propose that decision; this record never supplies a future test-path
 allowance or permits a milestone switch to evade the gate. Atlas renewed approval for the expanded exact test blob after inspecting the
 four current-field regressions.
+
+Base Markdown parsing counts all current ID fields before validating the sole
+value, so malformed duplicate fields cannot be ignored. Fenced code and HTML
+comments are not current metadata; unclosed fences/comments deny fallback.
+Atlas renewed approval for the exact expanded test blob after inspecting the
+five ambiguity/example regressions.
