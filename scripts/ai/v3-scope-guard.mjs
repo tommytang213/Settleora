@@ -400,7 +400,7 @@ const expectedRegressionDecision = {
   "authority": "Atlas",
   "mode": "synthetic_regression_test_only",
   "path": "scripts/ai/test/retention-governance-scope.test.mjs",
-  "blob": "2dd67fbfd765d7afa059966a92d3014d1853ece8",
+  "blob": "5dd03fc29670d602887fe099687b11104bb46770",
   "mutation_authorized": false,
   "live_adoption_authorized": false
 };
