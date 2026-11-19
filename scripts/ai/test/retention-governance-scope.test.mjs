@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {execFileSync,spawnSync} from "node:child_process";
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,chmodSync,symlinkSync} from "node:fs";
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,rmSync,chmodSync,symlinkSync} from "node:fs";
 import {dirname,join,resolve} from "node:path";
 import {tmpdir} from "node:os";
 import {fileURLToPath} from "node:url";
@@ -9,28 +9,35 @@ const self=fileURLToPath(import.meta.url);
 const guard=process.env.RETENTION_SCOPE_GUARD || resolve(dirname(self),"../v3-scope-guard.mjs");
 const target="scripts/ai/test/retention-governance-scope.test.mjs";
 const record="docs/qa/LOCAL_RETENTION_REGRESSION_SCOPE_DECISION.json";
+function isolatedGitEnv(source=process.env) {
+ const env=Object.fromEntries(Object.entries(source).filter(([key])=>!key.startsWith("GIT_")));
+ return {...env,GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",GIT_AUTHOR_NAME:"Synthetic Test",
+ GIT_AUTHOR_EMAIL:"synthetic@example.invalid",GIT_COMMITTER_NAME:"Synthetic Test",GIT_COMMITTER_EMAIL:"synthetic@example.invalid"};
+}
+const gitEnv=isolatedGitEnv();
 const bytes=readFileSync(self);
-const blob=execFileSync("git",["hash-object","--stdin"],{input:bytes,encoding:"utf8"}).trim();
+const blob=execFileSync("git",["hash-object","--stdin"],{input:bytes,env:gitEnv,encoding:"utf8"}).trim();
 const approval=()=>({schema_version:1,proposal:"retention-regression-scope-v1",repository:"tommytang213/Settleora",
  decision:"approved",authority:"Atlas",mode:"synthetic_regression_test_only",path:target,blob,
  mutation_authorized:false,live_adoption_authorized:false});
 function fixture(t,baseRecord,prepareBase=()=>{}) {
  const dir=mkdtempSync(join(tmpdir(),"retention-stage1-synthetic-"));
  t.after(()=>rmSync(dir,{recursive:true,force:true}));
- const env={...process.env,GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",GIT_AUTHOR_NAME:"Synthetic Test",
- GIT_AUTHOR_EMAIL:"synthetic@example.invalid",GIT_COMMITTER_NAME:"Synthetic Test",GIT_COMMITTER_EMAIL:"synthetic@example.invalid"};
+ const env={...gitEnv};
  const git=(...args)=>execFileSync("git",args,{cwd:dir,env,encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
  const put=(p,v)=>{mkdirSync(dirname(join(dir,p)),{recursive:true});writeFileSync(join(dir,p),v);};
  const commit=()=>{git("add","--all");git("-c","commit.gpgsign=false","commit","--quiet","-m","synthetic");};
- git("init","--quiet");put(".ai/state.json",JSON.stringify({activeMilestoneId:"M15"}));
+ git("init","--quiet","--template=");put(".ai/state.json",JSON.stringify({activeMilestoneId:"M15"}));
  if(baseRecord==="symlink") {put("docs/qa/record.json",JSON.stringify(approval(),null,2)+"\n");symlinkSync("record.json",join(dir,record));}
  else if(baseRecord!==undefined) put(record,typeof baseRecord==="string"?baseRecord:JSON.stringify(baseRecord,null,2)+"\n");
  prepareBase(put,dir,git);
  commit();const base=git("rev-parse","HEAD");put(target,bytes);commit();
- const run=(extraEnv={})=>spawnSync(process.execPath,[guard,"--base",base,"--head","HEAD"],{cwd:dir,env:{...env,...extraEnv},encoding:"utf8"});
- return {dir,git,put,commit,run};
+ const run=(extraEnv={})=>spawnSync(process.execPath,[guard,"--base",base,"--head","HEAD"],{cwd:dir,env:isolatedGitEnv({...env,...extraEnv}),encoding:"utf8"});
+ return {dir,env,git,put,commit,run};
 }
-const denied=f=>{const r=f.run();assert.equal(r.status,1,r.stdout+r.stderr);};
+const requireFailure=(r,diagnostic)=>{assert.equal(r.status,1,r.stdout+r.stderr);assert.match(r.stderr,diagnostic);};
+const assertGuardDenial=r=>requireFailure(r,/Changes outside the active milestone allowed paths require human review:|Forbidden changes detected:/);
+const denied=f=>assertGuardDenial(f.run());
 test("missing base approval denies test",t=>denied(fixture(t)));
 test("reviewed base grants only exact regular test blob",t=>{const r=fixture(t,approval()).run();assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/base-approved exact-blob regression test/);});
 test("candidate record cannot approve itself",t=>{const f=fixture(t);f.put(record,JSON.stringify(approval(),null,2)+"\n");f.commit();denied(f);});
@@ -46,7 +53,11 @@ test("reject executable test",t=>{const f=fixture(t,approval());chmodSync(join(f
 test("reject symlink test",t=>{const f=fixture(t,approval());rmSync(join(f.dir,target));symlinkSync("other.mjs",join(f.dir,target));f.commit();denied(f);});
 test("unrelated test remains denied",t=>{const f=fixture(t,approval());f.put("scripts/ai/test/other.test.mjs","// fixture");f.commit();denied(f);});
 test("planner remains denied",t=>{const f=fixture(t,approval());f.put("tools/local-attempt-retention/retention.py","pass");f.commit();denied(f);});
-test("forbidden path retains precedence",t=>{const f=fixture(t,approval());f.put("services/api/example.txt","fixture");f.commit();denied(f);});
+test("forbidden path retains precedence",t=>{
+ const f=fixture(t,approval());f.put("docs/qa/Dockerfile","fixture");f.commit();const r=f.run();assertGuardDenial(r);
+ assert.match(r.stderr,/Forbidden changes detected:/);
+ assert.match(r.stderr,/"docs\/qa\/Dockerfile": Dockerfile/);
+});
 test("wrong milestone denied",t=>{const f=fixture(t,approval());f.put(".ai/state.json",JSON.stringify({activeMilestoneId:"M14"}));f.commit();denied(f);});
 
 for(const changed of [target+" "," "+target]) test("distinct whitespace pathname is denied: "+JSON.stringify(changed),t=>{
@@ -60,11 +71,11 @@ test("head ref moving after diff cannot change blob authority",t=>{
  const f=fixture(t,approval());const approvedHead=f.git("rev-parse","HEAD");
  f.put(target,Buffer.concat([bytes,Buffer.from("\n")]));f.commit();
  const bin=join(f.dir,"synthetic-bin");mkdirSync(bin);
- const realGit=execFileSync("which",["git"],{encoding:"utf8"}).trim();
+ const realGit=execFileSync("which",["git"],{env:gitEnv,encoding:"utf8"}).trim();
  const wrapper=join(bin,"git");
  writeFileSync(wrapper,'#!/bin/sh\n"'+realGit+'" "$@"\nstatus=$?\ncase " $* " in *" diff "*) "'+realGit+'" update-ref HEAD "$RACE_TARGET" ;; esac\nexit "$status"\n');chmodSync(wrapper,0o755);
  const r=f.run({PATH:bin+":"+process.env.PATH,RACE_TARGET:approvedHead});
- assert.equal(r.status,1,r.stdout+r.stderr);assert.equal(f.git("rev-parse","HEAD"),approvedHead);
+ assertGuardDenial(r);assert.equal(f.git("rev-parse","HEAD"),approvedHead);
 });
 test("candidate milestone cannot widen a non-M15 base approval",t=>{
  const f=fixture(t,approval(),put=>put(".ai/state.json",JSON.stringify({activeMilestoneId:"M14"})));
@@ -116,7 +127,7 @@ for(const kind of ["tree","symlink","oversized"]) test("M15 state does not skip 
 test("subdirectory invocation resolves root paths with relative diff configured",t=>{
  const f=fixture(t,approval());f.git("config","diff.relative","true");
  const cwd=join(f.dir,"scripts","ai");
- const r=spawnSync(process.execPath,[guard,"--base",f.git("rev-parse","HEAD^"),"--head","HEAD","--state-file",join(f.dir,".ai/state.json"),"--milestone-file",join(f.dir,".ai/current-milestone.md")],{cwd,encoding:"utf8"});
+ const r=spawnSync(process.execPath,[guard,"--base",f.git("rev-parse","HEAD^"),"--head","HEAD","--state-file",join(f.dir,".ai/state.json"),"--milestone-file",join(f.dir,".ai/current-milestone.md")],{cwd,env:f.env,encoding:"utf8"});
  assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/base-approved exact-blob regression test/);
 });
 for(const prefix of ["docs/qa/","services/api/","unapproved/"]) test("control characters in reported path are escaped "+prefix,t=>{
@@ -138,12 +149,12 @@ test("gitlink changes remain visible when submodule diff is ignored",t=>{
  f.git("update-index","--add","--cacheinfo","160000,"+f.git("rev-parse","HEAD")+","+path);commitIndex();
  const base=f.git("rev-parse","HEAD");f.git("config","diff.ignoreSubmodules","all");
  f.git("update-index","--cacheinfo","160000,"+base+","+path);commitIndex();
- const r=spawnSync(process.execPath,[guard,"--base",base,"--head","HEAD"],{cwd:f.dir,encoding:"utf8"});
- assert.equal(r.status,1,r.stdout+r.stderr);
+ const r=spawnSync(process.execPath,[guard,"--base",base,"--head","HEAD"],{cwd:f.dir,env:f.env,encoding:"utf8"});
+ assertGuardDenial(r);
 });
 for(const marker of ["##[warning]injected","::warning::injected"]) test("runner marker is not emitted from a path "+marker,t=>{
  const f=fixture(t,approval());f.put("unapproved/"+marker,"fixture");f.commit();const r=f.run();
- assert.equal(r.status,1);assert.ok(!r.stdout.includes(marker));assert.ok(!r.stderr.includes(marker));
+ assertGuardDenial(r);assert.ok(!r.stdout.includes(marker));assert.ok(!r.stderr.includes(marker));
 });
 for(const markdown of ["Previous milestone ID: M15\n","Previous milestone ID: M15\n- ID: M14\n","- ID: M15\n- ID: M14\n"]) test("base Markdown requires one current milestone field "+JSON.stringify(markdown),t=>{
  const f=fixture(t,approval(),put=>{put(".ai/state.json","{}");put(".ai/current-milestone.md",markdown);});
@@ -211,7 +222,7 @@ test("nonstring base state permits valid Markdown fallback",t=>{
 });
 for(const prefix of ["services/api/","unapproved/"]) test("large denial report drains diagnostics "+prefix,t=>{
  const f=fixture(t,approval());const paths=Array.from({length:400},(_,i)=>prefix+String(i).padStart(4,"0")+"-"+String.fromCharCode(0x2028).repeat(40));
- for(const path of paths)f.put(path,"fixture");f.commit();const r=f.run();assert.equal(r.status,1,r.stdout+r.stderr);
+ for(const path of paths)f.put(path,"fixture");f.commit();const r=f.run();assertGuardDenial(r);
  assert.ok(!r.stdout.includes("Scope guard passed."));
  for(const path of paths){const label=JSON.stringify(path).replace(/[\u007f-\uffff]/g,c=>"\\u"+c.charCodeAt(0).toString(16).padStart(4,"0"));assert.ok(r.stderr.includes(label),"missing diagnostic "+path.slice(0,22));}
 });
@@ -219,12 +230,12 @@ for(const prefix of ["services/api/","unapproved/"]) test("large denial report d
 for(const baseArg of [null,"origin/ai/integration","refs/remotes/origin/ai/integration"]) test("integration base cannot fall back to a tag "+baseArg,t=>{
  const f=fixture(t,approval());f.git("tag",baseArg==="refs/remotes/origin/ai/integration"?baseArg:"origin/ai/integration","HEAD^");
  const args=[guard,"--head","HEAD"];if(baseArg)args.push("--base",baseArg);
- const r=spawnSync(process.execPath,args,{cwd:f.dir,encoding:"utf8"});assert.equal(r.status,1,r.stdout+r.stderr);
+ const r=spawnSync(process.execPath,args,{cwd:f.dir,env:f.env,encoding:"utf8"});requireFailure(r,/Cannot resolve exact remote-tracking base/);
 });
 for(const baseArg of [null,"origin/ai/integration","refs/remotes/origin/ai/integration"]) test("integration base pins remote namespace despite tag shadow "+baseArg,t=>{
  const f=fixture(t,approval());const base=f.git("rev-parse","HEAD^");f.git("update-ref","refs/remotes/origin/ai/integration",base);f.git("tag","origin/ai/integration","HEAD");
  const args=[guard,"--head","HEAD"];if(baseArg)args.push("--base",baseArg);
- const r=spawnSync(process.execPath,args,{cwd:f.dir,encoding:"utf8"});assert.equal(r.status,0,r.stdout+r.stderr);assert.ok(r.stdout.includes("("+base+")"),r.stdout);
+ const r=spawnSync(process.execPath,args,{cwd:f.dir,env:f.env,encoding:"utf8"});assert.equal(r.status,0,r.stdout+r.stderr);assert.ok(r.stdout.includes("("+base+")"),r.stdout);
 });
 
 for(const markdown of [
@@ -256,4 +267,27 @@ for(const marker of ["<!-->","<!--->"]) for(const markdown of [
 test("full empty HTML delimiter remains supported",t=>{
  const f=fixture(t,approval(),put=>{put(".ai/state.json","{}");put(".ai/current-milestone.md","ID: <!----> `M15`\n");});
  f.put(".ai/state.json",JSON.stringify({activeMilestoneId:"M15"}));f.commit();const r=f.run();assert.equal(r.status,0,r.stdout+r.stderr);
+});
+
+test("denial helper rejects an exception-only exit",()=>{
+ assert.throws(()=>denied({run:()=>({status:1,stdout:"",stderr:"Error: synthetic crash\n    at fixture"})}));
+});
+test("Git environment strips inherited repository and configuration overrides",()=>{
+ const env=isolatedGitEnv({PATH:"fixture-path",RACE_TARGET:"fixture-target",GIT_DIR:"external",GIT_WORK_TREE:"external",GIT_COMMON_DIR:"external",GIT_INDEX_FILE:"external",GIT_OBJECT_DIRECTORY:"external",GIT_ALTERNATE_OBJECT_DIRECTORIES:"external",GIT_CONFIG_COUNT:"1",GIT_CONFIG_KEY_0:"core.worktree",GIT_CONFIG_VALUE_0:"external",GIT_TRACE:"external"});
+ assert.equal(env.PATH,"fixture-path");assert.equal(env.RACE_TARGET,"fixture-target");
+ for(const key of ["GIT_DIR","GIT_WORK_TREE","GIT_COMMON_DIR","GIT_INDEX_FILE","GIT_OBJECT_DIRECTORY","GIT_ALTERNATE_OBJECT_DIRECTORIES","GIT_CONFIG_COUNT","GIT_CONFIG_KEY_0","GIT_CONFIG_VALUE_0","GIT_TRACE"]) assert.ok(!(key in env),key);
+ assert.equal(env.GIT_CONFIG_NOSYSTEM,"1");assert.equal(env.GIT_CONFIG_GLOBAL,"/dev/null");
+});
+test("guard launch does not inherit caller Git directory overrides",t=>{
+ const f=fixture(t,approval());const r=f.run({GIT_DIR:join(f.dir,"nonexistent"),GIT_WORK_TREE:join(f.dir,"nonexistent-worktree")});
+ assert.equal(r.status,0,r.stdout+r.stderr);
+});
+
+test("early base-resolution assertion rejects an exception-only exit",()=>{
+ assert.throws(()=>requireFailure({status:1,stdout:"",stderr:"Error: synthetic crash"},/Cannot resolve exact remote-tracking base/));
+});
+
+test("fixture initialization copies no template hooks",t=>{
+ const f=fixture(t,approval());
+ assert.throws(()=>readdirSync(join(f.dir,".git/hooks")),{code:"ENOENT"});
 });
