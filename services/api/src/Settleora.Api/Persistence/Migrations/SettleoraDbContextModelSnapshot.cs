@@ -3247,6 +3247,58 @@ namespace Settleora.Api.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewHeaderEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<Guid>("ReceiptOcrReviewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receipt_ocr_review_id");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("role");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReceiptOcrReviewId", "Role")
+                        .IsUnique()
+                        .HasDatabaseName("ux_receipt_ocr_review_header_evidence_review_role");
+
+                    b.ToTable("receipt_ocr_review_header_evidence", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_amount", "amount >= 0 AND amount <= 999999999999999.9999");
+
+                            t.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_currency", "currency ~ '^[A-Z]{3}$'");
+
+                            t.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_role", "role IN ('subtotal', 'tax', 'service_charge', 'discount')");
+                        });
+                });
+
             modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewLine", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6354,6 +6406,18 @@ namespace Settleora.Api.Persistence.Migrations
                     b.Navigation("SourceActorUserProfile");
                 });
 
+            modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewHeaderEvidence", b =>
+                {
+                    b.HasOne("Settleora.Api.Domain.Expenses.ReceiptOcrReview", "ReceiptOcrReview")
+                        .WithMany("HeaderEvidence")
+                        .HasForeignKey("ReceiptOcrReviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_receipt_ocr_review_header_evidence_review_id");
+
+                    b.Navigation("ReceiptOcrReview");
+                });
+
             modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewLine", b =>
                 {
                     b.HasOne("Settleora.Api.Domain.Expenses.ReceiptOcrReview", "ReceiptOcrReview")
@@ -7159,6 +7223,8 @@ namespace Settleora.Api.Persistence.Migrations
                     b.Navigation("Adjustments");
 
                     b.Navigation("Assignments");
+
+                    b.Navigation("HeaderEvidence");
 
                     b.Navigation("Lines");
                 });

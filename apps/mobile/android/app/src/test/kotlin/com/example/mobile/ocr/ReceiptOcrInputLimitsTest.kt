@@ -31,6 +31,7 @@ class ReceiptOcrInputLimitsTest {
     @Test
     fun rejectsDetectedReceiptsThatWouldBeSilentlyTruncated() {
         assertTrue(ReceiptOcrInputLimits.acceptsDetectedLineCount(128))
-        assertFalse(ReceiptOcrInputLimits.acceptsDetectedLineCount(129))
+        assertTrue(ReceiptOcrInputLimits.acceptsDetectedLineCount(256))
+        assertFalse(ReceiptOcrInputLimits.acceptsDetectedLineCount(257))
     }
 }

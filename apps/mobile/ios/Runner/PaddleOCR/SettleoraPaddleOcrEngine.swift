@@ -132,7 +132,7 @@ final class SettleoraPaddleOcrEngine {
     )
     let detection = try await detector.detect(image, runtimeParams: runtime)
     let boxes = BoxSorter.sortInReadingOrder(detection.boxes)
-    guard boxes.count <= 128 else { throw SettleoraOcrError.tooManyLines }
+    guard boxes.count <= 256 else { throw SettleoraOcrError.tooManyLines }
     let crops: [CGImage]
     if boxes.isEmpty {
       crops = []

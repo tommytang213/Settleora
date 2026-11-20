@@ -109,6 +109,7 @@ class ReceiptOcrReviewSummary {
     required this.merchantText,
     required this.currency,
     required this.lineCount,
+    this.headerEvidence = const [],
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -122,6 +123,7 @@ class ReceiptOcrReviewSummary {
   final String? merchantText;
   final String? currency;
   final int lineCount;
+  final List<ReceiptOcrReviewHeaderEvidence> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 }
@@ -144,6 +146,7 @@ class ReceiptOcrReviewDetail {
     required this.grandTotalAmount,
     required this.lines,
     this.adjustmentEvidence = const [],
+    this.headerEvidence = const [],
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -164,6 +167,7 @@ class ReceiptOcrReviewDetail {
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLine> lines;
   final List<ReceiptOcrReviewAdjustment> adjustmentEvidence;
+  final List<ReceiptOcrReviewHeaderEvidence> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 }
@@ -190,6 +194,28 @@ class ReceiptOcrReviewAdjustment {
   final ReceiptOcrReviewAdjustmentDirection direction;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
+}
+
+class ReceiptOcrReviewHeaderEvidence {
+  const ReceiptOcrReviewHeaderEvidence({
+    required this.role,
+    required this.amount,
+    required this.currency,
+  });
+  final String role;
+  final String amount;
+  final String currency;
+}
+
+class ReceiptOcrReviewHeaderEvidenceSaveRequest {
+  const ReceiptOcrReviewHeaderEvidenceSaveRequest({
+    required this.role,
+    required this.amount,
+    required this.currency,
+  });
+  final String role;
+  final String amount;
+  final String currency;
 }
 
 class ReceiptOcrReviewLine {
@@ -228,6 +254,7 @@ class ReceiptOcrReviewSaveRequest {
     required this.grandTotalAmount,
     required this.lines,
     this.adjustmentEvidence = const [],
+    this.headerEvidence = const [],
   });
 
   final ReceiptOcrReviewStatus status;
@@ -242,6 +269,7 @@ class ReceiptOcrReviewSaveRequest {
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLineSaveRequest> lines;
   final List<ReceiptOcrReviewAdjustmentSaveRequest> adjustmentEvidence;
+  final List<ReceiptOcrReviewHeaderEvidenceSaveRequest> headerEvidence;
 }
 
 class ReceiptOcrReviewAdjustmentSaveRequest {

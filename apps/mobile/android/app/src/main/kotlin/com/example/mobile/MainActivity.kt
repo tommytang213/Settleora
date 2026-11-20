@@ -1,6 +1,5 @@
 package com.example.mobile
 
-import android.content.pm.ApplicationInfo
 import com.example.mobile.ocr.SettleoraPaddleOcrEngine
 import com.example.mobile.ocr.boundedReceiptOcrFailureCode
 import io.flutter.embedding.android.FlutterActivity
@@ -12,11 +11,6 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
-    private companion object {
-        const val ACCEPTANCE_CHANNEL = "com.settleora.mobile/receipt_ocr_acceptance"
-        val SAFE_FIXTURE_PATH = Regex("^[A-Za-z0-9_./-]+$")
-    }
-
     private val ocrExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val ocrInFlight = AtomicBoolean(false)
 
@@ -80,34 +74,7 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
-            acceptanceChannel = MethodChannel(
-                flutterEngine.dartExecutor.binaryMessenger,
-                ACCEPTANCE_CHANNEL,
-            ).also { acceptance ->
-                acceptance.setMethodCallHandler { call, result ->
-                    if (call.method != "loadFixture") {
-                        result.notImplemented()
-                        return@setMethodCallHandler
-                    }
-                    val path = call.argument<String>("path")
-                    if (
-                        path == null ||
-                        path.startsWith('/') ||
-                        path.contains("..") ||
-                        !SAFE_FIXTURE_PATH.matches(path)
-                    ) {
-                        result.error("invalid_fixture", "Invalid OCR acceptance fixture", null)
-                        return@setMethodCallHandler
-                    }
-                    try {
-                        result.success(assets.open(path).use { it.readBytes() })
-                    } catch (_: Throwable) {
-                        result.error("fixture_unavailable", "OCR acceptance fixture unavailable", null)
-                    }
-                }
-            }
-        }
+        acceptanceChannel = ReceiptOcrBuildVariantHooks.configure(this, flutterEngine)
     }
 
     override fun onDestroy() {

@@ -1,0 +1,2058 @@
+// Exact reviewed APK entry identities are keyed by the tracked source tree.
+// The inventory file itself is excluded from that tree fingerprint to avoid a
+// circular commitment when adding a newly reviewed package representation.
+// An older package digest is never accepted for a changed source tree.
+export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 bounded month-name date and grouped decimal-comma diagnostics at
+  // fa9a3193. Clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence gates.
+  // Local signer was mocked; exact hosted signer proof remains required.
+  "ed3ec48bbc56487de8c27bbfa39980ab97e56c54b1973892333199b5e59ae179": Object.freeze([
+    "15fac4f73ee6ac10a8d2e1a60d8b3920581797e014d356b6832679e3253868f1",
+  ]),
+  // #1309 bounded field-token classification at ed2b6b2e. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
+  // exact hosted signer proof remains required for this fingerprint.
+  "3cd26bacb54aa6af3eb1b4f600f7bbdc67164aad9d0591f4be6bc14f32716daa": Object.freeze([
+    "b932168f01c047b4ef8309c3ea1ffd87b034cc13f4ffe7aa818766177c6bdbdd",
+  ]),
+  // #1309 five-test bounded native protocol at f70d3fe5. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
+  // exact hosted signer proof remains required for this fingerprint.
+  "3da2fc9dbff9a600cb7d1fe48598c6bcca68867797a3eeba0c3737a79107bf1c": Object.freeze([
+    "3f375db7fbd2873cfbcf0f31fe5b686a6f7a9a7511c787f00c7f056baa5eb04f",
+  ]),
+  // #1309 conservative decimal diagnostic at e55037fa. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
+  // exact hosted signer proof remains required for this fingerprint.
+  "c44b96b1c9c5cae688a98360c78482d400e130091eda0cb14aa98c03d7ec902c": Object.freeze([
+    "f4f48f8404e051fb0f27ddce6a4438d8fb509c6ea3762d47c292ccfe48db9e68",
+  ]),
+  // #1309 bounded amount-token diagnostic correction at b523a72e. Clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
+  // exact hosted signer proof remains required for this fingerprint.
+  "77a2cdf744803fa525662d41afb9a2944002bbbe35ec3adec1504b23042c2027": Object.freeze([
+    "95ec331b765bd0e6a946ed82d10a0525e5c4b1480ec2d1dd491dba53246b4cfa",
+  ]),
+  // #1309 bounded role-attribution correction at bdeef657. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
+  // exact hosted signer proof remains required for this fingerprint.
+  "c7440a697cd038f49b9c6f4219a5c89ed554bb720d579b9c5f2cc5c59fbff9ce": Object.freeze([
+    "0b13c89f19870e5e230bf6576761d8a87c94e272512e561c82b76b8e86254623",
+  ]),
+  // #1309 whole-word bounded description attribution at 156831c4. Clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
+  // exact hosted signer proof remains required for this fingerprint.
+  "28918927f2f73a5b10dee4a572503b629465ce376e6f6becfc8fe861a0f7e73a": Object.freeze([
+    "e05eb6833c0c26b18d8e40730d0bf37e4e8ea2f4ff7c635e0cf569b67dc44b1c",
+  ]),
+  // #1309 bounded diagnostic attribution correction at eaa15261. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. The local signer was
+  // mocked; hosted signer proof is still required for this fingerprint.
+  "107a86e866924cb32d4801c0b4f310e0cf61b2d3075f65928d9b2aa7675a3d75": Object.freeze([
+    "d43fe1392304c0936c3ff14d977de614e33db1ace3c6790f78ca13c8a09b8222",
+  ]),
+  // #1309 bounded parser and review decisions at af219912. A clean pinned
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. The local signer was
+  // mocked; hosted signer proof is still required for this fingerprint.
+  "ec6ac80fe9ce6bdda15583fe6ad3e9bf630b443b77c3ebf8720802593e1b6073": Object.freeze([
+    "687951054e6180ed1f24a8c0c6de2bcb4e15886e0f29bd3213e7ae0d2f000f00",
+  ]),
+  // #1309 corrected fail-closed diagnostic schema at e7408799.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; exact hosted signer proof remains required for this fingerprint.
+  "4493864660b6c662aaacd073ad431714985fb16210be14bc5366fa52cd351a50": Object.freeze([
+    "e5251880314d03685a8af2b53fa8be78a637d8203f3d6fbf0c021df3f9f71962",
+  ]),
+  // #1309 diagnostic-only native acceptance evidence at 40383b3e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; exact hosted signer proof remains required for this fingerprint.
+  "f57ec7543210dbaafa7e8098e3f740c669c03d45eb2fa97c2830420b4fc4b742": Object.freeze([
+    "6cd9751e75cc2352b3c287f072501b4e7dfb5171fd1cdb85b82a80eb990189a7",
+  ]),
+  // #1309 malformed printed subtotal warning at 0d536bf4.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked. Hosted exact-head Android job 109634248186 passed the signer,
+  // archive/path, catalog, model, legal, and fixture gates before emitting
+  // the second ZIP representation for this same source fingerprint. A fresh
+  // clean local projection after binding it passed those content gates and
+  // emitted the third representation under a mocked signer.
+  "4479bc1953eea488cde9508213bd8840f1a9370320cb27678d1cd0d273aa4889": Object.freeze([
+    "c2f9c5d7a0f25e681c3ccaf42a4acfff9bae8317874750e402dcd0ed2789bad0",
+    "12158ef8067476978d4b1699890a377dc77df39e391e5f51d9faf08f88edfe90",
+    "151011e0c62abb80461a6364572e8f6749f794215ef999fe24e062dcc305ecf7",
+  ]),
+  // #1309 subtotal-conflict and loyalty-savings warning at 974440d9.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked. Hosted exact-head Android job 109614694107 passed the signer,
+  // archive/path, catalog, model, legal, and fixture gates before emitting
+  // the second ZIP representation for this same source fingerprint.
+  "95c05ae14ca93346d8e84c70c2a25720845e6ceaf9a7956c57fef72f0bc3c519": Object.freeze([
+    "d8f0adb62b3a8d233c9ac6e83430d3ac135131f9df0ca57ab4d1992646c8d74b",
+    "ebff2d186e9e82147f9013635a9979c9ed0f937c367822c46b1337b3cc19bfff",
+  ]),
+  // #1309 unresolved-item adjustment review warning at 6e66064a.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "53396bb2918f29e758c779dccf0d2c1b583c875589618b3e82a3da20fe90ecda": Object.freeze([
+    "8f9ed55eec8f859f9ef9aa280d3ccd1b35a88562abb3335a6788fd67cd0fdb95",
+  ]),
+  // #1309 printed foreign header amount normalization at e0fdc3c6.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "7cea91d8bf414337d905a95526444aff16c8a819b7111baf613473b5996380bb": Object.freeze([
+    "047879f7577a26982bfbfcdded8c46661e72147d8adfa7edddec2b2d35df62ce",
+  ]),
+  // #1309 multi-amount localized adjustment warning at 1d2b4f4e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "2be634c3862348a43621f940763c3e60f1a39db5709881c9e5322ef1fa35cd3f": Object.freeze([
+    "7b06682df84ca1406309def09f20e073b6a9a543fc0bf7e00515351cb53f8975",
+  ]),
+  // #1309 equal-total foreign-adjustment warning at 650bcc04.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "21ea6a74d6b69a2a99d8c7588e18e8a1d1a9333cd835e98b0f5f1aa32773b920": Object.freeze([
+    "b19a159b814d0c1cd8b6eea03b7882893d1dfb4cbf3ccce406c244530f2d0992",
+  ]),
+  // #1309 foreign-adjustment grand-total warning at 12e6bd1e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "9e936600e25b85f239afd276b126ed25049526a261ca1604cd606e70ffeb835f": Object.freeze([
+    "2463a57a478f4e4727bf2d2aedde975c130190c8b151834082e6662d1643cab0",
+  ]),
+  // #1309 zero-adjustment and currency-evidence warning at c9beca7b.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "a6e6497f62b2f29825fdb3a716ace887beb6746ef4ad280c3ce1343c3e631bf1": Object.freeze([
+    "3d7fe205a7778c29d87a1a8e5c91131563553e4e434a58c650bd71ee63a742ca",
+  ]),
+  // #1309 unparseable-only printed adjustment warning at 9afcb9eb.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "b2d82287c9244308d24136897741bfeb05b6ab91cb449584ee47fc02afac4b0f": Object.freeze([
+    "3d6be325fb99317b8f2ac0b76bc6b56cb169f9de68c3fedba43d16c1f5bc3417",
+  ]),
+  // #1309 equal-total adjustment and edited-item warning at 707effde.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "8b808b83aef5cd7142661a2d39edeb89f1886dfcbe79b79c40888aeeaef56d0b": Object.freeze([
+    "b3d7271ed8804d0b8982b5ce7176512cf09b31540b7d219192f289e16ecabd49",
+  ]),
+  // #1309 excluded priced-row warning at ce3f47ec.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "6fd15a027c13b18953d36d2fc2498f24775079d2b0ab12ea11cc1abfd61819df": Object.freeze([
+    "e8cb1efccdfedb287fe965d8584983d70ea5ab49a9d95a5c30c5b8bee20a74b0",
+  ]),
+  // #1309 percentage-only adjustment evidence correction at 3fe7c769.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "0bfd9d3f284fff1ff90193f86bd6c39c3d1f41e967d25fa23fbccb58ad849d26": Object.freeze([
+    "8b566fcd8efbee1c121bb0881d6aa6a1c5ba19f3ebbba70b0e83b1799a83481d",
+  ]),
+  // #1309 unclassified charge/refund warning at 598bf306.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "f613d19319c16a27a8e7c66abd69fe6ded57f7607ebcc4f563e53ed85f6f994e": Object.freeze([
+    "f11dbf7d13e67c3560737bafeebde5506b9dd5a10a62ff2e9703812ac3f5c2d1",
+  ]),
+  // #1309 unretained priced-item and multi-role adjustment warning at 289d80a0.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "88d615c716ac2816715cd7e068c5d90814c9ecf208b570d5a6c4fede71c7f8fe": Object.freeze([
+    "a243c6dda2ba571411286b9c34d39f15a7b89fd8a926bcb0ce4d0dc9b16a2e99",
+  ]),
+  // #1309 printed rounding adjustment warning at 99a6cc28.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "4c3aa878f17c39460120369bcbab69b73b1451bd93822bf554a3b75ff04d86e6": Object.freeze([
+    "1f96af650abacd5131fc57aacf9b5c1cad1c1441cf22f089ec8cb1fdf2d9705b",
+  ]),
+  // #1309 unresolved-item and unclassified-fee warning at b813254a.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "90e47b8ec5f6d7c8d8dc04aadb31b22a47b85dd26d7d06611f412673ad6f1889": Object.freeze([
+    "a85ee39760b66b09fe2b13931aaa58df6c81d36452278c92e1d351ec7a6e79b3",
+  ]),
+  // #1309 truncated-item and unclassified-surcharge warning at cf3b5779.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "4c2bbb50228a75b52b3d96df87053175b375c4ff4acdd0639452f8cf03967c00": Object.freeze([
+    "ad4cc1eb4b2d3e90a83fe6e68901f817981e5ccd5aff16568e917aeb781e8155",
+  ]),
+  // #1309 localized incomplete adjustments and saved-review warning at 138bd00e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "6b39df87aee875d263f79866f32a5141b40323aca33f1778fcb952d1404407f7": Object.freeze([
+    "47581467f4fe9e1e5ff56b319c10f6aa31f85cf9449a143012fc8665b673636d",
+  ]),
+  // #1309 detached bare-service adjustment warning at f00cd11e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "e967b190ab3da4408dc4b89f135870324966af812d7ecba57f44a8e955aa0f4d": Object.freeze([
+    "4b4ef76346a960fc5ff0c7fbc424c8725cf990be3e432d203c5949e86b2a783a",
+  ]),
+  // #1309 unresolved qualified and charge-table adjustments at 6ad4c13a.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "a12e054a232facf1362d294fba31c2c2c8b46806e44b8a413f0c40f33f8e475b": Object.freeze([
+    "a54a9976af435a7f15e2af60f6056a655ef713265b165ec1a8a385ac422db39e",
+  ]),
+  // #1309 incomplete adjustment preservation through preview edits at 6bd278ef.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "a429bf20a3fe3fdfc550972c88af30bfd72080a9b63a872fe787d020e7cf7100": Object.freeze([
+    "5db7854219d2db026a935b3d12c2eb659ef49bd62c32373f3044aca6246fc4a4",
+  ]),
+  // #1309 complete printed-adjustment warning guard at 4ce23c05.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "dd0feef463dccc3bb9dc49b6fa8ec8c2bb6a33c905130b7f4506b7a8050d666a": Object.freeze([
+    "738564a87b05b48ba64db57eb3e90939bf4faf25225da21e8a31f932e687e6c2",
+  ]),
+  // #1309 complete-item adjustment corroboration at c70561e3.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "34e6b24f1d2550bea1cf5161d6719539a762fccff0f20b081712ae8283d2cfce": Object.freeze([
+    "03265c6892155e639ba48d52ad518986d7525c9ee509ff1769716da7f138ab74",
+  ]),
+  // #1309 immutable mismatch IDs and unsupported selected total at aac79015.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "3eac7b79157472b46e8b5fc33300c662f99a0b67211cbecf6e1f88fb63fee21d": Object.freeze([
+    "13e0b96e6501e439210066594cc9a987de7044b8ca064f866c39dc0138c390e0",
+  ]),
+  // #1324 signed foreign-discount evidence correction at 77b0b2fe.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "bc419bc35d464feff852088e5df9aa88f7045bba38b507f32bbc97e153eb34bc": Object.freeze([
+    "f8f979d0a4c371169adb3b7a0be30591e8db73f91f816e50a810a8305699d0fc",
+  ]),
+  // #1309 corpus-bound diagnostic fixture identities at f460d536.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "3ec6ca8ee2d54c00011b78498fb3c67a6a0432d0da16a0b12d4c740ba109a6df": Object.freeze([
+    "63334681ceff7e933697d3a11476da1758fdfd11194bb44c707f1c9c0c6ecd07",
+  ]),
+  // #1309 bounded native review-hint category evidence at 1fba6002.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "101ea6e799fe86f75939d873687384b352885e92dbdcc7f97eabfe577de88693": Object.freeze([
+    "2ca351c0f8657d3bbef1493c379396dc5d92c34786cbdf9f8e4c12d7edce8ac2",
+  ]),
+  // #1309 Payment Due total and mirrored usage-sign correction at 7bf475f1.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "3c6b6a7a7e71918ebd22c57d1e7b3840cd2ab993bd741e79bd55bbcf130cfc92": Object.freeze([
+    "dd420b36e369e7d7e1ef66a401fface6ed054c0ffee544981f9ef882099f5c69",
+  ]),
+  // #1309 mirrored charge-table and payment-boundary correction at 2e5ffe44.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "f46ed59a3c7c5eda964e3c4efc8c22a194858e3c27c00af1a089575f2ee56f25": Object.freeze([
+    "4cd5a0f0dacb2d556c4a8822072d7db3d9a3fdbab6bf37077470312249da36fc",
+  ]),
+  // #1309 separate priced fuel-row correction at 81396ba2.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "01a7acd365a1782519fa95c75f9470acf6490f8299bb21b645672a222f3ce594": Object.freeze([
+    "544462d3765585577a12981ed557925b961c25c666be393b021011b90dd4b56b",
+  ]),
+  // #1309 fuel transaction-total and rate-currency correction at f959ba41.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "fb984ef94a36f5373a8dcfd0eab41442e65081811645d1d9a0baddb01a227f1f": Object.freeze([
+    "70cba6066e245543eb51911b391a466dcd7406089935d218e536250c464833ae",
+  ]),
+  // #1309 signed fuel-item correction at e2ebd5ca.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "f8131009b8a5c732e45412a7b49e2ba74fc738893830a324f3cb59cd53f607a6": Object.freeze([
+    "4f0bff521dc6cf52ccfffa8fcf59133b07c7120b3b1c63aebe7b52eb5395daa8",
+  ]),
+  // #1309 detached-sign currency and layout-charge correction at 920191cf.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "8a00581a9c8eed778497a480db340977454db35e27cc4fe2310670e87443808c": Object.freeze([
+    "36aaa06a010ffe34f7cb5a647ea1b59066af00607c5035c8374b9a539c0fd012",
+  ]),
+  // #1309 detached-sign header review correction at 0b9c2b41.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "daac45832794debdbe524cda0cf412139a69b3afcbb363af343e87922c0a25db": Object.freeze([
+    "3cc9e0f30d01445cf9e4492975f2720586d255b1328a1073b5488c23f68db0c2",
+  ]),
+  // #1309 Unicode-minus header amount correction at 955bcb2f.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "be68f1239d347188898789c43b427fb484bb74ef7f850558b3e74822546a425c": Object.freeze([
+    "629235ae3a2c76b1fbf2228366c3c84607c3183d6abc97b1ee17072cece733e1",
+  ]),
+  // #1309 signed selected-header currency correction at 6e7ab5eb.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "30b8c5afb40763064407d56102d7757ee8dac4ad78df0664fc5c5f7509eed315": Object.freeze([
+    "3ca4911f2e9a0e47a696938cb176a819f6a5973df2f7f98345ba7a80176b24a6",
+  ]),
+  // #1309 unsupported header-symbol correction at 930f7b56.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "0e6601487747cc72eb85510088e2523aec842f6da8b3313df6f24e294d1aa538": Object.freeze([
+    "613a658b367b2e2f54d5a65257e7b058d86e057bfffdbdd33e6a21ef7b1e9ef7",
+  ]),
+  // #1309 opposing header-currency correction at f8881d0e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "6f11b928ad18d3c0dc2970568247bbe3b315ed2969da0be8a060b492c5f0b9b3": Object.freeze([
+    "1f8f05582e126ddfb4cfd201d8fe10ff08b21e16218fa3340c27df851c4629ee",
+  ]),
+  // #1309 single attached-code total correction at f7236cd2.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "5fa85f104c38a5556e7cdb9b721afc5a06c367bfb4816a5ee85b89d9fe501dd7": Object.freeze([
+    "aaa299c31a07db78ae921f0205cda190be934565893bc48d1eb99b2e7d751f58",
+  ]),
+  // #1309 selected total value/currency binding at 44077f77.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "bd40203ba3a51194e3967da6eacf9b9a944bbdc5b2bf2cc04ea0e010ac43e663": Object.freeze([
+    "6baf1b1c8046e4b0c38337846e5aa64bb382f65ba4faec62b692546cd2c46558",
+  ]),
+  // #1309 selected multi-amount total correction at 6dc6fba3.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "1dfc93186e382e1e43a41c343cf3b91220c988b109c72668d4e4679ef64711b1": Object.freeze([
+    "62b1fd58ebf75a60825bd64c4938d1810ae262562c5762421371bd04e7d7b8ab",
+  ]),
+  // #1309 selected total-symbol priority at 09b99af6.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "40687eec39ff3d1e15dc1337be96f83c9dcca0c40ebee0151170d56b7628991a": Object.freeze([
+    "c0bc53919a4dd9924c46b627ad7099970c5a8ba510a37e9433357c96739d3a5e",
+  ]),
+  // #1309 receipt-wide item-word currency correction at b87028b2.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "8578d0f168f1617cd4ad3a4d8a73b3b33e149eae0de0e094a59ef424869ce554": Object.freeze([
+    "025515698856cb6dd86d880b961a5e170171ca265d0effc89bf3b7fc0f0cd860",
+  ]),
+  // #1309 selected item-currency correction at d9c6bbc9.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "d17eb11a7468a2b1382e1f3ab5773ea0b089be9051e3cdd7c9bd339d952f7f9a": Object.freeze([
+    "18862cb8723a49fe6dc3729ecf2469529b647f7f3f321b10f70c1ea44bef00f9",
+  ]),
+  // #1309 selected unsupported-total and item-word correction at 9ed07981.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "d4660dbac9e04dd6651748b44406af2e6359e163a2c5dd3835ce3b3a8f605797": Object.freeze([
+    "40451d1a90c9cbc98093aee7ee3e5a613301bbfded315f1ea9cc0455d3efcccb",
+  ]),
+  // #1309 lowercase unsupported-code correction at dc51b741.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "d128f7f8b5f6bb702a37498f9316c92c162bc52cade65f478e830f6a39a32bbc": Object.freeze([
+    "9725374817d959ce99cd6313f1e558066710f26ffae83111ee4b0b483f24a86d",
+  ]),
+  // #1309 selected-currency and rated-tax correction at b0491169.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "c5bab31ebb052d4080cc56cbd834210b4826b024f73f51da5ffd1c0b0b5815ef": Object.freeze([
+    "536e9a9d7de86d61389885faf08663a60cc2035b843b40bca8d8d2900931eafc",
+  ]),
+  // #1309 whole-unit word-separated correction at 9f0e5c4e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "b5faf5aa281f4c466b54ef0cda9168549d72b777a3f95882c69f5c76e4debbfc": Object.freeze([
+    "7d896717502cb29b7cac19ee127b4b639ec1ca2d2994c5b0f4a66f6fd49bf8e4",
+  ]),
+  // #1309 trailing-code word-separated correction at 0d5cc036.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "07376e5142b07b4f5f17caacfea83516d9e2171ef24ab3fc4cd28a2348d8b428": Object.freeze([
+    "5efedf40ca45dbcca86f03ce063aae50a1726d9c5b923f395f0f9abbbd2db95a",
+  ]),
+  // #1309 word-separated mixed-currency correction at a4929210.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "bfa87ea0155ed30e90ff3aadd75d10f4be21b776cbaf92d764e1db95d57528e4": Object.freeze([
+    "c0e31a6c55f74cbf9a7cc7b4bade07b19744ea1a29b114a9e46d5d56479dfb2b",
+  ]),
+  // #1309 apply and review currency safety correction at 09193e88.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "0bd817a0610af89bdcc3fde85e7dc48bdd8034ee71dfc7f54925a7e324badeb5": Object.freeze([
+    "d9c7ec8708670848575a124e291a131fbc22ee81b7f1aa7a2aa989df3ccb611d",
+  ]),
+  // #1309 equation addition and selected-amount conflict correction at dc5377ad.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "3001365b6a46cb62eda4b150e8624d62308022a090c3ef6cd164a0d1feb93a3c": Object.freeze([
+    "938bc4d4a6cb3af16d6421c98f8fcbf375aa0b6eee99b3dd2cb3dc37d3e79fc0",
+  ]),
+  // #1309 attached supported-code correction at 0e4c39c0.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "699f0372df79ad77b4c7a089da2917314cc897237bfb3009b023242cabb123dc": Object.freeze([
+    "9350192cf0553e9b422a9781d97fd4b04791c720793008fba05d107fb1eb5e41",
+  ]),
+  // #1309 attached-suffix and equation correction at ed2601e6.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "63acf2c796b55b7ac259597fcd3ce7ed5304f5f1202d195ccd7eff924fabb5c5": Object.freeze([
+    "9eda4df53cb2614b34486e0b5a473a5a14e863110b8b4c3fdd633d5b372b4850",
+  ]),
+  // #1309 kr/Rs mixed-currency correction at e0f7fa5d.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "27f36953f3ab76328547fb9b20b4d4c57b3b3802b8944e02f4a6ed2c0cd6ad19": Object.freeze([
+    "b77481b22c05f960868be2b26080f11c34a31c82b5782bcec0a3a9d57ffb8cbe",
+  ]),
+  // #1309 whole-unit foreign-symbol correction at 857caa5e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "412d553db41ad1ebd65023ae64ea9a2c0179d39bd9ab9743a5e87e164f4275de": Object.freeze([
+    "75c914e02e9e233e8b8bb1ca72bf1d9808d9cca5523dc4bc937edddd6ca11a22",
+  ]),
+  // #1309 trailing-currency correction at 25672675.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "8238b2025569dccc43c61589e90704bbcbf4842b6bba91b93a1903529cacf43c": Object.freeze([
+    "bbcaed75705e23ee0a41f6368d20b883feeb8dac6e60fa87863f49b25057078b",
+  ]),
+  // #1309 adjacent-cell printed-marker correction at 9972f35e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "1112f5ece444d0888b8ce5f14fa8b110925049192b76ccfcc4261279d7edb2b2": Object.freeze([
+    "a3b0e0d00e1dc327b805449eee3b6d2e2b239602b0d32f4a0b822aa91d806e22",
+  ]),
+  // #1309 quantity-word and opposed-marker correction at b07d31b5.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "d9514155c91c011d126e98d9aec04bbb2af4717d661a8c8d7637824dc20ecadc": Object.freeze([
+    "0831b1d2f4dc13f55cf04dfb2dba90c517c684d12be504e76245554e9af5b231",
+  ]),
+  // #1309 conflicting selected-amount currency correction at 38965c4a.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "f6ca216e9124d09f99bd3738ac2ec00126886b8702aaae6daf3120fe0299d64e": Object.freeze([
+    "4006a7575aa835549d1f5b95bc1fdc2475c31f288d6cab7ea376fff08dbe8840",
+  ]),
+  // #1309 selected item currency context correction at c83f3565.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "4344273a088c9475958bbab9ef4f052d78231f4059e1d9ab0a75777b3c77a334": Object.freeze([
+    "797b0ec9c1a9b8db49119da5db6c88e29520e3f13bc2e0999cec2445f3666280",
+  ]),
+  // #1309 currency-context and localized-row correction at 88f31642.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "511e50f13634e057ba933b72d17fa320e2a2047a92a9a78565cb691003bc633d": Object.freeze([
+    "8a5aab3d34e43fe454c2eefe6275dd6528bcaea871992e5f1f113a1d289fc417",
+  ]),
+  // #1309 reviewed bare-dollar parser at cf7bd463. Clean Flutter 3.44.8
+  // Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and fixture-absence gates. Local signer was mocked;
+  // hosted signer proof remains required for this fingerprint.
+  "ba9a026c759b16fa0a35b43265ee7959f49e5722c177ae0dc9f71489b0c9c7c1": Object.freeze([
+    "70653d5b0f29596de10f7eec04e59312a44413ab0364a9b950d82497c9128661",
+  ]),
+  // #1309 bare-dollar item/total provenance at 6b76b4d5. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and fixture-absence gates. Local signer was mocked;
+  // hosted signer proof remains required for this fingerprint.
+  "4ba3f1da726f97ff6e2a83f151e262edacf7aa10d94fd7370fab369fcdcabe21": Object.freeze([
+    "0119317f8635a5aff22a02e953968ece03a982f615ef482daf4bbd8c7a0bf102",
+  ]),
+  // #1309 unresolved mixed-currency review-save boundary at 528c0bbb.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "478f34ec900ba9c10725d081c84d64c6b0ba8311fe1fcb73d10075c3fa2fb573": Object.freeze([
+    "dc3e84d1fae2f4371dfaab4c48ce899c9a2ab5694b4af2fba865e14267f9e9bc",
+  ]),
+  // #1309 mixed-currency boundary correction at 35b46d79. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and fixture-absence gates. Local signer was mocked;
+  // hosted signer proof remains required for this exact fingerprint.
+  "2b3931cdf2493d0aced00dc87761a76b6125ed5cd5de2bf0464ea6d8a234fe33": Object.freeze([
+    "7f904196ad51cf539680c820f2afa805062020cbc15be379d386afb343970285",
+  ]),
+  // #1309 post-#1324 source rebinding and selected supported-symbol currency
+  // correction at 68bd8275. Clean Flutter 3.44.8 Release projection passed
+  // archive/path, catalog, 14-model, legal-resource and fixture-absence
+  // gates. Local signer was mocked; hosted signer proof remains required.
+  "96664d5f9826518d07d174a8e111b02364e83a1756b8190b5f1120337b53e0e3": Object.freeze([
+    "64ce0112326be1d98763d601793bdb11f3aade4a77c63eec7f17311fc3e0ebf0",
+  ]),
+  // #1309 reference-total exclusion and selected-amount currency binding at
+  // b094997c. Clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and fixture-absence gates before this
+  // ZIP identity. Local signer was mocked; hosted proof remains required.
+  "639ff01542778e51d153bc98df8555fcf52677a8c483a62e36499ef1e990003a": Object.freeze([
+    "750aabe33adb250317faaec89967fd7b147a7bf6772e04f49a55b12b3bd6796f",
+  ]),
+  // #1309 ambiguous yen item/adjustment review boundary at adbd2c19. Clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source proof remains required.
+  "8967ddec30df9e7a61b02a877c78786abc5d7f0b61bedcf6663dc9bec83f68f5": Object.freeze([
+    "3bd8d4a1f593f89a442bc20a125113db9e24a38a174b4447fa4b43fa94cc906e",
+  ]),
+  // #1309 printed adjustment currency ordering and foreign yen total at
+  // 7d0666a8. Clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and fixture-absence gates before this
+  // ZIP identity. Local signer was mocked; hosted proof remains required.
+  "e8a4843057be479fe22d7eaae490aeb7ae63c18fcbcce7ea87b1130ab13c1c20": Object.freeze([
+    "3b004754635539706a0862dc43b54cf78c8a9cec833eef6bbee923d2f3989208",
+  ]),
+  // #1309 charge-table placeholder/sign boundary at 662b6914. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source proof remains required.
+  "2375d2049063ea055c47b7550fdbd55e3262ac915d3460b59da8a0153a2d744a": Object.freeze([
+    "4a543b69d5b36e7a2f2c7760c609237c1ca92369de3c6fc2fda5c45b99449056",
+  ]),
+  // #1309 trailing detached-sign boundary at 1b1c1c5b. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, model, resource,
+  // and fixture-absence gates before this ZIP identity. Local signer was
+  // mocked; hosted exact-source proof remains required.
+  "4af09feb6a83ea6515f6f592189a2fa62dbfd3f64461a21bcd8cee4b5f99f2c2": Object.freeze([
+    "b9e4e083c665fd8c7fac89f78171c80940c92250c48fb93a6a1c3fbffcbb59b7",
+  ]),
+  // #1309 printed-total currency precedence at e09c3596. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, model, resource,
+  // and fixture-absence gates before this ZIP identity. Local signer was
+  // mocked; hosted exact-source proof remains required.
+  "85ffcf2718d3483c5d25438271a6271da2f5b11deb6c0e1a06d5688f159ef8a8": Object.freeze([
+    "81664816177621bad5a3792ceac56d556500fb262c08d248468e5433e20ea911",
+  ]),
+  // #1309 subtotal and discount currency provenance at 93453367. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source proof remains required.
+  "1f6a06b19fee8fedc5638d64eca74b3044d7e9fd3a0369e879b09ca12b779e60": Object.freeze([
+    "d080aeb63d9abd18bdbb05d346ebf030562482b5f0f2a2d3291f0f84d650f492",
+  ]),
+  // #1309 printed tax/service currency review handoff at dfd832df. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source proof remains required.
+  "67a5640d4fd94bb2b1a52a063274c12af6e28108f407a97a4ef458fb3503ada1": Object.freeze([
+    "2e4642e1e277c036db0578295a88cf5518141dcfa79e2421eb089e67fecd4cee",
+  ]),
+  // #1309 detached-sign and uppercase-label correction at 2dcf6356. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source proof remains required.
+  "3fc73aa8558b884eaadd1c3f0774e05cd6fbe9e0b7049655fc07f6ed2979ae6f": Object.freeze([
+    "c773ff6711a1e7f65152e89970b67eac34ffc37a2522db46277d3b614544f6ae",
+  ]),
+  // #1309 detached-sign and adjustment review correction at 6e631b58. A
+  // clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // model, resource, and fixture-absence gates before this ZIP identity.
+  // Local signer was mocked; hosted exact-source proof remains required.
+  "dca697de5d1f60e76e6093254bc4e35802201568841c754878a275bac76136d0": Object.freeze([
+    "18fe5ddf5f0234d2d59fb3870ad16d6da0edb65d885e3cee8d03501d05dcf222",
+  ]),
+  // #1309 charge-column, detached-sign, and zero-minor geometry correction at
+  // ce663993. A clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, model, resource, and fixture-absence gates before this ZIP
+  // identity. Local signer was mocked; hosted exact-source proof is pending.
+  "3c58feebbcf5182c0e4d2cd64e5fd5d44bcb21995c1f6db4120ecf1ad089a127": Object.freeze([
+    "2397779e06a43758d26a56193d8e928f9725ae9fbbb9d750502e577a11999d8b",
+  ]),
+  // #1309 fractional usage boundary at e11f7412. A clean Flutter 3.44.8
+  // Release projection passed archive/path, catalog, model, resource, and
+  // fixture-absence gates before this ZIP identity. Local signer was mocked;
+  // hosted exact-source signer proof remains required.
+  "29cae3784b78222b8d55ebd68cfad88a5fb15277ac4a0b0ea09a9deaaa346cd8": Object.freeze([
+    "df5e329af511604ff61b9626ee90feb1c34136a0b8c32a95ded0b5c68551a17d",
+  ]),
+  // #1309 Rate/Amount single-value ambiguity boundary at e0daab1c. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source signer proof remains required.
+  "8e342374a267ee5403dc6d32bd905256236453d0ad40cbc70ec6e7a8cdeedd38": Object.freeze([
+    "8ae7026bad7738818bb85f45a71b19fcb5903968a645d2014cf4dc2ae91723de",
+  ]),
+  // #1309 numbered usage-rate ambiguity boundary at 59b1f4df. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source signer proof remains required.
+  "c0c0501f549bffb020b972472759f10c9dfd3f50e8aacaf19073615ef0d90e56": Object.freeze([
+    "91587c1e1bad18ba17fcf60df83f40347e540b916fe58e4145a8aebe6a856f2b",
+  ]),
+  // #1309 single-value usage ambiguity boundary at d08b7275. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source signer proof remains required.
+  "9c36cdfc25e1d39cc6fe78ae1a02dcdc4dbd16d9aa911b54d77a6b6789995e7b": Object.freeze([
+    "d1eaf593cd12cfe6478d9be6b833911e8f1e1110e662021834ce08748ff569f5",
+  ]),
+  // #1309 charge-table rate and unit-reading boundary at 60577544. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source signer proof remains required.
+  "b01df40d40e5506c56d5bd9e5e9956f4a438ba4c44b82bcc414ba0785f3558c3": Object.freeze([
+    "04fccdd37590783175743414f806d5a62513d30cae8612e87d22310841f4ed62",
+  ]),
+  // #1309 short numeric meter-reading boundary at 819cd477. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, model, resource,
+  // and fixture-absence gates before this ZIP identity. Local signer was
+  // mocked; hosted exact-source signer proof remains required.
+  "bbf8d23199132fd54947ae4858927b6c6ebffd9c9acc78701c40b9d4b39f2536": Object.freeze([
+    "052b3a61280e5635576939221e3e7abb744717d3a92392feb38d1f8c88549cc5",
+  ]),
+  // #1309 qualified meter-reading boundary at 03c665c6. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, model, resource,
+  // and fixture-absence gates before this ZIP identity. Local signer was
+  // mocked; hosted exact-source signer proof remains required.
+  "65584d66832cc998ba5ac1ec988e3c2acc1263eb1049b9b7ae8a00fdae71fe5c": Object.freeze([
+    "685a9f075f7926731fd507efb7c74f1e7c92f247915c1ce3e1fe7de0f3fa8693",
+  ]),
+  // #1309 decimal meter-reading boundary at 588ececf. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, model, resource,
+  // and fixture-absence gates before this ZIP identity. Local signer was
+  // mocked; hosted exact-source signer proof remains required.
+  "28ee2e1c684b3b1d775cbc763e0ef5dc7fb2e49264da07992889eba48072a69a": Object.freeze([
+    "28112abf554b2d4c692525c81de02833496f7754a96f1a3de1e4eecccaccc1bb",
+  ]),
+  // #1309 itemized service and meter-reading boundary at b928e24d. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source signer proof remains required.
+  "fd9f0b94778ea20d5369276a97addb389067e8bb18c6e38ba22eed77193f12ed": Object.freeze([
+    "56c4d5ad6017053df7cba8613a58ca94a05dd80c59ec841660fa83d697eaaeb3",
+  ]),
+  // #1309 itemized delivery-fee charge-table boundary at 62ba721d. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, model,
+  // resource, and fixture-absence gates before this ZIP identity. Local
+  // signer was mocked; hosted exact-source signer proof remains required.
+  "0ee3295f576b52f517e4569b70b5653c0a4ee98eb65e4633d6cc6c74e334979b": Object.freeze([
+    "dfa8c7c790fd6fad66659359d0f5e880cd93d224c8259022438ffeac3ccbe8a2",
+  ]),
+  // #1309 split-currency charge-table and header boundary at 2b10eab5.
+  // A clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // model, resource, and fixture-absence gates before this ZIP identity.
+  // Local signer was mocked; hosted exact-source signer proof remains needed.
+  "49447f19da8c23ab634850180eda9967e5be22baf4c2d065b73d05a23a527d60": Object.freeze([
+    "78fdefc77f5d4bd8154bec73f2c02bb38ba25636f452ade60d0309c3753162af",
+  ]),
+  // #1309 charge-table account-summary boundary at 4aaf1c91. A clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates before this ZIP identity.
+  // Local signer was mocked; hosted exact-source signer proof remains needed.
+  "1f069702579b6f03e4862f2d63aad4427b835ae1f092840a8330bc61469380e4": Object.freeze([
+    "8aca2ddc8fff5dd43d87ee95167fc930c04d39ee37758c4b4a54c6f11759bb39",
+  ]),
+  // #1309 account-summary guards and bounded item-cell evidence at 6f98d435.
+  // A clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates before this exact
+  // ZIP representation. Local signer was mocked; hosted signer proof remains.
+  "cc6c047944289aec88d7e14c8013c889a30ff632020a52728b6472f363e7f3fb": Object.freeze([
+    "977bd26e41346edc1a8a4e86a5b4a900fd1b01ae38479cb9986ba2a076853961",
+  ]),
+  // #1309 localized tender, quantity-cell, native-digit, and split-currency
+  // geometry corrections at 5929ed34. A clean Flutter 3.44.8 Release
+  // projection passed archive/path, catalog, 14-model, legal-resource, and
+  // 102-fixture-absence gates before this exact ZIP representation. The local
+  // signer was mocked; hosted exact-source signer proof remains required.
+  "9fe82ae8514b2282b09bedb9cb63e0ffb5d9d65d1c0269d117177d94271ddb33": Object.freeze([
+    "c016a19d3f5d04acdbeb9b9f524ec205597fe18f77f7eaa09d413bfb209bb985",
+  ]),
+  // #1309 layout-cell currency and cross-currency review arithmetic at
+  // 8f6bd8c3. A clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence checks before
+  // this local ZIP representation. Local signer was mocked; hosted exact-
+  // source signer proof remains required.
+  "906f0c803d205bb7f64005473c80b096d41a46a30e61ffe8d29500f5e34e9d88": Object.freeze([
+    "2be530ecfe60c89a09e5a40b98e448b186dba2ac6ae870506848423c082445b7",
+  ]),
+  // #1309 general layout-cell and explicit-currency total ranking at
+  // b1349249. A clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence checks before
+  // this local ZIP representation. Local signer was mocked; hosted exact-
+  // source signer proof remains required.
+  "c58a05e03d0cb597ae81a24812edbc405677695d5c0d95a129cf079b5cb97c71": Object.freeze([
+    "432fae20c638617739c18c71da0eb74243563b89313db31bb9440bcdbd41c4ba",
+  ]),
+  // #1309 Arabic amount and priced-product metadata corrections at ce7028fc.
+  // A clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks before yielding
+  // this exact local ZIP representation. Local signer was mocked; hosted
+  // exact-source signer proof remains required.
+  "f3d2501463d7ca0f7e9768cae59b9af217d0ec54aa48d40bfb9d2289e0fcaf85": Object.freeze([
+    "f10139afd466837cf948d284c77c398417a0f422c12ca0dab9b28fc0fc0dea72",
+    // Exact-source ubuntu-24.04 representation observed only after the hosted
+    // signer, archive, catalog, model, and fixture-absence gates passed.
+    "6a5f5efcd30a484ac80afd646adbd859f1a1cbf6966a75b79528abb4492630d8",
+  ]),
+  // #1309 bounded rate-cell cleanup and complete recognition coverage at
+  // 4d7bbc63. Clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, model, legal-resource, and 102-fixture-absence checks before
+  // yielding this exact local ZIP representation. Local signer was mocked;
+  // hosted exact-source signer proof remains required.
+  "e2d1807b5db6796429ac7128a7cc56002e7d4b74cad6d8afbc5b79957df4984a": Object.freeze([
+    "908edd14615fe3b85a1d2f004d3ec742cc913eb0572aabd6a38738be61bcc5ae",
+    // Exact-source ubuntu-24.04 representation observed only after the hosted
+    // signer, archive, catalog, model, and fixture-absence gates passed.
+    "380da707839caab3b12350e8fd2f878a4b92b5cb5c34ec4272dd69ecf329c856",
+  ]),
+  // #1309 layout and semantic review corrections at c9c6cde6. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-artifact, and 102-fixture-absence checks before this ZIP digest.
+  // The local signer was mocked; hosted exact-source proof is still required.
+  "2cb681eb4c941ff1d2f5530c5d4ded8f393ebc11af63a2e50f561b41dfec2662": Object.freeze([
+    "0b19fc3d782040d0053af54d577fc6fd77eed45283028a98f22e6a7e5c634e71",
+  ]),
+  // #1309 repeated organization identity and unit-bearing charge columns at
+  // 0b0d321e. A clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-artifact, and 102-fixture-absence checks before
+  // this ZIP digest. The local signer was mocked; hosted proof is still needed.
+  "5f14773a23a90c2db299aaa0529f3f780fc7716d4d150dad813dce8d1daf1c04": Object.freeze([
+    "ba9a1ec334ee0137b46773b44d289976e99d8a414529bcc9a7204e018f884df3",
+  ]),
+  // #1309 shifted charge-table amount cells at 2da1e7b7. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-artifact, and 102-fixture-absence checks before this ZIP digest.
+  // The local signer was mocked; hosted exact-source proof remains required.
+  "2ca629aba09419a26e77f3cb3395ab2428ef067ec3db6f69009b6eff9352f939": Object.freeze([
+    "c227c8966458c7d3c0f97bcd10e437660b795792ae28cd5c70fdfe9e27aa4fbf",
+  ]),
+  // #1309 layout-aware charge-table candidate at 5868443e. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-artifact, and 102-fixture-absence checks before this local ZIP digest.
+  // Local signer was mocked; hosted exact-source signer proof remains required.
+  "2b0a91ea113941e393f8d268726cb5eca4edb641327f450bf5d30ad49f35b94e": Object.freeze([
+    "414792dd034e478ef434bd5027aa64acf0af798025b99a3082feb0245dd0244d",
+  ]),
+  // #1309 adjacent-row association at 39495792. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // Local signer was mocked; hosted exact-source signer proof remains required.
+  "6d32623592dd887a58a1d3526b9817326082293b94fa70ef61a5a037bbaafea2": Object.freeze([
+    "318a57751b5d94945d340dccb7f331a5780f34a8ab843f3b2f945e9154f09dca",
+  ]),
+  // #1309 matched-item amount and partial-payment ranking at 33733c6f. A
+  // clean Flutter 3.44.8 production projection passed archive/path, catalog,
+  // model, legal-artifact, and 102-fixture-absence checks before yielding this
+  // local ZIP representation. Local signer was mocked; hosted proof is needed.
+  "75471c84044d9f769f3abd71bd6f7ddd4ac069d1708269484b86534004d8abf8": Object.freeze([
+    "4236c62518a270fd275571727f9515ea41f495a9035eec1ce67d419b84530298",
+  ]),
+  // #1309 attached-code item guard at 35a386ca. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source proof is required.
+  "8d988520518bf767fb90157c22f4f1cd49a2fdb5587c10c4e0fd0707dbb99cd3": Object.freeze([
+    "c3e8ec66c90b7da9427e99e882d93fe630d8e280f75c73f4921da5eb123b629e",
+  ]),
+  // #1309 bounded native failure recovery at 118b5d7d. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source proof is required.
+  "039ddf17785068462986551f2a3a473c1ceb95fddfbe070a1c4758fe81438eb3": Object.freeze([
+    "e5b1793ae65c9d803d590a5dc31275669a191684a72b24131d754487189680cd",
+    // Exact-source ubuntu-24.04 representation observed only after the hosted
+    // signer, archive, catalog, model, and fixture-absence gates passed.
+    "543fd6536817ac52c5d44ffaa2e07860746684468c4e19ec3bc861061df13d57",
+  ]),
+  // #1309 currency-prefix total role at 7ddddd2b. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source proof is required.
+  "ffa671fa27a81a3016d20506b185f45de0c6a1676eeec512353ba62e36b9c3c9": Object.freeze([
+    "90d33712050059a259ecf9cfbed76ba8bcdf7696b68d0dbe89bced93f084c1a6",
+  ]),
+  // #1309 complete manifest-bound recognition coverage at aa7623b0. A clean
+  // Flutter 3.44.8 production projection passed archive/path, catalog, model,
+  // legal-artifact, and 102-fixture-absence checks before yielding this local
+  // ZIP representation. The local signer was mocked; hosted proof is required.
+  "86863451ad7d9d350265459d2d06e0f07651004784cca89c613c32bde59f4792": Object.freeze([
+    "6f548a7014f4b2d3382a3ec2da8351a5b88c0b8e42195042f612e7f42bfa5ad8",
+  ]),
+  // #1309 bounded row-coverage evidence at 01a2b3b1. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source proof is required.
+  "568fc67f7d02acee30474ee71aadb6c4d299165f760cf7747ef3c788e76ed536": Object.freeze([
+    "ddf936f50e52cb7e4fad0d6c304ab78ecbf1803e1344b5be61b0001c554133c2",
+  ]),
+  // #1309 short-name merchant correction at e972a49d. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source proof is required.
+  "aa4c6602496621fa469317b5701f18e7176886c7c4a5a05548435f53dc8f0c41": Object.freeze([
+    "739af61a9488efeaf0dbf82fdc33c1ac5a02efb581790f31b6122b693a98d97b",
+  ]),
+  // #1309 merchant/total-role correction at cf87cfac. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source proof is required.
+  "f064566afdd744ec2196bcbfdabfdd4beaaab64620ecacfb2197b40b7eb01016": Object.freeze([
+    "4ac5a6eca0c2c692feb338879516f83f6515230f62d5063a6b1088a1ab0761c0",
+  ]),
+  // #1309 single-amount charge-table correction at 575619e2. A clean Flutter
+  // 3.44.8 production projection passed archive/path, catalog, model,
+  // legal-artifact, and 102-fixture-absence checks before yielding this local
+  // ZIP representation. The local signer was mocked; hosted proof is required.
+  "009bf2707dea96a1f1f49e6f33d1dc3055149a59615407dc003b20561863db2b": Object.freeze([
+    "a178eebcef1b096f1dc654b6c665342afc6c3d8eb760e9830a6204bcfb142c5c",
+  ]),
+  // #1309 charge-table candidate at c6a7cab2. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source signer proof is required.
+  "8706ddb4c707dfecff8f301bded266773d8e1d8daa7bdaa9844e558e92d54a61": Object.freeze([
+    "ca326a29a0481acffd40c3cf3f0ff6b15c2322bbd55c5b2589f56592b433f301",
+  ]),
+  // #1309 merchant-boundary correction at 1d7591fc. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source signer proof is required.
+  "6ab84b039fee9486fdcd1283e2e8407ab8b2ca030a2a03935dcfbc905bee539d": Object.freeze([
+    "c7edba79696e5f6f102aa062c8eae007b2ae20d9c999a3ae828d88eab49f5a7d",
+  ]),
+  // #1309 field-role correction at a5e2b73a. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source signer proof is required.
+  "30feb3996a689088efffc7e1fc91f11aaa2d91baa8078bb967c532eb18858c0a": Object.freeze([
+    "6c78bb21b509b1705a0f0de51713e2486b1776ba5549b45c413337948be02677",
+  ]),
+  // #1309 quantity-role correction at cba630b0. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source signer proof is required.
+  "0a95e089d1095e6b2c8230673dc880a40d4765bb78956f73fe1fb78b89edec9e": Object.freeze([
+    "9053ceb3f2637a22ed5de1728d36f988692a51ea2ebe4bd5c9f76413c835b671",
+  ]),
+  // #1309 semantic review correction at 8a554e1b. A clean Flutter 3.44.8
+  // production projection passed archive/path, catalog, model, legal-artifact,
+  // and 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source signer proof is required.
+  "b4b2484465038d075ea5cc499b46441b6331e8e27ab8d545982d37e182a65449": Object.freeze([
+    "5b582be7e9f438579df22dbfd2ff56125d1f71700f61be36692b4ef59fe49155",
+  ]),
+  // #1309 semantic correction at feecd536. A clean Flutter 3.44.8 production
+  // projection passed archive/path, catalog, model, legal-artifact, and
+  // 102-fixture-absence checks before yielding this local ZIP representation.
+  // The local signer was mocked; hosted exact-source signer proof is required.
+  "a300eb6e844cdf8621e70e183fb33f978a19c83a17b4c39a3bbfe91fc82929f5": Object.freeze([
+    "369494bad964d6d138e631ce7e9bb56427fc227af1434a932a943423a3b31013",
+  ]),
+  // #1309 semantic candidate at 33d9a735. A clean Flutter 3.44.8 production
+  // projection passed archive/path, catalog, model, legal-artifact, and
+  // 102-fixture-absence checks before yielding this exact local ZIP digest.
+  // The local signer was mocked; hosted exact-source signer proof is required.
+  "afd1df0b445deaead1f0bc8656a9c7b60415ad8dba40f6eec7409cc7d4fec5e7": Object.freeze([
+    "18d01ebbd7c471c544f4aa4462bbda907889cdc49e439ff6dc54e916fa280593",
+  ]),
+  // Exact unsigned iOS Flutter notices-byte identity correction. Clean
+  // Flutter 3.44.8 local Release APK passed archive/path, catalog,
+  // 14-model and 102-fixture-absence gates; local signer was mocked. Exact-
+  // source hosted job 108872290180 passed signer and the preceding package
+  // gates before reporting its distinct ZIP entry representation below.
+  "2650b765e38af3aa13415a3d50aab1a57dc91fb6ada0c02ca03cfd1f348280d9": Object.freeze([
+    "f937385c8eee270bf345ba67b9278f32d7e103cb2b91f25789b67b21965b4420",
+    "11e40b7dfa8fdb0f8df5c43c0c171e7cb1cc9d6e11c544d662b0a462eafcb029",
+  ]),
+  // #1308 real-provider UI item Apply probe bound to the trusted catalog.
+  // Clean Flutter 3.44.8 local Release APK passed archive/path, catalog,
+  // 14-model and 102-fixture-absence gates; local signer was mocked. Exact-
+  // source hosted job 108854321587 passed signer and the preceding package
+  // gates before reporting its distinct ZIP entry representation below.
+  "37979935da129fbe3dbbbcd2c603f8d977ba4ceeb8cc9bd860fe0d096aef59d6": Object.freeze([
+    "ef7c7dbae79a7c60ff2094aeda5b003af35f2410bac2230a90e0d197008475a6",
+    "11e40b7dfa8fdb0f8df5c43c0c171e7cb1cc9d6e11c544d662b0a462eafcb029",
+  ]),
+  // Exact #1308 historical unsigned iOS 63-resource bundle commitment and
+  // regression. A clean Flutter 3.44.8 local Release APK passed archive/path,
+  // catalog, model, and fixture checks; the local signer was mocked. The
+  // exact-source hosted verifier in job 108820453536 then passed signer,
+  // archive/path, catalog, 14-model and 102-fixture-absence checks before
+  // reporting its ZIP representation below.
+  "040d6fe6da41a3e91c18e75eb6758f384e9415daaebc025d89d447fd87cd9302": Object.freeze([
+    "d575dee83029a546907fbeb5a9daada14c353a2530e6f28fe8660016a80f9419",
+    "f056e2f9e16d7c3f9d882939fd1d5cc6a4c12ff3cbf31ff2b16c5efe4f535c09",
+  ]),
+  // Exact #1308 historical unsigned iOS bundle-string correction and bounded
+  // bundle inventory, including regular-directory traversal. Clean Flutter
+  // 3.44.8 local Release APK passed strict path/catalog/model/fixture gates;
+  // local signer was mocked. Exact-head hosted proof is pinned below.
+  "a19d9d8cd61e4936a572e73cc2a1953f25c9825dce55b4dd57e823b8e51db0b4": Object.freeze([
+    "0cce1b640e260c26e249ad5ab864b84435561a495794bb0fd4b4a5f1d8fc14b8",
+    // Fresh clean local projection from the same source fingerprint passed
+    // catalog/model/fixture/path gates; signer was mocked locally.
+    "104cb1d6c6acbf58cccc14510842cb2cf91a79f8b2b9d1a683ce9903a3079a09",
+    // Exact-head hosted job 108785333039 passed signer, archive/path,
+    // catalog, 14-model and 102-fixture-absence gates before reporting ZIP bytes.
+    "f056e2f9e16d7c3f9d882939fd1d5cc6a4c12ff3cbf31ff2b16c5efe4f535c09",
+  ]),
+  // Exact #1308 iOS fixed-baseline privacy metadata correction. Clean Flutter
+  // 3.44.8 local Release APK passed path/catalog/model/fixture gates; signer
+  // was mocked locally. Exact-head hosted signer and ZIP proof remain required.
+  "12bbd5f7006e6db4bf89e701fd611bb458fe8752eea5f72eb9842b7ef3278c95": Object.freeze([
+    "0250d5e5f81e9788f7094a585bd7d6579475e6d49c01ce3f9152d5319f89dd99",
+    // Exact-head hosted job 108754479056 passed signer, archive/path,
+    // catalog, 14-model and 102-fixture-absence checks before reporting ZIP bytes.
+    "f056e2f9e16d7c3f9d882939fd1d5cc6a4c12ff3cbf31ff2b16c5efe4f535c09",
+  ]),
+  // Exact six-path #1308 candidate after the rotated acceptance bound and
+  // fixed-baseline iOS privacy manifest correction. Clean Flutter 3.44.8
+  // local Release APK passed preceding package gates; signer is mocked.
+  "6300728711f17cee677ed7edc705aee350768eb1b980770fd180003b95d85538": Object.freeze([
+    "4e1a2f4b45b11c7b47b5b81db47e7f626d2750f621899e5f60d2f713920ca4aa",
+    // Exact-head hosted job 108727015032 passed signer, archive/path,
+    // catalog, model, and fixture-absence gates before reporting these bytes.
+    "f056e2f9e16d7c3f9d882939fd1d5cc6a4c12ff3cbf31ff2b16c5efe4f535c09",
+  ]),
+  // Bounded hash-only iOS privacy-bundle diagnostic. The exact synthetic
+  // source tree passed the strict local Release APK path/catalog/model/fixture
+  // gates; its signer is mocked until exact-head hosted proof is available.
+  "91b15758f9969a97a964faf0f9e48078683193dbe3eb691314f43b0ec4e29f36": Object.freeze([
+    "b7776c6168400be59fa5dc89e84a0a966d473104fc036f6759682d366cdad0de",
+    // Exact-head hosted job 108699296493 passed signer, archive/path,
+    // catalog, model, and fixture-absence gates before reporting these bytes.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // Hash-only iOS pre-native baseline diagnostic. The clean Flutter 3.44.8
+  // local Release projection passed the strict archive, catalog, 14-model,
+  // and 102-fixture-absence gates; local signer was mocked. Hosted signer and
+  // any distinct hosted ZIP representation still require exact-head proof.
+  "9fcfa9b67a83fb6ef398976bac73d9197288bcee5cba12f72f154cb0e5315e56": Object.freeze([
+    "6cc699ded0865e4a1dc8d151d9d1e3ae7c9466de33bf0e588bb9750bb689f88e",
+    // Exact-head hosted job 108673627231 passed signer, archive/path,
+    // catalog, model, and fixture-absence gates before reporting these ZIP bytes.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // Pre-native iOS baseline privacy-bundle dispatch and its regression test.
+  // The clean Flutter 3.44.8 local Release projection passed the path,
+  // catalog, model, and fixture gates. Local signer was mocked. Exact-head
+  // hosted job 108645294547 passed signer and all preceding package gates
+  // before reporting its distinct ZIP entry representation.
+  "9e72b805550bef58f7c4adcc9bee78ddbe472dcd31533c44e9fa807d216cf199": Object.freeze([
+    "7c24dd947a94f3ece1c792d755f6ff1e0804c39d8064594f84a9aa4c2af3f878",
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // Five exact fixed-baseline iOS bundle resources and both previously
+  // observed hosted Android ZIP representations. A clean Flutter 3.44.8
+  // local Release projection passed catalog/model/fixture gates; local signer
+  // was mocked. Exact-head hosted job 108620251044 then passed signer, path,
+  // catalog, model, and fixture-absence gates before reporting its ZIP bytes.
+  "a855002e93fb9ed135861023652e35563ff2f92aeaae77d65e2d3c1e255f2c11": Object.freeze([
+    "e928940c7b65e3d881cd126b24b9a0fbedcc9af09fd0ba6d53be223707c2321c",
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // CodeQL-safe test harness follow-up. Clean Flutter 3.44.8 local Release
+  // projection passed the preceding package gates; exact-head hosted signer
+  // and ZIP representation were subsequently observed in job 108595661268.
+  "814deb9875aec475afdc5e4f09cb480a6103c179e86cb756f3c3fd66c3eddfcc": Object.freeze([
+    "1dbe9ec92e70552877672cff4a17f2a0ef91b32bfbfa8229652e9545ee1ac0e2",
+    // Exact-head hosted job 108595661268 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // Fixed pre-native iOS size-baseline string pin and bounded inventory.
+  // A clean Flutter 3.44.8 local Release projection passed the preceding
+  // Android package gates; exact-head hosted signer and ZIP representation
+  // were subsequently observed in job 108593888025.
+  "8e074f30fc1493fce49143000d934c5a509bab59ae909da271bef509ab248aa5": Object.freeze([
+    "1dbe9ec92e70552877672cff4a17f2a0ef91b32bfbfa8229652e9545ee1ac0e2",
+    // Exact-head hosted job 108593888025 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // Bounded baseline bundle diagnostic. Clean Flutter 3.44.8 local Release
+  // projection and exact-head hosted signer/path/catalog/model/fixture-absence
+  // gates passed before the hosted ZIP representation was reported.
+  "52e2f77b7a316dbcf9506c46b1e948d03a54bffddf7cb299296703e571f667d4": Object.freeze([
+    "9a515f8e843b057219186fbfb74cd628a91fdd8aa088f3b9217d34892e567232",
+    // Exact-head hosted job 108568916721 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // Strict Android numeric network-denial probe and bound acceptance source.
+  // Clean Flutter 3.44.8 local Release projection passed preceding package
+  // gates; hosted signer and ZIP representation remain required.
+  "e7fee1ae373984bafa2f9bed4f91162c9784f4521714f3c9484af571272caa56": Object.freeze([
+    "8cb1e3a896d2340cef74f2af33e6de67b3459e2ccc0b1d18f4d64d4846433929",
+    // Exact-head hosted job 108563504199 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
+  ]),
+  // UI Apply probe and its updated acceptance-source catalog binding.
+  // Clean Flutter 3.44.8 local Release projection passed preceding package
+  // gates; hosted signer and ZIP representation remain required.
+  "aa32e13140671dfc2be71e14a43f68d4820a35353b64a09d8b72ca452e86ea08": Object.freeze([
+    "432e00d5724ced434d8e29a4c72187bac2ae10137d68799b0d5ef811a1eb200d",
+    // Exact-head hosted job 108558777700 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "0101dd81f65d5d0f3f764ca73a6112bc2693bb2a457534dc6a35f36e4433e6c6",
+  ]),
+  // Exact file_picker privacy Info.plist byte pin. A clean Flutter 3.44.8
+  // local Release projection passed preceding package gates; hosted signer
+  // and ZIP representation remain required on the published corrective head.
+  "1ae553959f18be6bc8219f972ec89fd16a88e5ca1bc1c2c97b7aab90addeb6f6": Object.freeze([
+    "dc7d506d46f511d047d9c14cf6ca5ce2cece1f73b15b6f2def29c35c37b5eaee",
+    // Exact-head hosted job 108550178930 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact hosted file_picker privacy manifest byte pin. Clean Flutter 3.44.8
+  // local Release projection passed preceding package gates; hosted signer
+  // and ZIP representation remain required on the published corrective head.
+  "0b42e9199bdf90e38df1771642469ec0dc5747a52a6c83f489ebf6fee4e1398c": Object.freeze([
+    "adba54b2422a08e922e54a697b3c4cb75714c6c86110294bdfbfe11ec8c5b292",
+    // Exact-head hosted job 108530881169 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact hosted nanopb privacy Info.plist byte pin. Clean Flutter 3.44.8
+  // local Release projection passed preceding package gates; hosted signer
+  // and ZIP representation remain required on the published corrective head.
+  "de978656b8fbd24192575f3b29bd73710d71894fc6440f8562eab88e3c53dd7e": Object.freeze([
+    "c0e9a68490d62eddf4cbdb5b24e8eda74c0245871de12e65760c00cd2aabb35a",
+    // Exact-head hosted job 108512126886 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact hosted-observed nanopb privacy-manifest byte pin and bounded
+  // unknown framework resource diagnostic. Clean Flutter 3.44.8 local Release
+  // projection passed inventory; hosted signer and ZIP proof remain required.
+  "e6f2428d48e645cbcff7bf952f1243600821786bfd9815e808c85f96f0708db7": Object.freeze([
+    "cb31d67add34e5443445f788a6f2d8b02e17726f2b3523a9cf664c9bcd0fc623",
+    // Exact-head hosted job 108492991785 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact hosted iOS privacy plist byte pin and fail-closed nanopb privacy
+  // manifest diagnostic. Clean Flutter 3.44.8 local Release projection passed
+  // package inventory; hosted signer and ZIP representation remain exact-head proof.
+  "29ce9b4b011121e4fcc3a2305fe5f99b94b450cc213f14994223b7f662ee9f54": Object.freeze([
+    "f8b510c73c69e37699bbdbbd9e31c56efaad83e7a6343bcf3fb2446e67725876",
+    // Exact-head hosted job 108472248533 passed signer, path, catalog, model,
+    // and fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact fail-closed iOS privacy-plist byte diagnostic. Clean Flutter 3.44.8
+  // local Release projection passed package inventory; hosted signer and ZIP
+  // representation remain exact-head proof.
+  "ab62ebd54124119c657e4412fbd32907e90474f1509146f6097a8c748cc63d9f": Object.freeze([
+    "3ba2634b0aafcf1d718d09d9c22a01d6f01345989aac5f4a0a2b9be7dc34d673",
+  ]),
+  // Exact hosted-observed iOS nested privacy plist follow-up. Clean Flutter
+  // 3.44.8 local Release projection passed package inventory; hosted signer
+  // and ZIP representation remain exact-head proof.
+  "2dfc42f2f086ca7a81d480f004acd72e3e166043c007674ccdf7bff5e0088fc4": Object.freeze([
+    "af0bd01c7f2fc5c40b76b5aac37ea9add4670f5f6ed4a4dc2df9aa44a91ee798",
+  ]),
+  // Exact hosted-review diagnostic follow-up. Clean Flutter 3.44.8 local
+  // Release projection passed package inventory; hosted signer/ZIP proof
+  // remains required on the published corrective head.
+  "12140646eda88da668dbf6d279603034fefdad054077cc674cb8bb20e5844d8b": Object.freeze([
+    "2732984b1dae606406fa407bd922b901c51b72dc4b6f168f3c4dbe6308c69d1a",
+    // Independent clean exact-tree Flutter 3.44.8 local Release projection
+    // passed preceding package gates with this ZIP representation.
+    "7259e6c0bd82ddb2318e1188e63748d6b21bfa30aa17d45f0d8c3e2486a03ff4",
+    // Exact-head hosted job 108427406634 passed signer, path, model, and
+    // fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact x86_64 simulator test link and observed nested privacy manifest.
+  // Clean Flutter 3.44.8 local Release projection passed package inventory;
+  // hosted signer and ZIP representation remain exact-head proof.
+  "7debfded6dab18333d66ede85c651eab85a1584a8370b0526dbc0ece3a89ecd2": Object.freeze([
+    "87bcf8e058f255a503fa746fab3d0350589ce668bc31ff7bcf2c6da52a96b278",
+    // Exact-head hosted job 108417510446 passed signer, path, model, and
+    // fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact simulator architecture diagnostic and nested privacy bundle paths.
+  // Clean Flutter 3.44.8 local Release projection passed the preceding
+  // package gates; hosted signer and ZIP representation still need proof.
+  "b8d252c86041cb25e7360aae2224b1981e938b091c503ac7b5f16a71c235dc74": Object.freeze([
+    "397951d6b04074af9599863dd4ba24540e98b38e87b8b1ec1ba51b89aacda2ee",
+    // Exact-head hosted job 108412705574 passed signer, path, model, and
+    // fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Exact iOS nested privacy path and bounded Xcode error-class follow-up.
+  // Clean Flutter 3.44.8 Release projection passed the complete local
+  // package inventory; hosted signer and ZIP representation still need proof.
+  "c41e3b24269643cba64fbaec1dfffa747779fb3e212a2563e614d73416a3edd2": Object.freeze([
+    "83de618ff72699dd536a521c901db7a15682826e0d131f9652177d18b64edb6a",
+    // Exact-head hosted job 108408296023 passed signer, path, model, and
+    // fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
+  ]),
+  // Simulator Runner roots its own test-only link anchor and records the
+  // observed iOS shader bytes. Clean Flutter 3.44.8 Release passed preceding
+  // local package gates; hosted signer and ZIP representation need proof.
+  "8919dccd7e8b2127eb6d425b7f12be7abe6e16833fa95883942b2bd7ca3bcb78": Object.freeze([
+    "56c48d4e2765b6dc4542e15bb445b48381dd657d109055009c682cbc9260608f",
+  ]),
+  // Exact simulator needed-l link probe and trusted iOS notice-byte identity.
+  // Clean Flutter 3.44.8 Release projection passed preceding local package
+  // gates; hosted signer and ZIP representation remain exact-head proof.
+  "e0585c22dadfd083e9131fe09b2777aff750cdc2f4c8b67c95be84e9c28e75f3": Object.freeze([
+    "08e582da8d85657eea3f67bc2372b9a2d1510b2c1023aab7ec25e6721c4e09c7",
+  ]),
+  // Exact simulator forced-symbol link follow-up and bounded iOS asset-path
+  // diagnostic. Clean Flutter 3.44.8 Release projection passed preceding
+  // local package gates; hosted signer and ZIP representation need proof.
+  "ee46898f12864323ed0f978a1279a3a28d02b2d6ea1364ab51b689586a2b2fc5": Object.freeze([
+    "e5c67b451bd79f6f42d8db74df2942961bdfe0e1083285109d2db299e1db860c",
+  ]),
+  // Exact geometry-bound acceptance source and nested iOS privacy resource.
+  // Clean Flutter 3.44.8 production-plugin Release projection passed the
+  // preceding local package gates; hosted signer and ZIP representation
+  // still require exact-head proof.
+  "cb824935b15a5f5df86a31dc879f064bdba28d2ed06b3375e8dafaa5a920108b": Object.freeze([
+    "3cb6d6166427f6575fed50d91103b31af73a104ec68870f64bb158334800b923",
+  ]),
+  // Simulator-only C link anchor and exact nested privacy resource. Clean
+  // Flutter 3.44.8 local Release projection passed the preceding package
+  // gates; hosted signer and ZIP representation require exact-head proof.
+  "b5d1a225ff9ff282075c2c0696b9482a39a399f2f6c1a695d659d4df8a8dda37": Object.freeze([
+    "c5271c7b8ac25ea19179ec324c994dc851454b33cabc7adb7e3349cd1fbe487d",
+  ]),
+  // Exact local Flutter 3.44.8 Release projection after the simulator-only
+  // symbol probe and pinned Flutter engine resource inventory. Hosted signer
+  // and ZIP representation still require this exact-source job evidence.
+  "0dc6740398efde64750dd2fa1bb54726f97562f1b5d246d557c9e692b36fd190": Object.freeze([
+    "281700fb57f84dca0a52cd970f29ed9616aa31c523f45ce5e1269c0f7a1a1c0e",
+  ]),
+  // The Runner simulator link now proves both inputs on one exact invocation;
+  // iOS admits the observed GoogleUtilities plist.
+  // Canonical Flutter 3.44.8 local APK strict verification passed; hosted
+  // signer and ZIP representation remain exact-head requirements.
+  "ecf77098a60ff25255ea9ec2852d847c5e4a5632e5642ba6a417f54ca109620c": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
+  // Simulator-only forced load command replaces the failing Swift symbol
+  // probe; exact GoogleUtilities privacy sibling is admitted on iOS. The
+  // canonical Flutter 3.44.8 local APK passed strict package verification.
+  // Hosted signer and ZIP representation remain exact-head requirements.
+  "66660afee3239cfa866958d7a11fd1ec3c3d15b4a217111b222b6e90cc365e2d": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
+  // Exact iOS nested privacy-bundle and bounded linker-diagnostic follow-up.
+  // Canonical Flutter 3.44.8 plugin projection passed the strict local APK
+  // verifier; exact-head hosted signer and ZIP evidence remain required.
+  "40c99f472fa30946adbb1172b351e2d9ab6e60ed9d6ba9a4638738be4f40f813": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
+  // Bounded stdin link diagnostics and actual-provider Apply option proof.
+  // Exact Flutter 3.44.8 production-plugin projection passed local package
+  // gates; the hosted signer and ZIP representation require exact-head proof.
+  "b010342f4de3c20b9ce17b764c5c5396e54a9f535974a13046068e8d3090279a": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
+  // Exact iOS native-link diagnostics and FBLPromises privacy path. The
+  // retained clean Flutter 3.44.8 Release projection passed local catalog,
+  // model, fixture-absence, path, and entry checks; hosted signer and ZIP
+  // representation must still be proven on this exact source head.
+  "48fde73c108b23cb362826bb1d0a175d18b6ffbf610e65943eece2ab63ea6db4": Object.freeze([
+    "60fbb95aab20b7c5ed3cb59a9f5ca466a1f1221f954a265cc1c09910d231cd62",
+  ]),
+  // Simulator AppDelegate link probe and pinned UI fixture with exact
+  // source-SHA guard. Clean Flutter 3.44.8 Release projection passed local
+  // package gates; hosted signer and ZIP representation remain required.
+  "54506c84415345f1aa112f43251b898707ce1713a67c8d0fea1535d5506dd35d": Object.freeze([
+    "60fbb95aab20b7c5ed3cb59a9f5ca466a1f1221f954a265cc1c09910d231cd62",
+  ]),
+  // Exact simulator linker-search and nested privacy-resource follow-up.
+  // Clean Flutter 3.44.8 Release projection passed local package gates;
+  // hosted signer and ZIP representation remain required.
+  "89abdc913e515e9e8653e522bc5908bce73714051ccadd504c143d4162763503": Object.freeze([
+    "b5add95a4e2eba96f15e7b06b2b4830c16452fef4c29e29303c99e10d9293c8f",
+    // Exact-head hosted job 108333798391 passed signer, path, catalog,
+    // model, and fixture-absence checks before reporting this representation.
+    "9a79e9675943035b6f9887de3b99f2de62ac39c210b7382956ffb63f34f0b985",
+  ]),
+  // Exact seven-path iOS simulator link and unsigned-resource follow-up.
+  // Clean Flutter 3.44.8 Release projection passed every local package gate;
+  // hosted signer and representation remain exact-head requirements.
+  "231a09bad33fae0a509fcd633848a95cba9c43c976e543586a13407d97226b0a": Object.freeze([
+    "abe08a0d15e5c042ec0ade32354c4113da2d683120083525313e085f7f8c91e1",
+    // Exact-head hosted job 108327752348 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this representation.
+    "9a79e9675943035b6f9887de3b99f2de62ac39c210b7382956ffb63f34f0b985",
+  ]),
+  // Exact follow-up after validating the built Runner scheme settings. The
+  // projected Flutter 3.44.8 Release APK passed local strict verification;
+  // hosted signer and ZIP representation still require exact-head proof.
+  "0dfcca217029e5c853c2ee9f4740fbb9f73add735e8f061b11820164ff3385ac": Object.freeze([
+    "a49272491c9a47c170361ec06f0b3bceb3d9258c4e9c6fbab6559a56d607cbd5",
+    // Exact-head hosted job 108318930976 passed signer, path, catalog,
+    // model, and fixture-absence checks before reporting this representation.
+    "9a79e9675943035b6f9887de3b99f2de62ac39c210b7382956ffb63f34f0b985",
+  ]),
+  // Bounded Apply handoff diagnostics with the acceptance source rebound in
+  // the trusted catalog. Clean local Flutter 3.44.8 Release projection;
+  // hosted signer and ZIP representation still require exact-head proof.
+  "b33412a769497759afa1652afa39244435b27e9570a9a97aa392e7a242ea59fe": Object.freeze([
+    "d34226db4c9d49b0480033ef290607bca3f84ab0adf048032c80b64fcbbfc6e6",
+    // Exact-head hosted job 108311257068 passed signer, path, model, and
+    // fixture-absence checks before reporting this ZIP representation.
+    "86693b38ae65bc5ed245c29e6a928aaac3f1644764ec6020db34c83e5ae7f041",
+  ]),
+  // Test-only iOS simulator link verification and reviewed compiled nib
+  // classification. Android build inputs are unchanged; hosted exact-head
+  // signer and ZIP representation still require proof.
+  "5757b13b2301696fe9bd74e89578eb25eda87caf6f4a8d661b13302aa83d2438": Object.freeze([
+    "ab04b0e09a523c20338627ffd2c57b3924aa84c9169b4a2894235b71cf0d7d69",
+  ]),
+  // Canonical DateField UI proof, Debug dylib preflight, and bounded iOS
+  // opaque-resource diagnostics. Clean Flutter 3.44.8 Release projection;
+  // hosted job 108273080304 proved signer and the second representation.
+  "53a5a4dbe5393ccd2ccfacf629e9ad33b5dae70b463f0f88061a59f0a6185091": Object.freeze([
+    "184c0f967f667215d39777a506af6222c6f6c9f0e404707b36d9abcfa3c31b4a",
+    // Exact-head hosted job 108273080304 passed signer, path, model, and
+    // fixture-absence checks before reporting this ZIP representation.
+    "20ab78ea9e2248abfa34ab6f8f081dc4c82ad79ed6bb96d64691ab580a8f9ec1",
+  ]),
+  // Exact iOS Xcode Debug dylib link check and bounded opaque-resource
+  // diagnostics. Android inputs are unchanged; the prior clean Flutter
+  // 3.44.8 Release APK passed strict verification under this source tree.
+  "ed20e3296e4986f725f62e29b207e9957def9364112745f83c30103f9d430d2b": Object.freeze([
+    "7cec98e06c6eb872af8b6fc219faa16e183257465b5f776ea3b45a2d028487c9",
+  ]),
+  // Exact bounded UI stages and controlled Apply handoff proof. Clean
+  // Flutter 3.44.8 Release projection; hosted signer, exact paths, model,
+  // and fixture-absence checks observed the second digest in job 108262217243.
+  "4f57028560ef7bf369cf1f6343f7127f2d36838b5b0d1acb12d62704998f64ee": Object.freeze([
+    "7cec98e06c6eb872af8b6fc219faa16e183257465b5f776ea3b45a2d028487c9",
+    "b4aed0d10c8a62460a3c1cdf4c928f040f9296d5ce3a5405c8a5533ea561f92e",
+  ]),
+// Exact selected Apply destination proof with bound catalog. Clean Flutter
+  // 3.44.8 Release projection; hosted signer and representation need proof.
+  "ee613e60e009570ccd62803060505e49c52b6bcc77c59ef0c480cd401467fdf2": Object.freeze([
+    "70b9d8be2674c297e701fa67eb84cde08257d671e1d35e6c13d592cdb862089e",
+  ]),
+  // Exact native UI handoff and Xcode resource correction, with the acceptance
+  // catalog rebound to the updated real-provider test. Clean Flutter 3.44.8
+  // Release projection; hosted signer and representation still require proof.
+  "42c540b5404f6ce3d25d970d1c0f226cc0f6579f2f73bd95d9e6cec8680f4f98": Object.freeze([
+    "29a2d524987132092f6460fbe24bcd95d917697cec360e07d799be17e087fff9",
+  ]),
+  // UI handoff now binds the real provider response while the complete corpus
+  // retains semantic truth checks. Clean Flutter 3.44.8 Release projection;
+  // hosted exact-head representation still requires reproof.
+  "0bef102f66cecb7e05d3869d04ca426df94ac50af05cba332a85b17652f239e4": Object.freeze([
+    "59a8e71dbc2b643ec9632f8524262be08f37f448f38d737d85f262c7ac4b09be",
+  ]),
+  // Hosted review follow-up strengthens iOS package and UI evidence; Android
+  // package inputs are unchanged. Local representation passed strict review;
+  // the second representation was observed after signer, exact path, model,
+  // legal-artifact, and fixture-absence checks in hosted job 108224162571.
+  "0dc9f2201df46a5031621867ce6a5df9e5b13a36814f939fa857900650781a30": Object.freeze([
+    "0caceaa079326b5e1de3a4e5a681ec4f9917056094b45cec25d93bf92ce702dd",
+    "054b05fbe3ac3e5987c1a00109c763d63dbbc48cf2d8d023cd643b51a13a0bc3",
+  ]),
+  // Fixed-command nested-bundle policy regression; APK inputs unchanged.
+  // Local representation passed strict verification, hosted reproof required.
+  "123ea0885d2060c98bb89849a3815d42715775b1590d241d224ec1469009f03f": Object.freeze([
+    "754737d69df2409e1e1fe265b3eb003335980e6bc450f2d1a4a44adf57b601f2",
+    "69470e8594e11481160ef3b1415f22bae77a4901d2bacb89e813e60196946a8c",
+  ]),
+  // Exact iOS Debug config and package-resource correction. Android inputs
+  // are unchanged; local representation verified, hosted reproof required.
+  "f7464e6457fabff7dddd30d233c312c05b24fed143bf9e50fb48eede552cd311": Object.freeze([
+    "754737d69df2409e1e1fe265b3eb003335980e6bc450f2d1a4a44adf57b601f2",
+    "69470e8594e11481160ef3b1415f22bae77a4901d2bacb89e813e60196946a8c",
+  ]),
+  // Exact bounded iOS diagnostic follow-up. Android package inputs remain
+  // unchanged; the first representation passed the complete local Release
+  // projection, while the second requires exact-head hosted reproof.
+  "a5a90b2b46d7b5794f2eaa0763ae9a36a6f36a692a0149847f716937f9ebb251": Object.freeze([
+    "754737d69df2409e1e1fe265b3eb003335980e6bc450f2d1a4a44adf57b601f2",
+    "69470e8594e11481160ef3b1415f22bae77a4901d2bacb89e813e60196946a8c",
+  ]),
+  // Exact iOS acceptance-link and locked-framework inventory correction.
+  // Android package inputs are unchanged; the complete local Release
+  // projection produced the first digest. The second
+  // digest is the reviewed hosted representation from job 108134556526 and
+  // must be re-proven on the new exact head before acceptance.
+  "32a7e3d69a5d91ddfe7df97d81891172965a91fcb25e65b0a3d4aae99fff0ab9": Object.freeze([
+    "754737d69df2409e1e1fe265b3eb003335980e6bc450f2d1a4a44adf57b601f2",
+    "69470e8594e11481160ef3b1415f22bae77a4901d2bacb89e813e60196946a8c",
+  ]),
+  // Exact candidate tracked tree excluding this inventory file. Clean local
+  // Flutter 3.44.8 Release projection with strict Gradle evidence, the
+  // production plugin graph, and the updated bound acceptance catalog.
+  // The second entry was observed after signer, exact path, expanded model,
+  // legal artifact, and fixture-absence checks in exact-head hosted job
+  // 108134556526 on GitHub-hosted ubuntu-24.04.
+  "4895cd8dd88f33c39c5513128d1b64fbce8a7da880bf873077fc86ca46087c62": Object.freeze([
+    "57de81460d733fe85576ffc60d532ccff23d40d8b58fd3f621962b36d0345fd8",
+    "69470e8594e11481160ef3b1415f22bae77a4901d2bacb89e813e60196946a8c",
+  ]),
+  // #1309 parser-normalized bounded row diagnostics at 81130f95. Clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; exact hosted signer proof remains required.
+  "1a36442518c194d57aed5660f127009c108dc6b182a95c4deaee65fc23588228": Object.freeze([
+    "a2cfc491e0b0c299ebcc45a9e163968174bbb983549d5c8d65af6ee174b7363d",
+  ]),
+  // #1309 bounded item-pattern and selected-origin diagnostics at ca8d1773.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; exact hosted signer proof remains required.
+  "dfebdc024c8ce2deed04b2617ad5c77b25af084214c11805c452f532c0d5f284": Object.freeze([
+    "d4dd987ae58100e330e8cce295657babc086a39cdba4613709f4a4c68c0ae393",
+  ]),
+  // #1309 joined printed currency and dong parser correction at 5843cb47.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; exact hosted signer proof remains required.
+  "f9256f86108c861862684a6abb0583c756060baea395341a26c35c18e766256e": Object.freeze([
+    "6ab61a499386a2f3301b3566ca2b193bd2dba9baa47f488e180280fc2d5a6bdd",
+  ]),
+  // #1309 printed promotion reconciliation at 0f7681ea. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence checks. Local signer was
+  // mocked; exact hosted signer proof remains required.
+  "7a6d3899f4dc3da7866a2f3289a15bcc848a7b6c970532c47f62728bb15c63df": Object.freeze([
+    "f86c45958df261e38a77e6c984bf97398ebd01fdcebfcaa4ad99f4f9c235ca2b",
+  ]),
+  // #1309 review edit preservation at f685b79f. Clean Flutter 3.44.8
+  // Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence checks. Local signer was
+  // mocked; exact hosted signer proof remains required.
+  "f3d4f8da7627b855b5f0dbdf2af26094d78646dea1b094b61760a00b15de8b96": Object.freeze([
+    "84cbdc99825410667efcf64910ea5a253110ba7656c9460831135c5214533eb5",
+  ]),
+  // #1309 safe discount persistence at 697d10be. Clean Flutter 3.44.8
+  // Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence checks. Local signer was
+  // mocked; exact hosted signer proof remains required.
+  "6cdf2d9386fd6f25b577a067a53ee2645de7ede27d970e000aa751e655da7e85": Object.freeze([
+    "1c6fc5c7aa121654a687b67b84b16518ccaeef14e2f264d94b86e78f28767b31",
+  ]),
+  // #1309 labeled invoice and bill columns at 28f8f059. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence checks. Local signer was
+  // mocked; exact hosted signer proof remains required.
+  "27ed73a9b2e00bc5fd826b7b9b164331d9f6088a4c308830f95fdd94270a9ef1": Object.freeze([
+    "cdc216bf80333d22704ba34a82c70c144d19c5c00473ad8a75a13c3b9cdec8d1",
+  ]),
+  // #1309 amount-column and description safeguards at b6de9807. Clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; exact hosted signer proof remains required.
+  "5315a8d15e5294dc7817d4d411090a4e2d915b2dd567b0259581a6588ecc30dc": Object.freeze([
+    "78597ddb68c86dac4bb1cfd3cf0c5b185a3ed788b72ef31f416c82f983c6789b",
+  ]),
+  // #1309 standalone balance/deposit roles and source-backed hotel truth at
+  // d8a75b55. Clean pinned Flutter 3.44.8 Release projection passed
+  // archive/path, catalog, 14-model, legal-resource, and 102-fixture-absence
+  // checks. Local signer was mocked; hosted signer proof remains required.
+  "3a8f1be4c0c053f6069d898844af86f73b0492fadcb9931e8a648efcfe70c6c6": Object.freeze([
+    "aa96df4c2c5e4e8aa54bd012758c9e607320914e365e388120c238d22e769352",
+  ]),
+  // #1309 amount-column adjustment roles and source-backed utility truth at
+  // eabcc2ae. Clean pinned Flutter 3.44.8 Release projection passed
+  // archive/path, catalog, 14-model, legal-resource, and 102-fixture-absence
+  // checks. Local signer was mocked; hosted signer proof remains required.
+  "a4b9e208b3acf02c9cf517980fa56e4db20bb6ced834261a2ecd646f0baf3cd9": Object.freeze([
+    "593b38959a13ff914607356adc912e9236ee7373e6960e0f6efb954aff5941d3",
+  ]),
+  // #1309 audited utility roles at 0fa723dd. Clean pinned Flutter 3.44.8
+  // Release projection passed archive/path, catalog, 14-model, legal-resource,
+  // and 102-fixture-absence checks. Local signer was mocked; hosted signer
+  // proof remains required.
+  "0d2bac79c24404301dd59f6aed78a73b454aef51f95e90679c57d3d35c6e8575": Object.freeze([
+    "d3913745c42165d922a7e03eed6a7748d0b406483e2dd8e709c69a546a68406f",
+  ]),
+  // #1309 layout adjustment and bounded footer roles at 04dc846c. Clean
+  // pinned Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; hosted signer proof remains required.
+  "60ac9c7aea32fdf1f37591d50f0860fd466414a5e4f69569acb40962ac74a2e9": Object.freeze([
+    "25e28982fece418b748cb83cc3b833614fd8a18d17e4cfe4e8d6b6878393db12",
+  ]),
+  // #1309 review-corrected charge and courtesy roles at ffe1aa31. Clean
+  // pinned Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; hosted signer proof remains required.
+  "86f5f6076c1e30e57480e78e7fa8cd2f197ca767625e98cdc2e082eff4ad0b75": Object.freeze([
+    "06d48a70cc2bdffc9cbbf0ecd97549f678459fb30a516e6eb810db1b5ff6d98b",
+  ]),
+  // #1309 courtesy-line review correction at 583de39e. A local Flutter
+  // 3.44.8 Release build from the clean tracked worktree, after production
+  // plugin preparation, passed archive/path, catalog, 14-model, legal, and
+  // 102-fixture-absence checks. Local signer was mocked; hosted proof remains.
+  "73d852866447252a3f3cb7ab99686e84a1a83314650b83c0f694c875628e1a07": Object.freeze([
+    "f91f44019de9f7374ace507e26b3f8fcf8c36fd74557e20198bb6d9933c7f4da",
+  ]),
+  // #1309 bounded shopping-footer correction at 800ecbf4. Local Flutter
+  // 3.44.8 Release build passed archive/path, catalog, 14-model, legal, and
+  // 102-fixture-absence checks after production plugin preparation. Local
+  // signer was mocked; hosted signer and native semantic proof remain.
+  "0ac07710e096d30431f3c8ffaa751da6599c8762e361a6ff08bc42aaff58240b": Object.freeze([
+    "87f87cdbcfd452ee616144b6a270d3f0e8e63ef419adab81278ae97a75d589c6",
+  ]),
+  // #1309 post-total tender/courtesy ordering correction at 1bad5955.
+  // Local Flutter 3.44.8 Release build passed archive/path, catalog,
+  // 14-model, legal, and 102-fixture-absence checks after production plugin
+  // preparation. Local signer was mocked; hosted/native proof remains.
+  "a6ede0bc25fa4e82a8f76dc58f94ab57d872d96f5f8e69c50a21e6e53761d90c": Object.freeze([
+    "30b771d8501ea360f4238d4d6d8bcea2a0c1fc39caa8b973e48149e3b83fdc8f",
+  ]),
+  // #1309 source-backed GST truth and bounded footer roles at a075f03d.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; hosted signer and native acceptance proof remain required.
+  "4b4498fc63e9b869dc40af537262f4dfe192e8353a80172e7852a8cdf887e43a": Object.freeze([
+    "708ada4912c4d77a2192d4831ddc541cf90d80aa8025465bc4c06e83f8a02f35",
+  ]),
+  // #1309 approved Android emulator build pin at 42139905. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence checks. Against the prior clean
+  // build, all 444 entry paths and 438 entry payloads match; the six changed
+  // native libraries include an embedded projection path and ELF build IDs.
+  // Local signer was mocked; hosted signer/native proof remains required.
+  "dff8ae67ea4ca2a99b9fa77b99610e94434f8471d6b1030449493c1dba01ad6d": Object.freeze([
+    "16233d9f912f60c00e64f0887f2d0a4c28eebe76ecb09d90240d018a28d5712f",
+  ]),
+  // #1309 executable-version preflight at e9e00b7a. A clean Flutter 3.44.8
+  // Release projection passed archive/path, catalog, 14-model, legal-resource,
+  // and 102-fixture-absence checks. All 444 entry paths and 438 payloads match
+  // the prior clean build; six native libraries differ in build path/IDs.
+  // Local signer was mocked; hosted signer/native proof remains required.
+  "4f6be7e1847b087e5097083a6ba13ce8d73930ff4afc3fedd7e117c69c493662": Object.freeze([
+    "ad536a5aa79ebeea4a81a6482a69dfc312bbe7e6c56423ac645ac8537e024607",
+  ]),
+  // #1309 archive-metadata preflight and bounded package comparison at
+  // 1a8090f6. A clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence checks. The
+  // 438 non-native entry payloads match the prior clean build; six native
+  // libraries differ with build paths/IDs. Local signer was mocked; hosted
+  // signer and native acceptance proof remain required.
+  "92c1add1bfc720de5f3e55cca824a1ffb9944dd814c10d05662b6b6675cb7578": Object.freeze([
+    "907d550ecc01d4215d785a53ec84c824c7599d7a02cf2a34824435db8d7ac35a",
+  ]),
+  // #1309 printed tax truth and tax-context warning correction at 278ddf51.
+  // A clean pinned Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence gates.
+  // Local signer was mocked; hosted signer and native acceptance remain due.
+  "59a9ff0b5a3029f6856643774abfb48cdacb0b8d2072f2ec1514eddd28ef376d": Object.freeze([
+    "222bb8414817e027b8f3025ecfc80394173bb3487f163a15235a55e82ea39e5d",
+  ]),
+  // #1309 exact-a0d selected-NDK path normalization. The hosted a0d
+  // Android package verifier emitted this unreviewed entry-representation
+  // digest. An exact-root local build reproduced that digest and the bounded
+  // package comparison evidence; signer validation remains a separate gate.
+  "6559d1700a979ab6312285c15b7eef168a63f13a09c1a45f6f2fa9d2e2380996": Object.freeze([
+    "f787542a25a33cdeec0d7b3661b067947e7a1834a01863d353d0826afe8677a5",
+  ]),
+  // #1309 final DCC subtotal/prose correction at ff2356da. One clean
+  // exact-root Flutter 3.44.8 APK passed signer, archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates before this
+  // source-bound digest was supplied in memory. Hosted exact-head package
+  // identity and native acceptance remain pending.
+  "a619e4c9b97fc0fecd37ca3ecc43bb368797dd42cf244a9c1c93f2b66104b96c": Object.freeze([
+    "36df2ff773ffd042e14f1743056508dd1373d37ab2715e90d3c5275f2d0bc7a0",
+  ]),
+  // #1309 combined source-image parser, DCC truth, and cross-currency Apply
+  // guard at d3b068a9. One clean canonical-root Flutter 3.44.8 Release APK
+  // passed local signer, archive/path, catalog, 14-model, legal-resource,
+  // and 102-fixture-absence gates with this digest supplied in memory.
+  // Hosted exact-head package identity and native acceptance remain pending.
+  "091c00594b2e8e815efb1ff87eff40b7f52ca7a55cee028bd3d5a861a5d7e07c": Object.freeze([
+    "38c2a316db82890c5a8a5d434c4e1e6904328742f6b8d3c5cddb97d63b8fa5ae",
+  ]),
+  // #1309 provider-backed DCC courtesy footer at c24cc962. One clean
+  // canonical-root Flutter 3.44.8 Release APK passed local signer,
+  // archive/path, catalog, 14-model, legal-resource, and
+  // 102-fixture-absence gates with this digest supplied in memory.
+  // Hosted exact-head package identity and native acceptance remain pending.
+  "8034dba3c739e28556995aba7e1bf0163fca5cb894d13b059ebdcc982c34375f": Object.freeze([
+    "f2b01b47f95a5b18bb7323956ce526ae0669d894345a7613702b5519397e17f7",
+  ]),
+  // #1309 layout-aware parser candidate at c2cbdf41. One clean canonical-root
+  // Flutter 3.44.8 Release APK passed local signer, archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates with this digest
+  // supplied in memory. Hosted exact-head package and native proof is pending.
+  "8511517c190c982ad52a792718b86efb49d8d87eab6cdbef11a8c18bb5cd2e37": Object.freeze([
+    "96ce32df0817f0dd656c02a7dc1105fc79edbf1aa767cbd6af3c2d839df61159",
+  ]),
+  // #1309 numeric usage/rate parser correction at 427908ac. One clean
+  // canonical-root Flutter 3.44.8 Release APK passed the unchanged local
+  // signer, archive/path, catalog, model, legal-resource, and fixture-absence
+  // verifier with this digest supplied in memory. Hosted exact-head native
+  // acceptance is pending; this inventory entry does not waive that gate.
+  "d7c47bff20a71ea4664dd5c622b51034e330ec99233d273752900ac76c744ae7": Object.freeze([
+    "8665dd6d25d3f1c5ab32f22ecd26cda9c873dab2e621ee6117eadb066a961081",
+  ]),
+  // #1309 CityLight geometry and reviewer corrections at c4d34ab3. One
+  // isolated Flutter 3.44.8 Release APK passed the local signer, archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence gates with this
+  // digest supplied in memory. Hosted #1308 Android job 111333855309 passed
+  // the preceding signer, archive/path, catalog, model, legal, and fixture
+  // gates, then reported the second digest. Its bounded comparison matches
+  // all 438 non-native entries and all libdartjni.so bytes; only libapp.so
+  // AOT sections differ. A controlled same-source build at the hosted root
+  // length reproduced the AOT section-size pattern and embedded build path.
+  // This additional exact representation does not waive native acceptance.
+  "06e9effc08ae7ace3d02ec94e5783898b7785ba9e6e2be8c4703515505e07304": Object.freeze([
+    "ce309d66134d7e1220073ce1e5583cf4ab656acc92c26138ceaa880caef812b5",
+    "9f3c0c4810a763469d919f2a8ac3f000f9d498595058df410ae123513d2db5f4",
+  ]),
+  // #1309 invoice-table review bounds at 5288dcbc. One clean Flutter 3.44.8
+  // Release APK built at the exact hosted Android root passed the unchanged
+  // signer, archive/path, catalog, 14-model, legal-resource, and 102-fixture
+  // absence gates with this measured representation digest supplied in memory.
+  // Hosted exact-head package and native acceptance remain separate gates.
+  "5809b66c11391b4c61b760d76d9816ea3c31995a54ecdc5739032803ddd634ea": Object.freeze([
+    "1295f48ed43e881ca5403aa44b598753bbbbee36d609f0f3076f2c68a5f90f7d",
+  ]),
+  // #1309 utility date and total-role correction at a5ece418. One clean
+  // Flutter 3.44.8 Release APK built at the exact hosted Android root passed
+  // the unchanged signer, archive/path, catalog, 14-model, legal-resource,
+  // and 102-fixture absence gates with this measured digest supplied in memory.
+  // Hosted exact-head package and native acceptance remain separate gates.
+  "b73bb08b3c61714590524d53c7348b7cc9d41fd6857d91e06c15bf6d30f7d4ed": Object.freeze([
+    "6017fd45641ec7ff845954d8c64202c317da0dc32f0dcbd10fd1c69b2d7c7be9",
+  ]),
+  // #1309 buyer-copy product-table boundary at 9ea2ca48. One clean Flutter
+  // 3.44.8 Release APK built at the exact hosted Android root passed the
+  // unchanged signer, archive/path, catalog, 14-model, legal-resource,
+  // and 102-fixture absence gates with this measured digest supplied in memory.
+  // Hosted exact-head package and native acceptance remain separate gates.
+  "90b25dc7c5bef3b3f527b53ac8a9010aca950b679bccef11ed149e42f9c1efed": Object.freeze([
+    "ee593c188731a343d31146b88ec298c45c45decd16ecd155fec442c29dfb2d8c",
+  ]),
+  // #1309 bounded utility column recovery at 09dfbd22. One clean Flutter
+  // 3.44.8 Release APK built at the exact hosted Android root passed the
+  // unchanged real local signer, archive/path, catalog, 14-model, legal,
+  // and 102-fixture absence gates with this measured digest supplied in memory.
+  // Hosted signer/package proof and native acceptance remain separate gates.
+  "779ecbe1de749982eaee19967b47a01264443d250137d4caf161e5debe58e7a0": Object.freeze([
+    "3c45a5d26d06d424f7f896140ffcebdb71bf845552a2ea075132d8e3af11a5ad",
+  ]),
+  // #1309 reviewed summary-card ownership source at 40cc20a3.
+  // Fresh canonical-root Flutter 3.44.8 Release archive passed path, catalog,
+  // 14-model, legal-resource and 102-fixture-absence gates with a real local
+  // debug-signature check. Hosted package/native and release gates remain.
+  "68714fa9c53234b56cf86ba07fdb99b162dcd1f9821c1886d2021f5a1ee8da28": Object.freeze([
+    "c2fa4531c9969f8e7886c624cb18e4cfdb40a772bb3b3236883007ccc4f58c42",
+  ]),
+  // #1309 reviewed owned utility fee source at 64167b7e.
+  // One pinned canonical-root Flutter 3.44.8 Release APK passed path, catalog,
+  // 14-model, legal-resource and 102-fixture-absence gates with a real local
+  // debug-signature check. Hosted package/native and release gates remain.
+  "8bad464061927e574542c780a533870978c82d538a95475518fce02ad241aa30": Object.freeze([
+    "4ec98e86f75cd38923869105e793a6bb88c15e97ceda6fb189ae2336c3b4cee2",
+  ]),
+  // #1309 total ownership beside a separate contact column at 7caafa20.
+  // Canonical Flutter 3.44.8 Release APK passed real signature, archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence checks.
+  // Exact-head hosted package/native acceptance remains required.
+  "9279944a35006d0e30420f8dc2dd7243e283f9895ea2a43f11f75d4e12d7bb7a": Object.freeze([
+    "c60147e64d135efae8707b6196dfc74d82b4d8f9f406aea9109c58927b9f6343",
+  ]),
+});
+export const expectedAndroidNonOcrEntries = Object.freeze([
+  "AndroidManifest.xml",
+  "DebugProbesKt.bin",
+  "META-INF/DEPENDENCIES",
+  "META-INF/androidx.activity_activity.version",
+  "META-INF/androidx.annotation_annotation-experimental.version",
+  "META-INF/androidx.appcompat_appcompat-resources.version",
+  "META-INF/androidx.appcompat_appcompat.version",
+  "META-INF/androidx.arch.core_core-runtime.version",
+  "META-INF/androidx.compose.runtime_runtime-annotation.version",
+  "META-INF/androidx.core_core-ktx.version",
+  "META-INF/androidx.core_core-viewtree.version",
+  "META-INF/androidx.core_core.version",
+  "META-INF/androidx.cursoradapter_cursoradapter.version",
+  "META-INF/androidx.customview_customview.version",
+  "META-INF/androidx.drawerlayout_drawerlayout.version",
+  "META-INF/androidx.emoji2_emoji2-views-helper.version",
+  "META-INF/androidx.emoji2_emoji2.version",
+  "META-INF/androidx.exifinterface_exifinterface.version",
+  "META-INF/androidx.fragment_fragment.version",
+  "META-INF/androidx.interpolator_interpolator.version",
+  "META-INF/androidx.lifecycle_lifecycle-livedata-core-ktx.version",
+  "META-INF/androidx.lifecycle_lifecycle-livedata-core.version",
+  "META-INF/androidx.lifecycle_lifecycle-livedata.version",
+  "META-INF/androidx.lifecycle_lifecycle-process.version",
+  "META-INF/androidx.lifecycle_lifecycle-runtime.version",
+  "META-INF/androidx.lifecycle_lifecycle-viewmodel-savedstate.version",
+  "META-INF/androidx.lifecycle_lifecycle-viewmodel.version",
+  "META-INF/androidx.loader_loader.version",
+  "META-INF/androidx.navigationevent_navigationevent.version",
+  "META-INF/androidx.profileinstaller_profileinstaller.version",
+  "META-INF/androidx.savedstate_savedstate.version",
+  "META-INF/androidx.startup_startup-runtime.version",
+  "META-INF/androidx.tracing_tracing.version",
+  "META-INF/androidx.vectordrawable_vectordrawable-animated.version",
+  "META-INF/androidx.vectordrawable_vectordrawable.version",
+  "META-INF/androidx.versionedparcelable_versionedparcelable.version",
+  "META-INF/androidx.viewpager_viewpager.version",
+  "META-INF/androidx.window.extensions.core_core.version",
+  "META-INF/androidx.window_window-java.version",
+  "META-INF/androidx.window_window.version",
+  "META-INF/androidx/annotation/annotation/LICENSE.txt",
+  "META-INF/com/android/build/gradle/app-metadata.properties",
+  "META-INF/kotlinx_coroutines_android.version",
+  "META-INF/kotlinx_coroutines_core.version",
+  "META-INF/services/C2.a",
+  "META-INF/services/C2.b",
+  "META-INF/services/org.apache.tika.metadata.filter.MetadataFilter",
+  "META-INF/version-control-info.textproto",
+  "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+  "assets/dexopt/baseline.prof",
+  "assets/dexopt/baseline.profm",
+  "assets/flutter_assets/AssetManifest.bin",
+  "assets/flutter_assets/FontManifest.json",
+  "assets/flutter_assets/NOTICES.Z",
+  "assets/flutter_assets/NativeAssetsManifest.json",
+  "assets/flutter_assets/fonts/MaterialIcons-Regular.otf",
+  "assets/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf",
+  "assets/flutter_assets/shaders/ink_sparkle.frag",
+  "assets/flutter_assets/shaders/stretch_effect.frag",
+  "assets/mlkit-google-ocr-models/aksara/aksara_page_layout_analysis_rpn_gcn.binarypb",
+  "assets/mlkit-google-ocr-models/aksara/aksara_page_layout_analysis_ti_rpn_gcn.binarypb",
+  "assets/mlkit-google-ocr-models/gocr/gocr_models/line_recognition_legacy_mobile/Latn_ctc/optical/assets.extra/LabelMap.pb",
+  "assets/mlkit-google-ocr-models/gocr/gocr_models/line_recognition_legacy_mobile/Latn_ctc/optical/conv_model.fb",
+  "assets/mlkit-google-ocr-models/gocr/gocr_models/line_recognition_legacy_mobile/Latn_ctc/optical/lstm_model.fb",
+  "assets/mlkit-google-ocr-models/gocr/gocr_models/line_recognition_legacy_mobile/Latn_ctc_cpu.binarypb",
+  "assets/mlkit-google-ocr-models/gocr/gocr_models/line_recognition_legacy_mobile/tflite_langid.tflite",
+  "assets/mlkit-google-ocr-models/gocr/layout/line_clustering_custom_ops/model.tflite",
+  "assets/mlkit-google-ocr-models/gocr/layout/line_splitting_custom_ops/model.tflite",
+  "assets/mlkit-google-ocr-models/taser/detector/region_proposal_text_detector_tflite_vertical_mbv2_v1.bincfg",
+  "assets/mlkit-google-ocr-models/taser/detector/rpn_text_detector_mobile_space_to_depth_quantized_mbv2_v1.tflite",
+  "assets/mlkit-google-ocr-models/taser/rpn_text_detection_tflite_mobile_mbv2.binarypb",
+  "assets/mlkit-google-ocr-models/taser/segmenter/tflite_script_detector_0.3.bincfg",
+  "assets/mlkit-google-ocr-models/taser/segmenter/tflite_script_detector_0.3.conv_model",
+  "assets/mlkit-google-ocr-models/taser/segmenter/tflite_script_detector_0.3.lstm_model",
+  "assets/mlkit-google-ocr-models/taser/taser_script_identification_tflite_mobile.binarypb",
+  "assets/mlkit-google-ocr-models/taser_tflite_gocrlatin_mbv2_scriptid_aksara_layout_gcn_mobile_engine.binarypb",
+  "assets/mlkit-google-ocr-models/taser_tflite_gocrlatin_mbv2_scriptid_aksara_layout_gcn_mobile_engine_ti.binarypb",
+  "assets/mlkit-google-ocr-models/taser_tflite_gocrlatin_mbv2_scriptid_aksara_layout_gcn_mobile_recognizer.binarypb",
+  "assets/mlkit-google-ocr-models/taser_tflite_gocrlatin_mbv2_scriptid_aksara_layout_gcn_mobile_runner.binarypb",
+  "assets/mlkit-google-ocr-models/taser_tflite_gocrlatin_mbv2_scriptid_aksara_layout_gcn_mobile_runner_ti.binarypb",
+  "classes.dex",
+  "common.properties",
+  "firebase-annotations.properties",
+  "firebase-components.properties",
+  "firebase-encoders-json.properties",
+  "firebase-encoders.properties",
+  "image.properties",
+  "kotlin-tooling-metadata.json",
+  "kotlin/annotation/annotation.kotlin_builtins",
+  "kotlin/collections/collections.kotlin_builtins",
+  "kotlin/concurrent/atomics/atomics.kotlin_builtins",
+  "kotlin/coroutines/coroutines.kotlin_builtins",
+  "kotlin/internal/internal.kotlin_builtins",
+  "kotlin/kotlin.kotlin_builtins",
+  "kotlin/ranges/ranges.kotlin_builtins",
+  "kotlin/reflect/reflect.kotlin_builtins",
+  "lib/arm64-v8a/libapp.so",
+  "lib/arm64-v8a/libc++_shared.so",
+  "lib/arm64-v8a/libdartjni.so",
+  "lib/arm64-v8a/libflutter.so",
+  "lib/arm64-v8a/libmlkit_google_ocr_pipeline.so",
+  "lib/arm64-v8a/libonnxruntime.so",
+  "lib/arm64-v8a/libonnxruntime4j_jni.so",
+  "lib/arm64-v8a/libopencv_java4.so",
+  "lib/armeabi-v7a/libapp.so",
+  "lib/armeabi-v7a/libc++_shared.so",
+  "lib/armeabi-v7a/libdartjni.so",
+  "lib/armeabi-v7a/libflutter.so",
+  "lib/armeabi-v7a/libmlkit_google_ocr_pipeline.so",
+  "lib/armeabi-v7a/libonnxruntime.so",
+  "lib/armeabi-v7a/libonnxruntime4j_jni.so",
+  "lib/armeabi-v7a/libopencv_java4.so",
+  "lib/x86_64/libapp.so",
+  "lib/x86_64/libc++_shared.so",
+  "lib/x86_64/libdartjni.so",
+  "lib/x86_64/libflutter.so",
+  "lib/x86_64/libmlkit_google_ocr_pipeline.so",
+  "lib/x86_64/libonnxruntime.so",
+  "lib/x86_64/libonnxruntime4j_jni.so",
+  "lib/x86_64/libopencv_java4.so",
+  "org/apache/tika/detect/tika-example.nnmodel",
+  "org/apache/tika/mime/tika-mimetypes.xml",
+  "org/apache/tika/parser/external/tika-external-parsers.xml",
+  "pipes-fork-server-default-log4j2.xml",
+  "play-services-base.properties",
+  "play-services-basement.properties",
+  "play-services-mlkit-text-recognition-common.properties",
+  "play-services-mlkit-text-recognition.properties",
+  "play-services-tasks.properties",
+  "res/-8.xml",
+  "res/-B.png",
+  "res/-N.png",
+  "res/-p.png",
+  "res/0c.9.png",
+  "res/1C.9.png",
+  "res/1I.9.png",
+  "res/1J.9.png",
+  "res/1e.9.png",
+  "res/27.xml",
+  "res/2K.9.png",
+  "res/2P.png",
+  "res/2d.png",
+  "res/2f.xml",
+  "res/2j.xml",
+  "res/33.9.png",
+  "res/3A.xml",
+  "res/46.xml",
+  "res/47.xml",
+  "res/49.png",
+  "res/4k.png",
+  "res/4u.xml",
+  "res/5D.9.png",
+  "res/5J.9.png",
+  "res/5U.png",
+  "res/5c.png",
+  "res/62.9.png",
+  "res/6Q.xml",
+  "res/6f.xml",
+  "res/6t.png",
+  "res/79.9.png",
+  "res/7C.9.png",
+  "res/7H.xml",
+  "res/7I.9.png",
+  "res/7N.xml",
+  "res/7R.png",
+  "res/7_.9.png",
+  "res/7i.png",
+  "res/7o.9.png",
+  "res/80.xml",
+  "res/8h.png",
+  "res/9N.9.png",
+  "res/9P.xml",
+  "res/9T.xml",
+  "res/9T1.xml",
+  "res/9T2.xml",
+  "res/9X.9.png",
+  "res/9m.xml",
+  "res/9n.9.png",
+  "res/9w.png",
+  "res/9z.png",
+  "res/A1.xml",
+  "res/A4.xml",
+  "res/Af.9.png",
+  "res/BG.9.png",
+  "res/BL.9.png",
+  "res/BM.png",
+  "res/BQ.9.png",
+  "res/Bl.xml",
+  "res/Bz.xml",
+  "res/C_.9.png",
+  "res/DL.9.png",
+  "res/DZ.xml",
+  "res/D_.9.png",
+  "res/Dd.png",
+  "res/EA.9.png",
+  "res/EP.png",
+  "res/EQ.xml",
+  "res/Eg.xml",
+  "res/Eh.png",
+  "res/FS.png",
+  "res/FW.png",
+  "res/G2.9.png",
+  "res/GD.xml",
+  "res/GK.xml",
+  "res/Gf.png",
+  "res/Gt.9.png",
+  "res/H-.png",
+  "res/I3.9.png",
+  "res/IX.9.png",
+  "res/In.xml",
+  "res/JJ.9.png",
+  "res/Jl.xml",
+  "res/K-.xml",
+  "res/K5.xml",
+  "res/KH.9.png",
+  "res/KM.png",
+  "res/K_.9.png",
+  "res/Ke.xml",
+  "res/Lf.xml",
+  "res/Li.9.png",
+  "res/Lr.xml",
+  "res/M7.xml",
+  "res/MF.9.png",
+  "res/MQ.png",
+  "res/Ma.9.png",
+  "res/NA.9.png",
+  "res/NF.xml",
+  "res/NG.png",
+  "res/NM.xml",
+  "res/NZ.9.png",
+  "res/Nk.9.png",
+  "res/No.9.png",
+  "res/Nu.xml",
+  "res/Ol.xml",
+  "res/Pa.9.png",
+  "res/Pb.png",
+  "res/Pb.xml",
+  "res/QJ.9.png",
+  "res/QZ.xml",
+  "res/Qd.9.png",
+  "res/Qd.xml",
+  "res/Qt.xml",
+  "res/RJ.png",
+  "res/RV.png",
+  "res/Rt.xml",
+  "res/SN.xml",
+  "res/Su.9.png",
+  "res/T5.xml",
+  "res/TK.xml",
+  "res/Th.png",
+  "res/Tj.9.png",
+  "res/Tn.xml",
+  "res/U-.9.png",
+  "res/U8.xml",
+  "res/UR.png",
+  "res/V1.xml",
+  "res/VM.xml",
+  "res/VT.xml",
+  "res/W3.xml",
+  "res/Wh.png",
+  "res/Wr.png",
+  "res/Wz.png",
+  "res/X4.9.png",
+  "res/XK.xml",
+  "res/XW.xml",
+  "res/Xx.xml",
+  "res/YG.9.png",
+  "res/YW.xml",
+  "res/Yw.9.png",
+  "res/Z8.png",
+  "res/ZI.png",
+  "res/ZL.9.png",
+  "res/ZL.xml",
+  "res/Zg.xml",
+  "res/Zn.xml",
+  "res/_G.xml",
+  "res/_o.xml",
+  "res/_p.png",
+  "res/_q.png",
+  "res/_y.xml",
+  "res/aG.xml",
+  "res/aU.9.png",
+  "res/aW.xml",
+  "res/ar.png",
+  "res/bL.xml",
+  "res/bb.xml",
+  "res/bt.xml",
+  "res/c5.xml",
+  "res/c6.xml",
+  "res/cL.xml",
+  "res/cV.xml",
+  "res/cm.xml",
+  "res/color-v23/abc_tint_btn_checkable.xml",
+  "res/color-v23/abc_tint_default.xml",
+  "res/color-v23/abc_tint_edittext.xml",
+  "res/color-v23/abc_tint_seek_thumb.xml",
+  "res/color-v23/abc_tint_spinner.xml",
+  "res/color-v23/abc_tint_switch_track.xml",
+  "res/color/common_google_signin_btn_text_dark.xml",
+  "res/color/common_google_signin_btn_text_light.xml",
+  "res/color/common_google_signin_btn_tint.xml",
+  "res/d3.png",
+  "res/d5.9.png",
+  "res/dB.9.png",
+  "res/dO.xml",
+  "res/dW.png",
+  "res/dY.png",
+  "res/df.xml",
+  "res/eA.xml",
+  "res/eG.xml",
+  "res/eR.png",
+  "res/eT.9.png",
+  "res/ej.9.png",
+  "res/f9.png",
+  "res/fM.9.png",
+  "res/g-.png",
+  "res/gK.9.png",
+  "res/gR.xml",
+  "res/gX.xml",
+  "res/gZ.9.png",
+  "res/gj.9.png",
+  "res/gt.9.png",
+  "res/h4.xml",
+  "res/h7.9.png",
+  "res/hP.9.png",
+  "res/hP.xml",
+  "res/hZ.9.png",
+  "res/hq.xml",
+  "res/i6.9.png",
+  "res/iO.png",
+  "res/iQ.png",
+  "res/iR.9.png",
+  "res/iW.png",
+  "res/io.9.png",
+  "res/j3.xml",
+  "res/j4.png",
+  "res/jS.9.png",
+  "res/jW.png",
+  "res/je.9.png",
+  "res/kJ.9.png",
+  "res/kj.xml",
+  "res/kn.xml",
+  "res/kp.png",
+  "res/lN.xml",
+  "res/lP.9.png",
+  "res/lR.xml",
+  "res/ly.png",
+  "res/m0.png",
+  "res/mm.9.png",
+  "res/nC.9.png",
+  "res/nI.9.png",
+  "res/nT.xml",
+  "res/nf.png",
+  "res/nz.xml",
+  "res/o-.png",
+  "res/oO.9.png",
+  "res/oP.xml",
+  "res/o_.9.png",
+  "res/o_.png",
+  "res/op.9.png",
+  "res/p7.xml",
+  "res/pI.xml",
+  "res/pY.png",
+  "res/pk.png",
+  "res/ps.9.png",
+  "res/pu.png",
+  "res/qD.9.png",
+  "res/qp.png",
+  "res/qx.xml",
+  "res/qz.xml",
+  "res/rJ.xml",
+  "res/rW.xml",
+  "res/rj.9.png",
+  "res/rx.xml",
+  "res/s0.png",
+  "res/s4.png",
+  "res/sA.9.png",
+  "res/sA.xml",
+  "res/sg.9.png",
+  "res/sn.xml",
+  "res/tG.png",
+  "res/tL.xml",
+  "res/tS.png",
+  "res/tZ.9.png",
+  "res/te.png",
+  "res/tr.9.png",
+  "res/u0.xml",
+  "res/u3.png",
+  "res/uJ.xml",
+  "res/uL.9.png",
+  "res/uj.9.png",
+  "res/us.9.png",
+  "res/ut.9.png",
+  "res/uu.9.png",
+  "res/vJ.xml",
+  "res/vL.9.png",
+  "res/vZ.xml",
+  "res/vo.png",
+  "res/vz.9.png",
+  "res/w2.9.png",
+  "res/wL.9.png",
+  "res/wN.9.png",
+  "res/w_.png",
+  "res/xH.png",
+  "res/xR.9.png",
+  "res/xa.9.png",
+  "res/xj.xml",
+  "res/y6.xml",
+  "res/yH.9.png",
+  "res/yY.9.png",
+  "res/yg.9.png",
+  "res/yn.png",
+  "res/z-.9.png",
+  "res/z9.9.png",
+  "res/zE.png",
+  "res/zV.9.png",
+  "res/zw.9.png",
+  "resources.arsc",
+  "text-recognition-bundled-common.properties",
+  "text-recognition.properties",
+  "transport-api.properties",
+  "transport-backend-cct.properties",
+  "transport-runtime.properties",
+  "vision-common.properties",
+  "vision-interfaces.properties",
+]);
